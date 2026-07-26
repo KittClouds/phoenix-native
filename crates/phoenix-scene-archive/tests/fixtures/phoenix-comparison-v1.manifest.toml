@@ -1,0 +1,27 @@
+contract = "phoenix.native.scene-archive/v1"
+cohort = "phoenix-cleanroom-10k-50k-v1"
+format_version = 1
+generation_id = 2316546913823883267
+node_count = 10000
+edge_count = 50000
+page_count = 32
+file_bytes = 42436352
+cohort_hash_blake3 = "5bc5492bb9fe440e9ab8940e5c69e03785d4916bd7a543cf67d939969fc04afe"
+file_sha256 = "0e19f35fc869da2ae8c0d298712d5278793eb250763c1f0b55d8d3e44e38e5e7"
+manifolds = ["hybrid", "hopf", "caps", "transit", "siegel"]
+shared_pages = [
+    "node_identity",
+    "node_style",
+    "topology",
+    "edge",
+    "label_priority",
+    "relation_masks",
+    "palette_policy",
+]
+per_manifold_pages = [
+    "positions",
+    "guides",
+    "straight_paths",
+    "curved_paths",
+    "bundled_paths",
+]

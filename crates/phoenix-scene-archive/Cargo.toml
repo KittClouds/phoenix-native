@@ -1,0 +1,18 @@
+[package]
+name = "phoenix-scene-archive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+blake3.workspace = true
+bytemuck.workspace = true
+hashbrown.workspace = true
+memmap2.workspace = true
+thiserror.workspace = true
+
+[[bench]]
+name = "archive_open"
+harness = false

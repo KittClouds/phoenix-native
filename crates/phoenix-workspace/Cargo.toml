@@ -1,0 +1,16 @@
+[package]
+name = "phoenix-workspace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+blake3.workspace = true
+hashbrown.workspace = true
+phoenix-scene-contract = { path = "../phoenix-scene-contract" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+windows.workspace = true

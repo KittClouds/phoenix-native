@@ -1,0 +1,114 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/graph-model",
+    "crates/gpui-animated-gradient-text",
+    "crates/graph-render-wgpu",
+    "crates/phoenix-app-core",
+    "crates/phoenix-scene-archive",
+    "crates/phoenix-scene-contract",
+    "crates/phoenix-scene-product-index",
+    "crates/phoenix-scene-publisher",
+    "crates/phoenix-workspace",
+    "apps/graph-demo",
+    "apps/phoenix-shell-proof",
+    "vendor/velotype",
+]
+default-members = [
+    "crates/graph-model",
+    "crates/gpui-animated-gradient-text",
+    "crates/graph-render-wgpu",
+    "crates/phoenix-app-core",
+    "crates/phoenix-scene-archive",
+    "crates/phoenix-scene-contract",
+    "crates/phoenix-scene-product-index",
+    "crates/phoenix-scene-publisher",
+    "crates/phoenix-workspace",
+    "apps/phoenix-shell-proof",
+    "vendor/velotype",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1.0"
+bytemuck = { version = "1.21", features = ["derive"] }
+blake3 = "1.8"
+glam = "0.29"
+hashbrown = { version = "0.15", features = ["serde"] }
+memmap2 = "0.9"
+gpui = "=0.2.2"
+gpui-component = "=0.5.1"
+pollster = "0.4"
+raw-window-handle = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+wgpu = "24.0"
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+winit = "0.30"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+[profile.bench]
+inherits = "release"
+debug = 1
+
+# Keep Phoenix-owned code debuggable while optimizing the framework and text
+# stack that dominates interactive editor/render latency in development builds.
+[profile.dev.package]
+gpui = { opt-level = 3 }
+gpui-macros = { opt-level = 3 }
+gpui_http_client = { opt-level = 3 }
+gpui_sum_tree = { opt-level = 3 }
+gpui_util = { opt-level = 3 }
+gpui_util_macros = { opt-level = 3 }
+gpui_collections = { opt-level = 3 }
+gpui_media = { opt-level = 3 }
+gpui_refineable = { opt-level = 3 }
+gpui_semantic_version = { opt-level = 3 }
+taffy = { opt-level = 3 }
+cosmic-text = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
+zed-font-kit = { opt-level = 3 }
+unicode-segmentation = { opt-level = 3 }
+pulldown-cmark = { opt-level = 3 }
+tree-sitter = { opt-level = 3 }
+tree-sitter-highlight = { opt-level = 3 }
+ratex-layout = { opt-level = 3 }
+ratex-parser = { opt-level = 3 }
+ratex-svg = { opt-level = 3 }
+smol = { opt-level = 3 }
+async-task = { opt-level = 3 }
+parking_lot = { opt-level = 3 }
+parking_lot_core = { opt-level = 3 }
+hashbrown = { opt-level = 3 }
+smallvec = { opt-level = 3 }
+lyon = { opt-level = 3 }
+lyon_geom = { opt-level = 3 }
+lyon_path = { opt-level = 3 }
+lyon_tessellation = { opt-level = 3 }
+etagere = { opt-level = 3 }
+image = { opt-level = 3 }
+serde = { opt-level = 3 }
+serde_json = { opt-level = 3 }

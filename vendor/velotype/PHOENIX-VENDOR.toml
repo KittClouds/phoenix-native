@@ -1,0 +1,21 @@
+schema = "phoenix-vendor-provenance/v1"
+name = "velotype"
+upstream_repository = "https://github.com/manyougz/velotype"
+upstream_tag = "v0.7.0"
+upstream_commit = "050943e1a378a49705bc50738200217628399830"
+upstream_tree = "e1e9d3a8a2da32c9dee3f89f6e0fbb98771a83de"
+upstream_commit_date = "2026-07-14T19:33:24+08:00"
+license = "Apache-2.0"
+upstream_cargo_toml_sha256 = "5A97940215DF70E075C6C564FE33796F49F9DC8CA829BECAFCE57136759AAC7A"
+upstream_cargo_lock_sha256 = "A753489B9D51687243D4609984ACC7F864BD94F877EE13106CF2D9C6A68F865C"
+imported_utc_date = "2026-07-25"
+import_mode = "git archive of the exact upstream tree; upstream .git metadata excluded"
+
+[phoenix_policy]
+workspace_member = true
+tree_sitter_runtime = "0.25.10"
+tree_sitter_alignment_reason = "share one native links identity with gpui-component"
+publish = false
+standalone_authority_allowed_in_embedded_build = false
+direct_workspace_storage_allowed_in_embedded_build = false
+legacy_editor_fallback_allowed = false

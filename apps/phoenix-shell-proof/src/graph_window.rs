@@ -1,0 +1,807 @@
+mod manifold;
+mod proof;
+mod viewport;
+
+use crate::lifecycle;
+use anyhow::{anyhow, Context, Result};
+use graph_model::GraphRevision;
+use graph_render_wgpu::{GraphInput, GraphRenderer, PointerButton};
+use phoenix_app_core::PhoenixKernel;
+use phoenix_scene_contract::{GraphGeneration, GraphViewState, Manifold};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
+use windows::Win32::UI::WindowsAndMessaging::{
+    SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA,
+};
+use winit::application::ApplicationHandler;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
+use winit::platform::windows::EventLoopBuilderExtWindows;
+use winit::window::{Window, WindowId};
+
+use manifold::{FixedSamples, PendingManifoldSwitch};
+pub use manifold::{GraphGpuTelemetry, ManifoldSwitchReceipt};
+use proof::ProjectionIdentity;
+pub use proof::{EmbeddedHostProof, GraphProofHandle};
+use viewport::{hwnd_for_window, prepare_child_window, ViewportMailbox};
+pub use viewport::{ParentWindowHandle, ViewportGeometry};
+
+const COMMAND_CAPACITY: usize = 64;
+
+enum GraphWindowCommand {
+    SyncKernelState,
+    ResetSwitchTelemetry,
+    ProbeFocus(SyncSender<bool>),
+    Barrier(SyncSender<()>),
+    Telemetry(SyncSender<GraphGpuTelemetry>),
+    Shutdown,
+}
+
+#[derive(Default)]
+struct GraphQueueMetrics {
+    pending: AtomicU64,
+    high_water: AtomicU64,
+}
+
+impl GraphQueueMetrics {
+    fn begin_send(&self) {
+        let pending = self
+            .pending
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1);
+        self.high_water.fetch_max(pending, Ordering::Relaxed);
+    }
+
+    fn cancel_send(&self) {
+        self.pending.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    fn received(&self) {
+        self.pending.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum GraphWake {
+    CommandsReady,
+    ViewportReady,
+}
+
+struct Ready {
+    hwnd: isize,
+    proxy: EventLoopProxy<GraphWake>,
+    node_count: usize,
+    edge_count: usize,
+    generation: GraphGeneration,
+}
+
+pub struct GraphWindow {
+    parent: ParentWindowHandle,
+    hwnd: isize,
+    sender: SyncSender<GraphWindowCommand>,
+    proxy: EventLoopProxy<GraphWake>,
+    viewport: Arc<ViewportMailbox>,
+    queue_metrics: Arc<GraphQueueMetrics>,
+    join: Option<JoinHandle<Result<()>>>,
+    node_count: usize,
+    edge_count: usize,
+    generation: GraphGeneration,
+    kernel: Arc<PhoenixKernel>,
+}
+
+impl GraphWindow {
+    pub fn start(parent: ParentWindowHandle, kernel: Arc<PhoenixKernel>) -> Result<Self> {
+        parent.prepare_for_child_hosting()?;
+        let (sender, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
+        let viewport = Arc::new(ViewportMailbox::new());
+        let queue_metrics = Arc::new(GraphQueueMetrics::default());
+        let thread_viewport = Arc::clone(&viewport);
+        let thread_queue_metrics = Arc::clone(&queue_metrics);
+        let thread_kernel = Arc::clone(&kernel);
+        let join = thread::Builder::new()
+            .name("phoenix-child-graph".into())
+            .spawn(move || {
+                run_graph_window(
+                    parent,
+                    thread_kernel,
+                    receiver,
+                    thread_viewport,
+                    thread_queue_metrics,
+                    ready_sender,
+                )
+            })
+            .context("spawn embedded graph event loop")?;
+        match ready_receiver.recv_timeout(Duration::from_secs(30)) {
+            Ok(Ok(ready)) => {
+                tracing::info!(
+                    parent_hwnd = parent.hwnd().0 as isize,
+                    child_hwnd = ready.hwnd,
+                    "embedded graph child attached"
+                );
+                Ok(Self {
+                    parent,
+                    hwnd: ready.hwnd,
+                    sender,
+                    proxy: ready.proxy,
+                    viewport,
+                    queue_metrics,
+                    join: Some(join),
+                    node_count: ready.node_count,
+                    edge_count: ready.edge_count,
+                    generation: ready.generation,
+                    kernel,
+                })
+            }
+            Ok(Err(message)) => {
+                let _ = join.join();
+                Err(anyhow!(message))
+            }
+            Err(error) => {
+                let _ = join.join();
+                Err(anyhow!("embedded graph initialization timed out: {error}"))
+            }
+        }
+    }
+
+    pub fn set_viewport(&self, geometry: ViewportGeometry) -> Result<()> {
+        self.proof_handle().set_ui_viewport(geometry)
+    }
+
+    pub fn hide_viewport(&self) -> Result<()> {
+        self.proof_handle().hide_viewport()
+    }
+
+    pub fn inventory(&self) -> (usize, usize) {
+        (self.node_count, self.edge_count)
+    }
+
+    pub fn sync_kernel_state(&self) -> Result<()> {
+        self.proof_handle()
+            .send(GraphWindowCommand::SyncKernelState)
+    }
+
+    pub fn proof_handle(&self) -> GraphProofHandle {
+        GraphProofHandle::new(
+            self.parent,
+            self.hwnd,
+            self.sender.clone(),
+            self.proxy.clone(),
+            Arc::clone(&self.viewport),
+            Arc::clone(&self.queue_metrics),
+            ProjectionIdentity {
+                generation: self.generation,
+                node_count: self.node_count,
+                edge_count: self.edge_count,
+                kernel: Arc::clone(&self.kernel),
+            },
+        )
+    }
+
+    pub fn shutdown(&mut self) -> Result<()> {
+        if self.join.is_none() {
+            return Ok(());
+        }
+        let _ = self.proof_handle().send(GraphWindowCommand::Shutdown);
+        let join = self
+            .join
+            .take()
+            .ok_or_else(|| anyhow!("missing graph join handle"))?;
+        join.join()
+            .map_err(|_| anyhow!("embedded graph thread panicked"))?
+    }
+}
+
+impl Drop for GraphWindow {
+    fn drop(&mut self) {
+        if let Err(error) = self.shutdown() {
+            tracing::error!(%error, "embedded graph shutdown failed");
+            lifecycle::mark_proof_failed();
+        }
+    }
+}
+
+fn run_graph_window(
+    parent: ParentWindowHandle,
+    kernel: Arc<PhoenixKernel>,
+    receiver: Receiver<GraphWindowCommand>,
+    viewport: Arc<ViewportMailbox>,
+    queue_metrics: Arc<GraphQueueMetrics>,
+    ready_sender: SyncSender<std::result::Result<Ready, String>>,
+) -> Result<()> {
+    let mut builder = EventLoop::<GraphWake>::with_user_event();
+    builder.with_any_thread(true);
+    let event_loop = builder.build().context("build graph event loop")?;
+    event_loop.set_control_flow(ControlFlow::Wait);
+    let proxy = event_loop.create_proxy();
+    let mut app = EmbeddedGraphApp::new(
+        parent,
+        kernel,
+        receiver,
+        viewport,
+        queue_metrics,
+        ready_sender,
+        proxy,
+    );
+    event_loop
+        .run_app(&mut app)
+        .context("run embedded graph event loop")
+}
+
+struct EmbeddedGraphApp {
+    parent: ParentWindowHandle,
+    kernel: Arc<PhoenixKernel>,
+    receiver: Receiver<GraphWindowCommand>,
+    viewport: Arc<ViewportMailbox>,
+    queue_metrics: Arc<GraphQueueMetrics>,
+    ready_sender: Option<SyncSender<std::result::Result<Ready, String>>>,
+    proxy: EventLoopProxy<GraphWake>,
+    window: Option<Arc<Window>>,
+    renderer: Option<GraphRenderer>,
+    logical_pointer: (f32, f32),
+    shift_down: bool,
+    last_update: Instant,
+    lifetime_registered: bool,
+    loaded_generation: Option<GraphGeneration>,
+    loaded_manifold: Manifold,
+    loaded_graph_view: GraphViewState,
+    pending_switch: Option<PendingManifoldSwitch>,
+    switch_cpu_samples: FixedSamples,
+    switch_present_samples: FixedSamples,
+    manifold_switches: u64,
+    max_hot_page_bytes: u64,
+    latest_switch: Option<ManifoldSwitchReceipt>,
+    applied_viewport_revision: u64,
+    applied_geometry: ViewportGeometry,
+}
+
+impl EmbeddedGraphApp {
+    fn new(
+        parent: ParentWindowHandle,
+        kernel: Arc<PhoenixKernel>,
+        receiver: Receiver<GraphWindowCommand>,
+        viewport: Arc<ViewportMailbox>,
+        queue_metrics: Arc<GraphQueueMetrics>,
+        ready_sender: SyncSender<std::result::Result<Ready, String>>,
+        proxy: EventLoopProxy<GraphWake>,
+    ) -> Self {
+        Self {
+            parent,
+            kernel,
+            receiver,
+            viewport,
+            queue_metrics,
+            ready_sender: Some(ready_sender),
+            proxy,
+            window: None,
+            renderer: None,
+            logical_pointer: (0.0, 0.0),
+            shift_down: false,
+            last_update: Instant::now(),
+            lifetime_registered: false,
+            loaded_generation: None,
+            loaded_manifold: Manifold::Hybrid,
+            loaded_graph_view: GraphViewState::default(),
+            pending_switch: None,
+            switch_cpu_samples: FixedSamples::new(),
+            switch_present_samples: FixedSamples::new(),
+            manifold_switches: 0,
+            max_hot_page_bytes: 0,
+            latest_switch: None,
+            applied_viewport_revision: 0,
+            applied_geometry: ViewportGeometry::hidden(),
+        }
+    }
+
+    fn initialize(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
+        let kernel_snapshot = self
+            .kernel
+            .snapshot()
+            .context("read initial resident scene")?;
+        let scene = kernel_snapshot.resident_scene.ok_or_else(|| {
+            anyhow!("[PHX_SCENE_MISSING] kernel has no resident graph generation for the renderer")
+        })?;
+        let active = scene
+            .activate_manifold(kernel_snapshot.graph_view.manifold)
+            .context("open initial resident manifold")?;
+        let attributes = Window::default_attributes()
+            .with_title("Phoenix Graph / Embedded Native Viewport")
+            .with_decorations(false)
+            .with_resizable(false)
+            .with_visible(false)
+            .with_inner_size(PhysicalSize::new(1, 1))
+            .with_position(PhysicalPosition::new(0, 0));
+        // SAFETY: `parent` was captured from the live GPUI window that owns this
+        // graph host. PhoenixShell drops the child graph before GPUI destroys
+        // that parent, so the Win32 handle remains valid for the child lifetime.
+        let attributes = unsafe { attributes.with_parent_window(Some(self.parent.raw())) };
+        let window = Arc::new(
+            event_loop
+                .create_window(attributes)
+                .context("create embedded child graph window")?,
+        );
+        let size = window.inner_size();
+        let hwnd = prepare_child_window(window.as_ref())?;
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: graph_render_wgpu::native_backends(),
+            ..Default::default()
+        });
+        let surface = instance
+            .create_surface(Arc::clone(&window))
+            .context("create embedded graph surface")?;
+        let mut renderer = pollster::block_on(GraphRenderer::new(
+            &instance,
+            surface,
+            size.width,
+            size.height,
+            window.scale_factor() as f32,
+        ))
+        .context("initialize embedded graph renderer")?;
+        renderer
+            .set_archive_scene_bound(
+                GraphRevision(scene.generation().0),
+                scene.archive_identity().cohort_hash,
+                &active.pages,
+            )
+            .context("project initial resident scene")?;
+        if let Some(index) = kernel_snapshot.scene_product_index.as_deref() {
+            renderer
+                .set_product_index(index)
+                .context("install initial scene product index")?;
+        }
+        renderer
+            .set_graph_view(kernel_snapshot.graph_view)
+            .context("install initial native graph view")?;
+        let projected_generation = renderer
+            .revision()
+            .map(|revision| GraphGeneration(revision.0))
+            .ok_or_else(|| anyhow!("renderer did not retain the resident generation"))?;
+        if projected_generation != scene.generation() {
+            return Err(anyhow!(
+                "renderer generation {} differs from resident generation {}",
+                projected_generation.0,
+                scene.generation().0
+            ));
+        }
+        self.loaded_generation = Some(scene.generation());
+        self.loaded_manifold = kernel_snapshot.graph_view.manifold;
+        self.loaded_graph_view = kernel_snapshot.graph_view;
+        self.max_hot_page_bytes = active.hot_pages.byte_len;
+        self.renderer = Some(renderer);
+        self.window = Some(Arc::clone(&window));
+        self.lifetime_registered = true;
+        lifecycle::graph_window_created();
+        window.request_redraw();
+        if let Some(sender) = self.ready_sender.take() {
+            let renderer = self
+                .renderer
+                .as_ref()
+                .ok_or_else(|| anyhow!("embedded graph renderer vanished during startup"))?;
+            let _ = sender.send(Ok(Ready {
+                hwnd: hwnd.0 as isize,
+                proxy: self.proxy.clone(),
+                node_count: renderer.scene_state().node_count(),
+                edge_count: renderer.scene_state().edge_count(),
+                generation: projected_generation,
+            }));
+        }
+        Ok(())
+    }
+
+    fn send_input(&mut self, input: GraphInput) {
+        let Some(renderer) = self.renderer.as_mut() else {
+            return;
+        };
+        if let Err(error) = renderer.handle_input(input) {
+            tracing::error!(%error, "embedded graph input rejected");
+            lifecycle::mark_proof_failed();
+        }
+    }
+
+    fn process_commands(&mut self, event_loop: &ActiveEventLoop) {
+        while let Ok(command) = self.receiver.try_recv() {
+            self.queue_metrics.received();
+            let Some(window) = self.window.as_ref().cloned() else {
+                continue;
+            };
+            match command {
+                GraphWindowCommand::SyncKernelState => {}
+                GraphWindowCommand::ResetSwitchTelemetry => {
+                    self.switch_cpu_samples = FixedSamples::new();
+                    self.switch_present_samples = FixedSamples::new();
+                    self.manifold_switches = 0;
+                    self.max_hot_page_bytes = 0;
+                    self.latest_switch = None;
+                    self.pending_switch = None;
+                }
+                GraphWindowCommand::ProbeFocus(sender) => {
+                    let _ = sender.send(focus_child(window.as_ref()).unwrap_or(false));
+                }
+                GraphWindowCommand::Barrier(sender) => {
+                    let _ = sender.send(());
+                }
+                GraphWindowCommand::Telemetry(sender) => {
+                    if let Some(renderer) = self.renderer.as_ref() {
+                        let stats = renderer.gpu_allocation_stats();
+                        let _ = sender.send(GraphGpuTelemetry {
+                            node_capacity: stats.node_capacity,
+                            edge_capacity: stats.edge_capacity,
+                            node_buffer_generation: stats.node_buffer_generation,
+                            edge_buffer_generation: stats.edge_buffer_generation,
+                            node_product_capacity: stats.node_product_capacity,
+                            edge_product_capacity: stats.edge_product_capacity,
+                            node_product_buffer_generation: stats.node_product_buffer_generation,
+                            edge_product_buffer_generation: stats.edge_product_buffer_generation,
+                            product_index_bound: renderer
+                                .graph_view()
+                                .authority
+                                .product_index_hash()
+                                .is_some(),
+                            lens_uniform_writes: renderer.lens_uniform_writes(),
+                            allocated_bytes: stats.allocated_bytes,
+                            active_manifold: self.loaded_manifold,
+                            manifold_switches: self.manifold_switches,
+                            switch_cpu_p95_us: self.switch_cpu_samples.p95(),
+                            switch_present_p95_us: self.switch_present_samples.p95(),
+                            max_hot_page_bytes: self.max_hot_page_bytes,
+                            latest_switch: self.latest_switch,
+                        });
+                    }
+                }
+                GraphWindowCommand::Shutdown => {
+                    event_loop.exit();
+                    return;
+                }
+            }
+        }
+    }
+
+    fn process_viewport(&mut self) -> Result<()> {
+        while let Some(stamped) = self.viewport.next_after(self.applied_viewport_revision)? {
+            self.apply_viewport(stamped.geometry)?;
+            self.applied_viewport_revision = stamped.revision;
+        }
+        Ok(())
+    }
+
+    fn apply_viewport(&mut self, geometry: ViewportGeometry) -> Result<()> {
+        let window = self
+            .window
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| anyhow!("embedded graph window is unavailable"))?;
+        let hwnd = hwnd_for_window(window.as_ref())?;
+        let should_show = geometry.visible && geometry.width > 0 && geometry.height > 0;
+        if !should_show {
+            if self.applied_geometry.visible {
+                unsafe {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                }
+                lifecycle::visibility_transition();
+            }
+            self.applied_geometry = geometry;
+            return Ok(());
+        }
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                Some(HWND_TOP),
+                geometry.x,
+                geometry.y,
+                geometry.width as i32,
+                geometry.height as i32,
+                SWP_NOACTIVATE,
+            )
+            .context("position embedded graph child")?;
+        }
+        self.send_input(GraphInput::Resize {
+            width: geometry.width,
+            height: geometry.height,
+            scale_factor: geometry.scale_factor,
+        });
+        if !self.applied_geometry.visible {
+            self.send_input(GraphInput::FitGraph);
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_SHOWNA);
+            }
+            lifecycle::visibility_transition();
+        }
+        self.applied_geometry = geometry;
+        window.request_redraw();
+        Ok(())
+    }
+
+    fn sync_resident_scene(&mut self) -> Result<()> {
+        let snapshot = self.kernel.snapshot().context("read kernel snapshot")?;
+        let scene = snapshot.resident_scene.ok_or_else(|| {
+            anyhow!("[PHX_SCENE_MISSING] resident graph generation was withdrawn")
+        })?;
+        if self.loaded_generation == Some(scene.generation())
+            && self.loaded_graph_view == snapshot.graph_view
+        {
+            return Ok(());
+        }
+        let renderer = self
+            .renderer
+            .as_mut()
+            .ok_or_else(|| anyhow!("graph renderer is unavailable"))?;
+        let before_verifications = scene.archive().verified_page_count();
+        let started = Instant::now();
+        if self.loaded_generation != Some(scene.generation()) {
+            let active = scene
+                .activate_manifold(snapshot.graph_view.manifold)
+                .context("open new resident manifold")?;
+            renderer
+                .set_archive_scene_bound(
+                    GraphRevision(scene.generation().0),
+                    scene.archive_identity().cohort_hash,
+                    &active.pages,
+                )
+                .context("project new resident archive generation")?;
+            if let Some(index) = snapshot.scene_product_index.as_deref() {
+                renderer
+                    .set_product_index(index)
+                    .context("install resident scene product index")?;
+            }
+            renderer
+                .set_graph_view(snapshot.graph_view)
+                .context("install resident graph view")?;
+            self.loaded_generation = Some(scene.generation());
+            self.loaded_manifold = snapshot.graph_view.manifold;
+            self.loaded_graph_view = snapshot.graph_view;
+            self.pending_switch = None;
+        } else {
+            if self.loaded_graph_view.authority.product_index_hash()
+                != snapshot.graph_view.authority.product_index_hash()
+            {
+                let index = snapshot.scene_product_index.as_deref().ok_or_else(|| {
+                    anyhow!("[PHX_PRODUCT_INDEX_MISSING] graph view names a missing index")
+                })?;
+                renderer
+                    .set_product_index(index)
+                    .context("replace resident scene product index")?;
+            }
+            if self.loaded_manifold != snapshot.graph_view.manifold {
+                let active = scene
+                    .activate_manifold(snapshot.graph_view.manifold)
+                    .context("open switched resident manifold")?;
+                let from = self.loaded_manifold;
+                let metrics = renderer
+                    .switch_archive_positions(active.pages.positions)
+                    .context("switch resident manifold positions")?;
+                let cpu_us = started.elapsed().as_micros();
+                let receipt = ManifoldSwitchReceipt {
+                    contract: "phoenix.native.manifold-switch/v1",
+                    generation: scene.generation(),
+                    from,
+                    to: snapshot.graph_view.manifold,
+                    node_count: metrics.node_count,
+                    positions_bytes: std::mem::size_of_val(active.pages.positions),
+                    hot_page_count: active.hot_pages.page_count,
+                    hot_page_bytes: active.hot_pages.byte_len,
+                    page_verifications: scene
+                        .archive()
+                        .verified_page_count()
+                        .saturating_sub(before_verifications),
+                    cpu_us,
+                    first_present_us: 0,
+                };
+                self.loaded_manifold = snapshot.graph_view.manifold;
+                self.manifold_switches = self.manifold_switches.saturating_add(1);
+                self.max_hot_page_bytes = self.max_hot_page_bytes.max(active.hot_pages.byte_len);
+                self.switch_cpu_samples.push(cpu_us);
+                self.pending_switch = Some(PendingManifoldSwitch { receipt, started });
+            }
+            renderer
+                .set_graph_view(snapshot.graph_view)
+                .context("update graph lens uniform")?;
+            self.loaded_graph_view = snapshot.graph_view;
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+        Ok(())
+    }
+
+    fn cleanup(&mut self) {
+        self.renderer.take();
+        self.window.take();
+        if self.lifetime_registered {
+            lifecycle::graph_window_dropped();
+            self.lifetime_registered = false;
+        }
+    }
+}
+
+fn focus_child(window: &Window) -> Result<bool> {
+    let hwnd = hwnd_for_window(window)?;
+    unsafe {
+        let _ = SetFocus(Some(hwnd));
+        Ok(GetFocus() == hwnd)
+    }
+}
+
+impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        if let Err(error) = self.initialize(event_loop) {
+            if let Some(sender) = self.ready_sender.take() {
+                let _ = sender.send(Err(format!("{error:#}")));
+            }
+            event_loop.exit();
+        }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, _: GraphWake) {
+        if let Err(error) = self.process_viewport() {
+            tracing::error!(%error, "embedded viewport synchronization failed");
+            lifecycle::mark_proof_failed();
+            event_loop.exit();
+            return;
+        }
+        self.process_commands(event_loop);
+        if let Err(error) = self.sync_resident_scene() {
+            tracing::error!(%error, "resident scene synchronization failed");
+            lifecycle::mark_proof_failed();
+            event_loop.exit();
+        }
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        if matches!(event, WindowEvent::CloseRequested) {
+            event_loop.exit();
+            return;
+        }
+        let Some(window) = self.window.as_ref().cloned() else {
+            return;
+        };
+        match event {
+            WindowEvent::Focused(true) => lifecycle::focus_event(),
+            WindowEvent::Resized(size) => {
+                lifecycle::resize_event();
+                self.send_input(GraphInput::Resize {
+                    width: size.width,
+                    height: size.height,
+                    scale_factor: self.applied_geometry.scale_factor,
+                });
+            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                lifecycle::dpi_event();
+                let size = window.inner_size();
+                self.send_input(GraphInput::Resize {
+                    width: size.width,
+                    height: size.height,
+                    scale_factor: scale_factor as f32,
+                });
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                lifecycle::pointer_event();
+                let point = position.to_logical::<f32>(window.scale_factor());
+                self.logical_pointer = (point.x, point.y);
+                self.send_input(GraphInput::PointerMoved {
+                    x: point.x,
+                    y: point.y,
+                });
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                lifecycle::pointer_event();
+                let button = match button {
+                    MouseButton::Left => PointerButton::Left,
+                    MouseButton::Middle => PointerButton::Middle,
+                    MouseButton::Right => PointerButton::Right,
+                    _ => return,
+                };
+                let input = match state {
+                    ElementState::Pressed => GraphInput::PointerPressed {
+                        x: self.logical_pointer.0,
+                        y: self.logical_pointer.1,
+                        button,
+                        shift: self.shift_down,
+                    },
+                    ElementState::Released => GraphInput::PointerReleased {
+                        x: self.logical_pointer.0,
+                        y: self.logical_pointer.1,
+                        button,
+                    },
+                };
+                self.send_input(input);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                lifecycle::wheel_event();
+                let (delta_x, delta_y) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => (x, y),
+                    MouseScrollDelta::PixelDelta(point) => {
+                        (point.x as f32 / 120.0, point.y as f32 / 120.0)
+                    }
+                };
+                self.send_input(GraphInput::Wheel { delta_x, delta_y });
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.shift_down = modifiers.state().shift_key();
+            }
+            WindowEvent::RedrawRequested => {
+                let now = Instant::now();
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.update(now.saturating_duration_since(self.last_update));
+                    match renderer.render() {
+                        Ok(metrics) if metrics.frame_number != 0 => {
+                            lifecycle::frame_presented();
+                            if let Some(mut pending) = self.pending_switch.take() {
+                                pending.receipt.first_present_us =
+                                    pending.started.elapsed().as_micros();
+                                self.switch_present_samples
+                                    .push(pending.receipt.first_present_us);
+                                tracing::info!(
+                                    contract = pending.receipt.contract,
+                                    generation = pending.receipt.generation.0,
+                                    from = ?pending.receipt.from,
+                                    to = ?pending.receipt.to,
+                                    nodes = pending.receipt.node_count,
+                                    positions_bytes = pending.receipt.positions_bytes,
+                                    hot_page_bytes = pending.receipt.hot_page_bytes,
+                                    page_verifications = pending.receipt.page_verifications,
+                                    cpu_us = pending.receipt.cpu_us,
+                                    first_present_us = pending.receipt.first_present_us,
+                                    "resident manifold switch presented"
+                                );
+                                self.latest_switch = Some(pending.receipt);
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            tracing::error!(%error, "embedded graph render failed");
+                            lifecycle::mark_proof_failed();
+                            event_loop.exit();
+                        }
+                    }
+                }
+                self.last_update = now;
+            }
+            _ => {}
+        }
+        if self
+            .renderer
+            .as_ref()
+            .is_some_and(GraphRenderer::needs_redraw)
+        {
+            window.request_redraw();
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Err(error) = self.process_viewport() {
+            tracing::error!(%error, "embedded viewport synchronization failed");
+            lifecycle::mark_proof_failed();
+            event_loop.exit();
+            return;
+        }
+        if let Err(error) = self.sync_resident_scene() {
+            tracing::error!(%error, "resident scene synchronization failed");
+            lifecycle::mark_proof_failed();
+            event_loop.exit();
+            return;
+        }
+        if let (Some(renderer), Some(window)) = (&self.renderer, &self.window) {
+            if renderer.needs_redraw() {
+                window.request_redraw();
+            }
+        }
+    }
+
+    fn exiting(&mut self, _: &ActiveEventLoop) {
+        self.cleanup();
+    }
+}
+
+impl Drop for EmbeddedGraphApp {
+    fn drop(&mut self) {
+        self.cleanup();
+    }
+}

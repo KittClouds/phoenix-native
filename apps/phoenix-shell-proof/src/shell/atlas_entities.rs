@@ -1,0 +1,336 @@
+use super::drawer::{ACCENT, ACCENT_DIM};
+use super::{PhoenixShell, BORDER, TEXT, TEXT_MUTED};
+use gpui::{
+    div, linear_color_stop, linear_gradient, prelude::*, px, rgb, uniform_list, Context,
+    IntoElement,
+};
+use gpui_component::input::Input;
+use gpui_component::{Sizable, StyledExt};
+use phoenix_app_core::{AtlasEntity, AtlasRegistry};
+use phoenix_scene_contract::{EntityKind, HighlightPalette};
+use std::sync::Arc;
+
+impl PhoenixShell {
+    pub(super) fn render_atlas_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let snapshot = self.kernel_snapshot();
+        let atlas = snapshot
+            .as_ref()
+            .map(|snapshot| Arc::clone(&snapshot.atlas_registry))
+            .unwrap_or_else(empty_atlas);
+        let palette = snapshot
+            .as_ref()
+            .map(|snapshot| *snapshot.highlight_palette)
+            .unwrap_or_default();
+        let query = self.atlas_search.read(cx).value().trim().to_string();
+        let visible = atlas
+            .entities
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entity)| entity_matches(entity, &query).then_some(index))
+            .collect::<Vec<_>>();
+        let visible: Arc<[usize]> = visible.into();
+        let list_entities = Arc::clone(&atlas.entities);
+        let list_visible = Arc::clone(&visible);
+        let list = uniform_list(
+            "canonical-atlas-entities",
+            visible.len(),
+            move |range, _, _| {
+                range
+                    .map(|row| {
+                        let entity = &list_entities[list_visible[row]];
+                        atlas_entity_row(entity, palette)
+                    })
+                    .collect::<Vec<_>>()
+            },
+        )
+        .h_full();
+
+        div()
+            .size_full()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .border_r_1()
+            .border_color(rgb(BORDER))
+            .bg(linear_gradient(
+                155.,
+                linear_color_stop(rgb(0x092820), 0.),
+                linear_color_stop(rgb(0x101211), 1.),
+            ))
+            .child(atlas_header(&atlas))
+            .child(
+                div()
+                    .px_3()
+                    .pt_3()
+                    .child(Input::new(&self.atlas_search).small()),
+            )
+            .child(kind_summary(&atlas, palette))
+            .child(
+                div()
+                    .mt_2()
+                    .px_3()
+                    .pb_2()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .text_xs()
+                    .text_color(rgb(TEXT_MUTED))
+                    .child("CANONICAL IDENTITIES")
+                    .child(format!("{} VISIBLE", visible.len())),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .px_2()
+                    .pb_2()
+                    .when(visible.is_empty(), |body| {
+                        body.flex()
+                            .flex_col()
+                            .items_center()
+                            .justify_center()
+                            .gap_1()
+                            .px_4()
+                            .text_center()
+                            .child(div().text_sm().text_color(rgb(TEXT_MUTED)).child(
+                                if atlas.entities.is_empty() {
+                                    "No entity authority yet."
+                                } else {
+                                    "No matching identity."
+                                },
+                            ))
+                            .when(atlas.entities.is_empty(), |message| {
+                                message.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(rgb(0x66716e))
+                                        .child("Tag text to begin."),
+                                )
+                            })
+                    })
+                    .when(!visible.is_empty(), |body| body.child(list)),
+            )
+    }
+}
+
+fn atlas_header(atlas: &AtlasRegistry) -> impl IntoElement {
+    div()
+        .px_4()
+        .pt_4()
+        .pb_3()
+        .border_b_1()
+        .border_color(rgb(BORDER))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_semibold()
+                        .text_color(rgb(ACCENT))
+                        .child("ATLAS ENTITIES"),
+                )
+                .child(
+                    div()
+                        .px_2()
+                        .py_1()
+                        .rounded_full()
+                        .bg(rgb(ACCENT_DIM))
+                        .text_xs()
+                        .text_color(rgb(ACCENT))
+                        .child(atlas.entities.len().to_string()),
+                ),
+        )
+        .child(
+            div()
+                .mt_1()
+                .flex()
+                .gap_2()
+                .text_xs()
+                .text_color(rgb(TEXT_MUTED))
+                .child(format!("USER {}", atlas.user_tagged_source_count))
+                .child("·")
+                .child(format!("NER {}", atlas.ner_source_count))
+                .child("·")
+                .child(format!("REV {}", atlas.registry_revision)),
+        )
+}
+
+fn kind_summary(atlas: &AtlasRegistry, palette: HighlightPalette) -> impl IntoElement {
+    let mut rows = div().mt_3().px_2().grid().grid_cols(2).gap_1();
+    for kind in EntityKind::TOOLBAR {
+        let count = atlas
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == kind)
+            .count();
+        if count == 0 {
+            continue;
+        }
+        rows = rows.child(
+            div()
+                .h_7()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_2()
+                .rounded_md()
+                .bg(rgb(0x151b19))
+                .child(
+                    div()
+                        .w_2()
+                        .h_2()
+                        .rounded_full()
+                        .bg(rgb(family_color(kind, palette))),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .truncate()
+                        .text_xs()
+                        .text_color(rgb(0xaab9b4))
+                        .child(kind.label().to_uppercase()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(TEXT_MUTED))
+                        .child(count.to_string()),
+                ),
+        );
+    }
+    rows
+}
+
+fn atlas_entity_row(entity: &AtlasEntity, palette: HighlightPalette) -> impl IntoElement {
+    let label = Arc::clone(&entity.label);
+    let kind = entity
+        .custom_kind
+        .as_ref()
+        .map(|kind| kind.to_string())
+        .unwrap_or_else(|| entity.kind.label().to_uppercase());
+    div()
+        .h(px(48.))
+        .mx_1()
+        .px_2()
+        .flex()
+        .items_center()
+        .gap_2()
+        .border_b_1()
+        .border_color(rgb(0x26302d))
+        .child(
+            div()
+                .w_2()
+                .h_2()
+                .flex_shrink_0()
+                .rounded_full()
+                .bg(rgb(family_color(entity.kind, palette))),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .child(
+                    div()
+                        .truncate()
+                        .text_sm()
+                        .font_medium()
+                        .text_color(rgb(TEXT))
+                        .child(label.to_string()),
+                )
+                .child(
+                    div()
+                        .mt_1()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .text_xs()
+                        .text_color(rgb(TEXT_MUTED))
+                        .child(kind)
+                        .when(entity.sources.user_tagged, |row| {
+                            row.child(source_chip("USER", 0x174438, ACCENT))
+                        })
+                        .when(entity.sources.ner, |row| {
+                            row.child(source_chip("NER", 0x24334a, 0x78aaff))
+                        }),
+                ),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(rgb(TEXT_MUTED))
+                .child(entity.mention_count.to_string()),
+        )
+}
+
+fn source_chip(label: &'static str, background: u32, foreground: u32) -> impl IntoElement {
+    div()
+        .px_1()
+        .rounded_sm()
+        .bg(rgb(background))
+        .text_color(rgb(foreground))
+        .child(label)
+}
+
+fn family_color(kind: EntityKind, palette: HighlightPalette) -> u32 {
+    let [red, green, blue, _] = palette.for_family(kind.family()).primary;
+    ((red * 255.).round() as u32) << 16
+        | ((green * 255.).round() as u32) << 8
+        | (blue * 255.).round() as u32
+}
+
+fn entity_matches(entity: &AtlasEntity, query: &str) -> bool {
+    query.is_empty()
+        || contains_ascii_case_insensitive(&entity.label, query)
+        || contains_ascii_case_insensitive(entity.kind.label(), query)
+        || entity
+            .custom_kind
+            .as_ref()
+            .is_some_and(|kind| contains_ascii_case_insensitive(kind, query))
+}
+
+fn contains_ascii_case_insensitive(haystack: &str, needle: &str) -> bool {
+    needle.len() <= haystack.len()
+        && haystack
+            .as_bytes()
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
+}
+
+fn empty_atlas() -> Arc<AtlasRegistry> {
+    Arc::new(AtlasRegistry {
+        registry_revision: 0,
+        ner_revision: 0,
+        entities: Arc::from([]),
+        ner_source_count: 0,
+        user_tagged_source_count: 0,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phoenix_workspace::EntitySourceMask;
+
+    fn entity(label: &str) -> AtlasEntity {
+        AtlasEntity {
+            stable_id: 7,
+            label: Arc::from(label),
+            kind: EntityKind::Location,
+            custom_kind: None,
+            sources: EntitySourceMask::USER_TAGGED,
+            mention_count: 1,
+        }
+    }
+
+    #[test]
+    fn atlas_search_is_case_insensitive_without_label_identity_semantics() {
+        let new_rome = entity("New Rome");
+        assert!(entity_matches(&new_rome, "rome"));
+        assert!(entity_matches(&new_rome, "LOCATION"));
+        assert!(!entity_matches(&new_rome, "Ryan"));
+    }
+}

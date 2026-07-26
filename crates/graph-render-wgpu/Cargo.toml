@@ -1,0 +1,29 @@
+[package]
+name = "graph-render-wgpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bytemuck.workspace = true
+glam.workspace = true
+graph-model = { path = "../graph-model" }
+hashbrown.workspace = true
+phoenix-scene-archive = { path = "../phoenix-scene-archive" }
+phoenix-scene-contract = { path = "../phoenix-scene-contract" }
+phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }
+thiserror.workspace = true
+tracing.workspace = true
+wgpu.workspace = true
+
+[dev-dependencies]
+pollster = "0.4"
+
+[[bench]]
+name = "state_updates"
+harness = false
+
+[[bench]]
+name = "manifold_switches"
+harness = false

@@ -1,0 +1,15 @@
+[package]
+name = "phoenix-scene-publisher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+blake3.workspace = true
+phoenix-scene-archive = { path = "../phoenix-scene-archive" }
+phoenix-scene-contract = { path = "../phoenix-scene-contract" }
+phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }
+thiserror.workspace = true
+windows.workspace = true

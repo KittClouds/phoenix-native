@@ -1,0 +1,30 @@
+[package]
+name = "phoenix-shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+gpui.workspace = true
+gpui-component.workspace = true
+graph-model = { path = "../../crates/graph-model" }
+graph-render-wgpu = { path = "../../crates/graph-render-wgpu" }
+phoenix-app-core = { path = "../../crates/phoenix-app-core" }
+phoenix-scene-archive = { path = "../../crates/phoenix-scene-archive" }
+phoenix-scene-contract = { path = "../../crates/phoenix-scene-contract" }
+phoenix-scene-product-index = { path = "../../crates/phoenix-scene-product-index" }
+phoenix-scene-publisher = { path = "../../crates/phoenix-scene-publisher" }
+phoenix-workspace = { path = "../../crates/phoenix-workspace" }
+hashbrown.workspace = true
+pollster.workspace = true
+raw-window-handle.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+velotype = { path = "../../vendor/velotype" }
+wgpu.workspace = true
+windows.workspace = true
+winit.workspace = true
