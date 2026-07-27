@@ -294,6 +294,24 @@ impl EntityRegistry {
         ner_revision: u64,
         records: &[NerEntityRecord],
     ) -> Result<NerPublicationResult, WorkspaceError> {
+        self.publish_ner_scoped(None, ner_revision, records)
+    }
+
+    pub fn publish_document_ner(
+        &mut self,
+        document: EntryId,
+        ner_revision: u64,
+        records: &[NerEntityRecord],
+    ) -> Result<NerPublicationResult, WorkspaceError> {
+        self.publish_ner_scoped(Some(document), ner_revision, records)
+    }
+
+    fn publish_ner_scoped(
+        &mut self,
+        document: Option<EntryId>,
+        ner_revision: u64,
+        records: &[NerEntityRecord],
+    ) -> Result<NerPublicationResult, WorkspaceError> {
         if ner_revision <= self.ner_revision {
             return Err(WorkspaceError::StaleNerRevision {
                 current: self.ner_revision,
@@ -322,6 +340,14 @@ impl EntityRegistry {
             .collect::<HashMap<_, _>>();
         for record in &incoming {
             validate_ner_record(record)?;
+            if self.entities.iter().any(|entity| {
+                entity.id == record.stable_id
+                    && entity.sources.ner
+                    && document.is_some()
+                    && entity.origin_document != document
+            }) {
+                return Err(WorkspaceError::EntityIdentityConflict(record.stable_id));
+            }
             if let Some(entity) = user_identities.get(&record.stable_id) {
                 if entity.label != record.label
                     || entity.kind != record.kind
@@ -349,8 +375,10 @@ impl EntityRegistry {
         drop(user_identities);
 
         for entity in &mut self.entities {
-            entity.sources.ner = false;
-            entity.ner_mention_count = 0;
+            if document.is_none() || entity.origin_document == document {
+                entity.sources.ner = false;
+                entity.ner_mention_count = 0;
+            }
         }
         for record in incoming {
             if let Some(entity) = self
@@ -369,7 +397,7 @@ impl EntityRegistry {
                     label: record.label,
                     kind: record.kind,
                     custom_kind: record.custom_kind,
-                    origin_document: None,
+                    origin_document: document,
                     sources: EntitySourceMask::NER,
                     ner_mention_count: record.mention_count,
                 });
@@ -732,6 +760,55 @@ mod tests {
                 incoming: 3
             })
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn document_scoped_ner_publication_preserves_other_documents() -> Result<(), WorkspaceError> {
+        let mut registry = EntityRegistry::empty();
+        let document_a = EntryId(41);
+        let document_b = EntryId(42);
+        let record_a = NerEntityRecord {
+            stable_id: 101,
+            label: "Ryan".into(),
+            kind: EntityKind::Character,
+            custom_kind: None,
+            mention_count: 7,
+        };
+        let record_b = NerEntityRecord {
+            stable_id: 202,
+            label: "New Rome".into(),
+            kind: EntityKind::Location,
+            custom_kind: None,
+            mention_count: 4,
+        };
+
+        registry.publish_document_ner(document_a, 2, std::slice::from_ref(&record_a))?;
+        registry.publish_document_ner(document_b, 3, std::slice::from_ref(&record_b))?;
+        assert_eq!(registry.entities().len(), 2);
+        assert!(registry.entities().iter().any(|entity| {
+            entity.id == record_a.stable_id && entity.origin_document == Some(document_a)
+        }));
+        assert!(registry.entities().iter().any(|entity| {
+            entity.id == record_b.stable_id && entity.origin_document == Some(document_b)
+        }));
+
+        let updated_a = NerEntityRecord {
+            mention_count: 9,
+            ..record_a
+        };
+        registry.publish_document_ner(document_a, 4, std::slice::from_ref(&updated_a))?;
+        assert_eq!(registry.entities().len(), 2);
+        assert!(registry.entities().iter().any(|entity| {
+            entity.id == updated_a.stable_id
+                && entity.origin_document == Some(document_a)
+                && entity.ner_mention_count == 9
+        }));
+        assert!(registry.entities().iter().any(|entity| {
+            entity.id == record_b.stable_id
+                && entity.origin_document == Some(document_b)
+                && entity.ner_mention_count == 4
+        }));
         Ok(())
     }
 

@@ -26,6 +26,7 @@ pub struct GraphDemoApp {
     rng: ChaCha8Rng,
     animating: bool,
     shift_down: bool,
+    alt_down: bool,
     logical_pointer: (f32, f32),
     last_update: Instant,
     title_window_start: Instant,
@@ -42,6 +43,7 @@ impl GraphDemoApp {
             renderer: None,
             animating: false,
             shift_down: false,
+            alt_down: false,
             logical_pointer: (0.0, 0.0),
             last_update: Instant::now(),
             title_window_start: Instant::now(),
@@ -220,6 +222,7 @@ impl ApplicationHandler for GraphDemoApp {
                         y: self.logical_pointer.1,
                         button,
                         shift: self.shift_down,
+                        alt: self.alt_down,
                     },
                     ElementState::Released => GraphInput::PointerReleased {
                         x: self.logical_pointer.0,
@@ -240,6 +243,7 @@ impl ApplicationHandler for GraphDemoApp {
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.shift_down = modifiers.state().shift_key();
+                self.alt_down = modifiers.state().alt_key();
             }
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == ElementState::Pressed && !event.repeat =>

@@ -4,12 +4,14 @@
 //! hierarchy from labels, colors, or entity families. Producers must assign a
 //! role and parent explicitly before invoking the layout kernel.
 
-pub const CAPS_LAYOUT_CONTRACT: &str = "phoenix.native.caps-lorentz-klein/v1";
+pub const CAPS_LAYOUT_CONTRACT: &str = "phoenix.native.caps-lorentz-klein/v2";
 pub const CAPS_WORLD_SCALE: f32 = 40.0;
 pub const CAPS_KLEIN_BOUND: f32 = 0.96;
 
+pub const DOCUMENT_NODE_KIND: u16 = 999;
 pub const EPISODE_NODE_KIND: u16 = 1_000;
 pub const CHUNK_NODE_KIND: u16 = 1_001;
+pub const EVIDENCE_NODE_KIND: u16 = 1_002;
 
 pub const GUIDE_FLAG_SHELL: u32 = 1;
 pub const GUIDE_FLAG_CAP_BOUNDARY: u32 = 2;

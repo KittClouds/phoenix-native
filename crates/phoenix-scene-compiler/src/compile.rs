@@ -1,4 +1,12 @@
-use crate::{layout, NativeSceneCompilerError};
+use crate::{
+    layout,
+    scene_build::{
+        ensure_node_id_available, entity_caps_role, evidence_color, evidence_surface,
+        push_structural_edge, push_structure_node, rank_evidence, stable_evidence_id,
+        stable_structural_id, EvidenceSpec, StructuralEdgeBuffers, StructureNodeSpec,
+    },
+    NativeSceneCompilerError,
+};
 use hashbrown::{HashMap, HashSet};
 use memchr::memchr;
 use phoenix_scene_archive::{
@@ -6,7 +14,7 @@ use phoenix_scene_archive::{
 };
 use phoenix_scene_contract::{
     AnchorCandidate, CapsRole, EntityFamily, HighlightPalette, RelationFamily, ReviewMask,
-    ScopeMask, CHUNK_NODE_KIND, EPISODE_NODE_KIND,
+    ScopeMask, CHUNK_NODE_KIND, DOCUMENT_NODE_KIND, EPISODE_NODE_KIND, EVIDENCE_NODE_KIND,
 };
 use phoenix_scene_product_index::{EntityNodeMappingRecord, ProductReferenceRecord};
 use phoenix_scene_publisher::{
@@ -69,6 +77,7 @@ pub fn compile_active_document(
     let boundaries = paragraph_boundaries(&input.document.content)?;
     let mut chunk_entities = HashMap::<u32, SmallVec<[u64; 8]>>::new();
     let mut anchors = Vec::new();
+    let mut evidence_specs = Vec::new();
     let mut mentioned_entities = HashSet::new();
     for (mention, entity) in input.registry.active_mentions_for(input.document) {
         verify_mention(input.document, mention.start, mention.end, &mention.surface)?;
@@ -86,11 +95,35 @@ pub fn compile_active_document(
         mentioned_entities.insert(entity.id);
         let chunk = u32::try_from(boundaries.partition_point(|end| *end <= mention.start))
             .map_err(|_| NativeSceneCompilerError::RangeOverflow("chunk ordinal"))?;
+        evidence_specs.push(EvidenceSpec {
+            id: stable_evidence_id(
+                input.document.entry_id.0,
+                entity.id,
+                mention.start,
+                mention.end,
+            ),
+            entity_id: entity.id,
+            chunk,
+            start: mention.start,
+            end: mention.end,
+            sibling_rank: 0,
+            sibling_count: 0,
+        });
         chunk_entities.entry(chunk).or_default().push(entity.id);
     }
     if anchors.is_empty() {
         return Err(NativeSceneCompilerError::NoVerifiedMentions);
     }
+    anchors.sort_unstable_by_key(|anchor| (anchor.start, anchor.end, anchor.node_id));
+    evidence_specs.sort_unstable_by_key(|evidence| {
+        (
+            evidence.chunk,
+            evidence.start,
+            evidence.end,
+            evidence.entity_id,
+        )
+    });
+    rank_evidence(&mut evidence_specs)?;
 
     let edge_weights = build_edge_weights(&mut chunk_entities)?;
     let mut edge_pairs = edge_weights.into_iter().collect::<Vec<_>>();
@@ -146,7 +179,8 @@ pub fn compile_active_document(
     let entity_count = entities.len();
     let total_node_count = entity_count
         .checked_add(structural_chunks.len())
-        .and_then(|count| count.checked_add(1))
+        .and_then(|count| count.checked_add(evidence_specs.len()))
+        .and_then(|count| count.checked_add(2))
         .ok_or(NativeSceneCompilerError::RangeOverflow(
             "structural node count",
         ))?;
@@ -157,27 +191,32 @@ pub fn compile_active_document(
     let mut positions = std::array::from_fn(|_| Vec::with_capacity(total_node_count));
     let mut caps_nodes = Vec::with_capacity(total_node_count);
     let mut caps_memberships = HashMap::with_capacity(mentioned_entities.len());
-    for (chunk_index, (_, members)) in structural_chunks.iter().enumerate() {
-        let sibling_count = u32::try_from(members.len())
-            .map_err(|_| NativeSceneCompilerError::RangeOverflow("CAPS sibling count"))?;
-        for (sibling_rank, entity_id) in members.iter().copied().enumerate() {
-            let sibling_rank = u32::try_from(sibling_rank)
-                .map_err(|_| NativeSceneCompilerError::RangeOverflow("CAPS sibling rank"))?;
-            caps_memberships
-                .entry(entity_id)
-                .and_modify(|membership: &mut CapsMembership| {
-                    membership.membership_count = membership.membership_count.saturating_add(1);
-                })
-                .or_insert(CapsMembership {
-                    primary_chunk: chunk_index,
-                    sibling_rank,
-                    sibling_count,
-                    membership_count: 1,
-                });
-        }
+    let document_slot = u32::try_from(entity_count)
+        .map_err(|_| NativeSceneCompilerError::RangeOverflow("CAPS document slot"))?;
+    let episode_slot = document_slot
+        .checked_add(1)
+        .ok_or(NativeSceneCompilerError::RangeOverflow("CAPS episode slot"))?;
+    let evidence_base = entity_count
+        .checked_add(2)
+        .and_then(|slot| slot.checked_add(structural_chunks.len()))
+        .ok_or(NativeSceneCompilerError::RangeOverflow(
+            "CAPS evidence base",
+        ))?;
+    for (evidence_index, evidence) in evidence_specs.iter().enumerate() {
+        let parent_slot = evidence_base.checked_add(evidence_index).ok_or(
+            NativeSceneCompilerError::RangeOverflow("CAPS evidence parent"),
+        )?;
+        caps_memberships
+            .entry(evidence.entity_id)
+            .and_modify(|membership: &mut CapsMembership| {
+                membership.membership_count = membership.membership_count.saturating_add(1);
+            })
+            .or_insert(CapsMembership {
+                parent_slot: u32::try_from(parent_slot)
+                    .map_err(|_| NativeSceneCompilerError::RangeOverflow("CAPS parent slot"))?,
+                membership_count: 1,
+            });
     }
-    let episode_slot = u32::try_from(entity_count)
-        .map_err(|_| NativeSceneCompilerError::RangeOverflow("CAPS episode slot"))?;
     let unmentioned_count = entities
         .iter()
         .filter(|entity| !mentioned_entities.contains(&entity.id))
@@ -213,17 +252,7 @@ pub fn compile_active_document(
         });
         let (parent_slot, sibling_rank, sibling_count, membership_count) =
             if let Some(membership) = caps_memberships.get(&entity.id).copied() {
-                let parent = entity_count
-                    .checked_add(1)
-                    .and_then(|slot| slot.checked_add(membership.primary_chunk))
-                    .ok_or(NativeSceneCompilerError::RangeOverflow("CAPS chunk parent"))?;
-                (
-                    u32::try_from(parent)
-                        .map_err(|_| NativeSceneCompilerError::RangeOverflow("CAPS parent slot"))?,
-                    membership.sibling_rank,
-                    membership.sibling_count,
-                    membership.membership_count,
-                )
+                (membership.parent_slot, 0, 1, membership.membership_count)
             } else {
                 let rank = unmentioned_rank;
                 unmentioned_rank = unmentioned_rank.saturating_add(1);
@@ -238,7 +267,7 @@ pub fn compile_active_document(
             };
         caps_nodes.push(layout::CapsNode {
             stable_id: entity.id,
-            role: CapsRole::Entity,
+            role: entity_caps_role(entity.kind),
             parent_slot: Some(parent_slot),
             sibling_rank,
             sibling_count,
@@ -255,6 +284,32 @@ pub fn compile_active_document(
         }
     }
     let structure_palette = input.palette.for_family(EntityFamily::Structure);
+    let document_id = stable_structural_id(input.document.entry_id.0, b"document", 0);
+    ensure_node_id_available(&identities, document_id)?;
+    push_structure_node(
+        &mut identities,
+        &mut styles,
+        &mut node_products,
+        &mut positions,
+        &mut caps_nodes,
+        StructureNodeSpec {
+            id: document_id,
+            label: "Document",
+            kind: DOCUMENT_NODE_KIND,
+            color: structure_palette.primary,
+            radius: 1.4,
+            total_node_count,
+            degree: structural_chunks.len() as u32,
+            caps: layout::CapsNode {
+                stable_id: document_id,
+                role: CapsRole::Document,
+                parent_slot: None,
+                sibling_rank: 0,
+                sibling_count: 1,
+                membership_count: 1,
+            },
+        },
+    );
     let episode_id = stable_structural_id(input.document.entry_id.0, b"episode", 0);
     ensure_node_id_available(&identities, episode_id)?;
     push_structure_node(
@@ -274,7 +329,7 @@ pub fn compile_active_document(
             caps: layout::CapsNode {
                 stable_id: episode_id,
                 role: CapsRole::Episode,
-                parent_slot: None,
+                parent_slot: Some(document_slot),
                 sibling_rank: 0,
                 sibling_count: 1,
                 membership_count: 1,
@@ -287,6 +342,15 @@ pub fn compile_active_document(
         products: &mut edge_products,
         ids: &mut edge_ids,
     };
+    push_structural_edge(
+        &mut structural_edges,
+        input.document.entry_id.0,
+        document_id,
+        episode_id,
+        structure_palette.primary,
+        structure_palette.primary,
+    )?;
+    let mut chunk_slots = HashMap::with_capacity(structural_chunks.len());
     for (chunk_index, (chunk_ordinal, _)) in structural_chunks.iter().enumerate() {
         let node_id = stable_structural_id(
             input.document.entry_id.0,
@@ -294,6 +358,15 @@ pub fn compile_active_document(
             u64::from(*chunk_ordinal),
         );
         ensure_node_id_available(&identities, node_id)?;
+        let chunk_slot = entity_count
+            .checked_add(2)
+            .and_then(|slot| slot.checked_add(chunk_index))
+            .ok_or(NativeSceneCompilerError::RangeOverflow("CAPS chunk slot"))?;
+        chunk_slots.insert(
+            *chunk_ordinal,
+            u32::try_from(chunk_slot)
+                .map_err(|_| NativeSceneCompilerError::RangeOverflow("CAPS chunk slot"))?,
+        );
         push_structure_node(
             &mut identities,
             &mut styles,
@@ -328,18 +401,54 @@ pub fn compile_active_document(
             structure_palette.primary,
             structure_palette.secondary,
         )?;
-        for entity_id in &structural_chunks[chunk_index].1 {
-            let entity_slot = entity_slots[entity_id] as usize;
-            let entity_color = styles[entity_slot].color;
-            push_structural_edge(
-                &mut structural_edges,
-                input.document.entry_id.0,
-                node_id,
-                *entity_id,
-                structure_palette.secondary,
-                entity_color,
-            )?;
-        }
+    }
+    for evidence in &evidence_specs {
+        ensure_node_id_available(&identities, evidence.id)?;
+        let parent_slot = chunk_slots[&evidence.chunk];
+        let entity_slot = entity_slots[&evidence.entity_id] as usize;
+        let entity_color = styles[entity_slot].color;
+        let label = evidence_surface(input.document, *evidence)?;
+        push_structure_node(
+            &mut identities,
+            &mut styles,
+            &mut node_products,
+            &mut positions,
+            &mut caps_nodes,
+            StructureNodeSpec {
+                id: evidence.id,
+                label,
+                kind: EVIDENCE_NODE_KIND,
+                color: evidence_color(entity_color),
+                radius: 0.46,
+                total_node_count,
+                degree: 2,
+                caps: layout::CapsNode {
+                    stable_id: evidence.id,
+                    role: CapsRole::Evidence,
+                    parent_slot: Some(parent_slot),
+                    sibling_rank: evidence.sibling_rank,
+                    sibling_count: evidence.sibling_count,
+                    membership_count: 1,
+                },
+            },
+        );
+        let chunk_id = identities[parent_slot as usize].id;
+        push_structural_edge(
+            &mut structural_edges,
+            input.document.entry_id.0,
+            chunk_id,
+            evidence.id,
+            structure_palette.secondary,
+            entity_color,
+        )?;
+        push_structural_edge(
+            &mut structural_edges,
+            input.document.entry_id.0,
+            evidence.id,
+            evidence.entity_id,
+            entity_color,
+            entity_color,
+        )?;
     }
     positions[ArchiveManifold::Caps as usize] = layout::compile_caps_positions(&caps_nodes)?;
 
@@ -494,143 +603,10 @@ fn stable_edge_id(document_id: u64, source: u64, target: u64) -> u64 {
     u64::from_le_bytes(raw).max(1)
 }
 
-struct StructureNodeSpec<'a> {
-    id: u64,
-    label: &'a str,
-    kind: u16,
-    color: [f32; 4],
-    radius: f32,
-    total_node_count: usize,
-    degree: u32,
-    caps: layout::CapsNode,
-}
-
 #[derive(Clone, Copy)]
 struct CapsMembership {
-    primary_chunk: usize,
-    sibling_rank: u32,
-    sibling_count: u32,
+    parent_slot: u32,
     membership_count: u16,
-}
-
-fn push_structure_node(
-    identities: &mut Vec<NodeIdentityRecord>,
-    styles: &mut Vec<NodeStyleRecord>,
-    products: &mut Vec<SceneNodeProduct>,
-    positions: &mut [Vec<phoenix_scene_archive::PositionRecord>; 5],
-    caps_nodes: &mut Vec<layout::CapsNode>,
-    spec: StructureNodeSpec<'_>,
-) {
-    let ordinal = identities.len();
-    identities.push(NodeIdentityRecord { id: spec.id });
-    styles.push(NodeStyleRecord {
-        color: spec.color,
-        radius: spec.radius,
-        kind: spec.kind,
-        flags: 0,
-    });
-    products.push(SceneNodeProduct {
-        node_id: spec.id,
-        family_mask: family_mask(EntityFamily::Structure),
-        scope_mask: ScopeMask::NOTE.0,
-        review_mask: ReviewMask::ACCEPTED.0,
-        label: Arc::from(spec.label),
-        inspector_ref: 0,
-        provenance_ref: 0,
-    });
-    caps_nodes.push(spec.caps);
-    for (page, position) in positions.iter_mut().zip(layout::positions(
-        spec.id,
-        ordinal,
-        spec.total_node_count,
-        family_slot(EntityFamily::Structure),
-        spec.degree,
-    )) {
-        page.push(position);
-    }
-}
-
-struct StructuralEdgeBuffers<'a> {
-    topology: &'a mut Vec<TopologyRecord>,
-    edges: &'a mut Vec<EdgeRecord>,
-    products: &'a mut Vec<SceneEdgeProduct>,
-    ids: &'a mut HashSet<u64>,
-}
-
-fn push_structural_edge(
-    buffers: &mut StructuralEdgeBuffers<'_>,
-    document_id: u64,
-    source: u64,
-    target: u64,
-    source_color: [f32; 4],
-    target_color: [f32; 4],
-) -> Result<(), NativeSceneCompilerError> {
-    if buffers.edges.len() >= MAX_EDGES {
-        return Err(NativeSceneCompilerError::EdgeLimit(MAX_EDGES));
-    }
-    let edge_id = stable_structural_edge_id(document_id, source, target);
-    if !buffers.ids.insert(edge_id) {
-        return Err(NativeSceneCompilerError::IdentityCollision {
-            resource: "structural edge",
-        });
-    }
-    buffers.topology.push(TopologyRecord {
-        source_id: source,
-        target_id: target,
-    });
-    let mut color = blend(source_color, target_color);
-    color[3] = 0.22;
-    buffers.edges.push(EdgeRecord {
-        id: edge_id,
-        color,
-        width: 0.92,
-        kind: RelationFamily::Structural as u16,
-        flags: 0,
-    });
-    buffers.products.push(SceneEdgeProduct {
-        edge_id,
-        family_mask: family_mask(EntityFamily::Structure),
-        scope_mask: ScopeMask::NOTE.0,
-        relation_mask: RelationFamily::Structural.mask().0,
-        review_mask: ReviewMask::ACCEPTED.0,
-        inspector_ref: 0,
-        provenance_ref: 0,
-    });
-    Ok(())
-}
-
-fn stable_structural_id(document_id: u64, kind: &[u8], ordinal: u64) -> u64 {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"phoenix.native.structural-node/v1\0");
-    hasher.update(&document_id.to_le_bytes());
-    hasher.update(kind);
-    hasher.update(&ordinal.to_le_bytes());
-    let mut raw = [0_u8; 8];
-    raw.copy_from_slice(&hasher.finalize().as_bytes()[..8]);
-    u64::from_le_bytes(raw).max(1)
-}
-
-fn stable_structural_edge_id(document_id: u64, source: u64, target: u64) -> u64 {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"phoenix.native.structural-edge/v1\0");
-    hasher.update(&document_id.to_le_bytes());
-    hasher.update(&source.to_le_bytes());
-    hasher.update(&target.to_le_bytes());
-    let mut raw = [0_u8; 8];
-    raw.copy_from_slice(&hasher.finalize().as_bytes()[..8]);
-    u64::from_le_bytes(raw).max(1)
-}
-
-fn ensure_node_id_available(
-    identities: &[NodeIdentityRecord],
-    node_id: u64,
-) -> Result<(), NativeSceneCompilerError> {
-    if identities.iter().any(|identity| identity.id == node_id) {
-        return Err(NativeSceneCompilerError::IdentityCollision {
-            resource: "structural node",
-        });
-    }
-    Ok(())
 }
 
 fn blend(left: [f32; 4], right: [f32; 4]) -> [f32; 4] {

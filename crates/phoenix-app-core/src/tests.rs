@@ -1,4 +1,8 @@
 use super::*;
+use phoenix_analysis_contract::{
+    AnalysisEntity, AnalysisEntityKind, AnalysisModelIdentity, AnalysisStageReceipt,
+    DocumentAnalysisBinding, PhoenixNerArtifactV1,
+};
 use phoenix_scene_archive::{
     ArchiveManifold, EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PageKey, PageKind,
     PhoenixSceneArchiveBuilderV1, PhoenixSceneArchiveV1, PositionRecord, TopologyRecord,
@@ -37,6 +41,84 @@ fn path() -> PathBuf {
             std::process::id()
         ))
         .join("workspace.json")
+}
+
+fn test_ner_batch(
+    kernel: &PhoenixKernel,
+    revision: u64,
+    records: Vec<NerEntityRecord>,
+) -> Result<NerEntityBatch, Box<dyn std::error::Error>> {
+    let mut snapshot = kernel.snapshot()?;
+    let mut lease = snapshot
+        .active_document_lease
+        .ok_or("active document lease missing")?;
+    if lease.revision.0 == 0 {
+        kernel.execute(KernelCommand::SaveDocument {
+            lease: lease.token(),
+            content: Arc::from("analysis test document"),
+        })?;
+        snapshot = kernel.snapshot()?;
+        lease = snapshot
+            .active_document_lease
+            .ok_or("saved document lease missing")?;
+    }
+    let model = |model_id: &str, seed: u8| AnalysisModelIdentity {
+        model_id: model_id.into(),
+        artifact_hash: [seed; 32],
+        config_hash: [seed.wrapping_add(1); 32],
+        runtime_id: "test".into(),
+    };
+    let source_registry_revision = snapshot.entity_registry.revision();
+    let entities = records
+        .into_iter()
+        .map(|record| AnalysisEntity {
+            stable_id: record.stable_id,
+            label: record.label,
+            kind: match record.kind {
+                EntityKind::Character => AnalysisEntityKind::Character,
+                EntityKind::Location => AnalysisEntityKind::Location,
+                EntityKind::Npc => AnalysisEntityKind::Npc,
+                EntityKind::Faction => AnalysisEntityKind::Faction,
+                EntityKind::Event => AnalysisEntityKind::Event,
+                EntityKind::Concept => AnalysisEntityKind::Concept,
+                EntityKind::Custom => AnalysisEntityKind::Custom,
+            },
+            custom_kind: record.custom_kind,
+            mention_count: record.mention_count,
+        })
+        .collect::<Vec<_>>();
+    let entity_count = entities.len().try_into()?;
+    Ok(NerEntityBatch::test_fixture(PhoenixNerArtifactV1 {
+        binding: DocumentAnalysisBinding {
+            source_document_id: "test-document".into(),
+            native_document_id: lease.entry_id.0,
+            document_revision: lease.revision.0,
+            content_hash: lease.content_hash.0,
+            analysis_generation: revision,
+            source_registry_revision,
+            target_registry_revision: source_registry_revision + 1,
+            producer_binary_hash: [1; 32],
+            chunker: model("chunker", 2),
+            dynamic_ner: model("dynamic-ner", 4),
+            nli: model("nli", 6),
+        },
+        ner_revision: revision,
+        entities,
+        mentions: Vec::new(),
+        receipt: AnalysisStageReceipt {
+            chunk_count: 1,
+            sentence_count: 1,
+            mention_count: 0,
+            entity_count,
+            nli_candidate_count: 0,
+            nli_adjudication_count: 0,
+            chunker_micros: 1,
+            dynamic_ner_micros: 1,
+            nli_load_micros: 1,
+            nli_adjudication_micros: 1,
+            promotion_count: 0,
+        },
+    }))
 }
 
 fn scene(generation: u64) -> Result<Arc<ResidentScene>, SceneContractError> {
@@ -309,9 +391,10 @@ fn canonical_atlas_merges_only_stable_identity_and_preserves_sources(
         KernelOutcome::EntityTagged(result) => result.entity_id,
         other => return Err(format!("unexpected tag outcome: {other:?}").into()),
     };
-    let published = kernel.execute(KernelCommand::PublishNerEntities(NerEntityBatch {
-        revision: 1,
-        entities: Arc::from([
+    let published = kernel.execute(KernelCommand::PublishNerEntities(test_ner_batch(
+        &kernel,
+        1,
+        vec![
             NerEntityRecord {
                 stable_id: user_id,
                 label: "Ryan".into(),
@@ -326,8 +409,8 @@ fn canonical_atlas_merges_only_stable_identity_and_preserves_sources(
                 custom_kind: None,
                 mention_count: 3,
             },
-        ]),
-    }))?;
+        ],
+    )?))?;
     assert!(matches!(
         published.outcome,
         KernelOutcome::NerEntitiesPublished(NerPublicationResult {
@@ -371,7 +454,7 @@ fn canonical_atlas_merges_only_stable_identity_and_preserves_sources(
 fn ner_publication_rejects_duplicate_and_stale_batches() -> Result<(), Box<dyn std::error::Error>> {
     let path = path();
     let kernel = PhoenixKernel::start(path.clone(), None)?;
-    let duplicate = Arc::from([
+    let duplicate = vec![
         NerEntityRecord {
             stable_id: 7,
             label: "A".into(),
@@ -386,31 +469,30 @@ fn ner_publication_rejects_duplicate_and_stale_batches() -> Result<(), Box<dyn s
             custom_kind: None,
             mention_count: 1,
         },
-    ]);
+    ];
     assert!(matches!(
-        kernel.execute(KernelCommand::PublishNerEntities(NerEntityBatch {
-            revision: 1,
-            entities: duplicate,
-        })),
-        Err(KernelError::Workspace(
-            WorkspaceError::DuplicateNerIdentity(7)
-        ))
+        kernel.execute(KernelCommand::PublishNerEntities(test_ner_batch(
+            &kernel, 1, duplicate,
+        )?)),
+        Err(KernelError::AnalysisAuthorityMismatch)
     ));
-    kernel.execute(KernelCommand::PublishNerEntities(NerEntityBatch {
-        revision: 1,
-        entities: Arc::from([NerEntityRecord {
+    kernel.execute(KernelCommand::PublishNerEntities(test_ner_batch(
+        &kernel,
+        1,
+        vec![NerEntityRecord {
             stable_id: 8,
             label: "Concept".into(),
             kind: EntityKind::Concept,
             custom_kind: None,
             mention_count: 2,
-        }]),
-    }))?;
+        }],
+    )?))?;
     assert!(matches!(
-        kernel.execute(KernelCommand::PublishNerEntities(NerEntityBatch {
-            revision: 1,
-            entities: Arc::from([]),
-        })),
+        kernel.execute(KernelCommand::PublishNerEntities(test_ner_batch(
+            &kernel,
+            1,
+            Vec::new(),
+        )?)),
         Err(KernelError::Workspace(WorkspaceError::StaleNerRevision {
             current: 1,
             incoming: 1
@@ -457,18 +539,19 @@ fn production_publication_is_atomic_monotonic_and_restart_durable(
             ScenePublicationError::StaleGeneration { .. }
         ))
     ));
-    kernel.execute(KernelCommand::PublishNerEntities(NerEntityBatch {
-        revision: 1,
-        entities: Arc::from([NerEntityRecord {
+    kernel.execute(KernelCommand::PublishNerEntities(test_ner_batch(
+        &kernel,
+        1,
+        vec![NerEntityRecord {
             stable_id: 901,
             label: "Atlas arrived later".into(),
             kind: EntityKind::Concept,
             custom_kind: None,
             mention_count: 1,
-        }]),
-    }))?;
+        }],
+    )?))?;
     assert_eq!(kernel.snapshot()?.scene_publication, Some(full_receipt));
-    assert_eq!(kernel.events_after(0)?.len(), 2);
+    assert_eq!(kernel.events_after(0)?.len(), 3);
     kernel.shutdown()?;
     drop(kernel);
 
@@ -530,18 +613,18 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
         KernelOutcome::GraphRebuilt(receipt) => receipt,
         other => return Err(format!("unexpected rebuild outcome: {other:?}").into()),
     };
-    assert_eq!(receipt.compile.node_count, 4);
-    assert_eq!(receipt.compile.edge_count, 4);
+    assert_eq!(receipt.compile.node_count, 7);
+    assert_eq!(receipt.compile.edge_count, 7);
     assert_eq!(receipt.compile.verified_mentions, 2);
     assert_eq!(receipt.publication.kind, ScenePublicationKind::Full);
-    assert_eq!(receipt.publication.node_count, 4);
-    assert_eq!(receipt.publication.edge_count, 4);
+    assert_eq!(receipt.publication.node_count, 7);
+    assert_eq!(receipt.publication.edge_count, 7);
 
     let snapshot = kernel.snapshot()?;
     let scene = snapshot.resident_scene.as_ref().ok_or("scene missing")?;
     assert_eq!(scene.source(), phoenix_scene_contract::SceneSource::Backend);
-    assert_eq!(scene.inventory().node_count, 4);
-    assert_eq!(scene.inventory().edge_count, 4);
+    assert_eq!(scene.inventory().node_count, 7);
+    assert_eq!(scene.inventory().edge_count, 7);
     let anchors = snapshot
         .document_anchors
         .as_ref()
@@ -583,6 +666,102 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
 }
 
 #[test]
+fn atlas_control_guides_one_valid_action_through_publication(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start_production(path.clone())?;
+    let waiting = kernel.atlas_control_snapshot()?;
+    assert_eq!(waiting.build_state, AtlasBuildState::WaitingForEntities);
+    assert_eq!(waiting.primary_action, AtlasPrimaryAction::TagEntities);
+
+    let lease = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("initial lease missing")?;
+    kernel.execute(KernelCommand::TagSelection(Box::new(EntityTagCommand {
+        lease: lease.token(),
+        content: Arc::from("Ryan entered New Rome."),
+        tag: EntityTag {
+            kind: EntityKind::Character,
+            custom_kind: None,
+            start: 0,
+            end: 4,
+            surface: "Ryan".into(),
+        },
+    })))?;
+    let ready = kernel.atlas_control_snapshot()?;
+    assert_eq!(ready.build_state, AtlasBuildState::Ready);
+    assert_eq!(ready.primary_action, AtlasPrimaryAction::BuildGraph);
+    assert_eq!(ready.verified_mentions, 1);
+
+    kernel.rebuild_active_scene()?;
+    let published = kernel.atlas_control_snapshot()?;
+    assert_eq!(published.build_state, AtlasBuildState::Published);
+    assert_eq!(published.primary_action, AtlasPrimaryAction::OpenGraph);
+    assert_eq!(
+        published.generation_id,
+        published
+            .last_build
+            .map(|receipt| receipt.publication.generation_id)
+    );
+    assert!(published.node_count > 0);
+    assert!(published.accepted_rows > 0);
+    assert_eq!(published.proposed_rows, 0);
+
+    kernel.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn explicit_publication_root_remains_a_writable_production_authority(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let publication_root = parent.join("packaged-scene-publications-v1");
+    let kernel = PhoenixKernel::start_production_at_root(path.clone(), publication_root.clone())?;
+    let lease = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("initial lease missing")?;
+    kernel.execute(KernelCommand::TagSelection(Box::new(EntityTagCommand {
+        lease: lease.token(),
+        content: Arc::from("Ryan entered New Rome."),
+        tag: EntityTag {
+            kind: EntityKind::Character,
+            custom_kind: None,
+            start: 0,
+            end: 4,
+            surface: "Ryan".into(),
+        },
+    })))?;
+    let rebuilt = kernel.rebuild_active_scene()?;
+    let generation = match rebuilt.outcome {
+        KernelOutcome::GraphRebuilt(receipt) => receipt.publication.generation_id,
+        other => return Err(format!("unexpected rebuild outcome: {other:?}").into()),
+    };
+    kernel.shutdown()?;
+    drop(kernel);
+
+    let reopened = PhoenixKernel::start_production_at_root(path.clone(), publication_root)?;
+    assert_eq!(
+        reopened
+            .snapshot()?
+            .scene_publication
+            .map(|receipt| receipt.generation_id),
+        Some(generation)
+    );
+    assert_eq!(
+        reopened.atlas_control_snapshot()?.build_state,
+        AtlasBuildState::VerificationRequired
+    );
+    reopened.shutdown()?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
 fn native_rebuild_without_verified_mentions_preserves_current_generation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = path();
@@ -598,6 +777,10 @@ fn native_rebuild_without_verified_mentions_preserves_current_generation(
         ))
     ));
     assert_eq!(kernel.snapshot()?.scene_publication, Some(initial));
+    let control = kernel.atlas_control_snapshot()?;
+    assert_eq!(control.build_state, AtlasBuildState::Failed);
+    assert_eq!(control.primary_action, AtlasPrimaryAction::TagEntities);
+    assert!(control.last_error.is_some());
     kernel.shutdown()?;
     drop(kernel);
 

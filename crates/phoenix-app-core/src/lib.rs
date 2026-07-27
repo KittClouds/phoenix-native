@@ -1,6 +1,8 @@
 //! Single-process authority and bounded coordinator for Phoenix Native.
 
+mod analysis;
 mod atlas;
+mod atlas_control;
 mod entity_tags;
 mod graph_selection;
 mod graph_view;
@@ -10,7 +12,12 @@ mod scene_publication;
 mod scene_rebuild;
 mod state;
 
+pub use analysis::{AnalysisPublicationReceipt, LegacyAnalysisAdapterConfig, NliPublication};
 pub use atlas::{AtlasEntity, AtlasRegistry, NerEntityBatch};
+pub use atlas_control::{
+    AtlasBuildState, AtlasControlSnapshot, AtlasPrimaryAction, AtlasStage, AtlasStageState,
+    AtlasStageSummary, ATLAS_CONTROL_CONTRACT,
+};
 pub use metrics::KernelMetrics;
 pub use phoenix_scene_compiler::{
     NativeSceneCompileReceipt, NativeSceneCompilerError, NATIVE_SCENE_COMPILER_CONTRACT,
@@ -24,6 +31,7 @@ pub use protocol::*;
 pub use scene_rebuild::NativeScenePublishCommand;
 use state::*;
 
+use phoenix_analysis_contract::{AnalysisContractError, PhoenixNliArtifactV1};
 use phoenix_scene_contract::{
     DocumentId, GraphAction, GraphGeneration, GraphViewState, HighlightContractError,
     HighlightPalette, Manifold, ResidentScene, RuntimeCapabilities, SceneContractError, StyleState,
@@ -58,6 +66,8 @@ pub struct KernelSnapshot {
     pub active_document_lease: Option<Arc<DocumentLease>>,
     pub entity_registry: Arc<EntityRegistry>,
     pub atlas_registry: Arc<AtlasRegistry>,
+    pub nli_analysis: Option<Arc<PhoenixNliArtifactV1>>,
+    pub analysis_publication: Option<AnalysisPublicationReceipt>,
     pub resident_scene: Option<Arc<ResidentScene>>,
     pub scene_product_index: Option<Arc<PhoenixSceneProductIndexV1>>,
     pub scene_publication: Option<ScenePublicationReceipt>,
@@ -103,6 +113,10 @@ pub enum KernelError {
     ProductionPublisherUnavailable,
     #[error("native scene rebuild requires an active document lease")]
     ActiveSceneDocumentUnavailable,
+    #[error("a native graph build is already running")]
+    GraphBuildAlreadyRunning,
+    #[error("native graph build completion does not match the active run")]
+    GraphBuildRunMismatch,
     #[error("backend scene publication must carry full graph authority")]
     BackendPublicationMustBeFull,
     #[error("compiled scene publication metadata does not match its archive generation")]
@@ -125,6 +139,16 @@ pub enum KernelError {
     StaleGraphViewAuthority,
     #[error("Atlas entity {0} has no verified node mapping in the resident scene")]
     AtlasEntityNotMapped(u64),
+    #[error(
+        "document analysis authority does not match the active document, generation, or registry"
+    )]
+    AnalysisAuthorityMismatch,
+    #[error("legacy Rust analysis adapter is not configured: {0}")]
+    AnalysisProducerUnavailable(&'static str),
+    #[error("legacy Rust analysis adapter failed: {0}")]
+    AnalysisProducerFailed(String),
+    #[error(transparent)]
+    AnalysisContract(#[from] AnalysisContractError),
     #[error("graph node {0} is absent from the resident scene product index")]
     GraphNodeNotFound(u64),
     #[error(transparent)]
@@ -151,6 +175,8 @@ struct KernelState {
     active_document_lease: Option<Arc<DocumentLease>>,
     entity_registry: Arc<EntityRegistry>,
     atlas_registry: Arc<AtlasRegistry>,
+    nli_analysis: Option<Arc<PhoenixNliArtifactV1>>,
+    analysis_publication: Option<AnalysisPublicationReceipt>,
     resident_scene: Option<Arc<ResidentScene>>,
     scene_product_index: Option<Arc<PhoenixSceneProductIndexV1>>,
     scene_publication: Option<ScenePublicationReceipt>,
@@ -168,6 +194,7 @@ struct KernelShared {
     events: Mutex<VecDeque<KernelEvent>>,
     workspace_path: PathBuf,
     publisher: Option<Arc<ScenePublicationStore>>,
+    graph_build: Mutex<atlas_control::GraphBuildRuntime>,
     metrics: KernelMetricAtoms,
 }
 
@@ -195,6 +222,17 @@ pub struct PhoenixKernel {
 impl PhoenixKernel {
     pub fn start_production(workspace_path: PathBuf) -> Result<Arc<Self>, KernelError> {
         let publisher = Arc::new(ScenePublicationStore::for_workspace(&workspace_path)?);
+        Self::start_internal(workspace_path, None, None, Some(publisher))
+    }
+
+    /// Starts the production coordinator with an explicit scene authority
+    /// root. This preserves rebuild capability for packaged or copied binaries
+    /// without falling back to the read-only fixture harness.
+    pub fn start_production_at_root(
+        workspace_path: PathBuf,
+        publication_root: PathBuf,
+    ) -> Result<Arc<Self>, KernelError> {
+        let publisher = Arc::new(ScenePublicationStore::at_root(publication_root));
         Self::start_internal(workspace_path, None, None, Some(publisher))
     }
 
@@ -234,6 +272,11 @@ impl PhoenixKernel {
         let entity_registry = Arc::new(EntityRegistry::load_or_empty(&workspace_path)?);
         let atlas_registry = Arc::new(AtlasRegistry::from_registry(&entity_registry));
         let highlight_palette = Arc::new(load_highlight_palette_or_default(&workspace_path)?);
+        let restored_analysis = analysis::restore_active_analysis(
+            &workspace_path,
+            active_document_lease.as_deref(),
+            entity_registry.revision(),
+        )?;
         let mut scene_publication = None;
         if let Some(publisher) = publisher.as_ref() {
             let published = scene_publication::initial_production_scene(
@@ -260,6 +303,10 @@ impl PhoenixKernel {
             active_document_lease,
             entity_registry,
             atlas_registry,
+            nli_analysis: restored_analysis
+                .as_ref()
+                .map(|restored| Arc::clone(&restored.nli)),
+            analysis_publication: restored_analysis.map(|restored| restored.receipt),
             resident_scene: initial_scene,
             scene_product_index: initial_product_index,
             scene_publication,
@@ -276,6 +323,7 @@ impl PhoenixKernel {
             events: Mutex::new(VecDeque::with_capacity(32)),
             workspace_path,
             publisher,
+            graph_build: Mutex::new(atlas_control::GraphBuildRuntime::default()),
             metrics: KernelMetricAtoms::default(),
         });
         let (sender, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
@@ -307,6 +355,8 @@ impl PhoenixKernel {
             active_document_lease: state.active_document_lease.as_ref().map(Arc::clone),
             entity_registry: Arc::clone(&state.entity_registry),
             atlas_registry: Arc::clone(&state.atlas_registry),
+            nli_analysis: state.nli_analysis.as_ref().map(Arc::clone),
+            analysis_publication: state.analysis_publication,
             resident_scene: state.resident_scene.as_ref().map(Arc::clone),
             scene_product_index: state.scene_product_index.as_ref().map(Arc::clone),
             scene_publication: state.scene_publication,
@@ -507,6 +557,9 @@ fn apply_command(
         KernelCommand::PublishNerEntities(batch) => {
             atlas::publish_ner_batch(shared, sequence, batch)
         }
+        KernelCommand::PublishNliArtifact(publication) => {
+            analysis::publish_nli_artifact(shared, sequence, publication)
+        }
         KernelCommand::PublishNativeScene(publication) => {
             scene_publication::publish_full_scene(shared, sequence, *publication)
         }
@@ -563,6 +616,8 @@ fn select_entry(
     };
     state.active_document_lease = active_document_lease;
     state.document_anchors = document_anchors;
+    state.nli_analysis = None;
+    state.analysis_publication = None;
     state.revision = checked_revision(state.revision)?;
     let revision = state.revision;
     let document = state.active_document;

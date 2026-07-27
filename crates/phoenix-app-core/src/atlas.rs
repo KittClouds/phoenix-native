@@ -1,12 +1,30 @@
 use super::*;
 use hashbrown::HashMap;
+use phoenix_analysis_contract::{PhoenixNerArtifactV1, VerifiedAnalysisArtifact};
 use phoenix_scene_contract::EntityKind;
 use phoenix_workspace::{EntityRegistry, EntitySourceMask, NerEntityRecord};
 
 #[derive(Clone, Debug)]
 pub struct NerEntityBatch {
-    pub revision: u64,
-    pub entities: Arc<[NerEntityRecord]>,
+    pub(crate) artifact_hash: [u8; 32],
+    pub(crate) artifact: Arc<PhoenixNerArtifactV1>,
+}
+
+impl NerEntityBatch {
+    pub fn from_verified(verified: &VerifiedAnalysisArtifact) -> Self {
+        Self {
+            artifact_hash: verified.artifact_hash(),
+            artifact: Arc::new(verified.analysis().ner.clone()),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_fixture(artifact: PhoenixNerArtifactV1) -> Self {
+        Self {
+            artifact_hash: [0xA5; 32],
+            artifact: Arc::new(artifact),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,8 +93,42 @@ pub(super) fn publish_ner_batch(
     sequence: u64,
     batch: NerEntityBatch,
 ) -> Result<CommandReceipt, KernelError> {
+    batch
+        .artifact
+        .validate()
+        .map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
+    if batch.artifact_hash == [0; 32] {
+        return Err(KernelError::AnalysisAuthorityMismatch);
+    }
+    let current = read_state(shared)?;
+    analysis::validate_binding(
+        &current,
+        &batch.artifact.binding,
+        batch.artifact.binding.source_registry_revision,
+    )?;
+    let records = batch
+        .artifact
+        .entities
+        .iter()
+        .map(|entity| NerEntityRecord {
+            stable_id: entity.stable_id,
+            label: entity.label.clone(),
+            kind: analysis::entity_kind(entity.kind),
+            custom_kind: entity.custom_kind.clone(),
+            mention_count: entity.mention_count,
+        })
+        .collect::<Vec<_>>();
+    let ner_revision = batch.artifact.ner_revision;
+    drop(current);
     let mut registry = (*read_state(shared)?.entity_registry).clone();
-    let result = registry.publish_ner(batch.revision, &batch.entities)?;
+    let result = registry.publish_document_ner(
+        phoenix_workspace::EntryId(batch.artifact.binding.native_document_id),
+        ner_revision,
+        &records,
+    )?;
+    if result.registry_revision != batch.artifact.binding.target_registry_revision {
+        return Err(KernelError::AnalysisAuthorityMismatch);
+    }
     registry.save_atomic(&shared.workspace_path)?;
     let registry = Arc::new(registry);
     let atlas = Arc::new(AtlasRegistry::from_registry(&registry));

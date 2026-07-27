@@ -73,6 +73,66 @@ pub struct GraphProofHandle {
     projection: ProjectionIdentity,
 }
 
+impl super::EmbeddedGraphApp {
+    pub(super) fn stress_interaction(&mut self) -> Result<InteractionStressProof> {
+        const WARMUP_UPDATES: usize = 128;
+        const MEASURED_UPDATES: usize = 1_000;
+        let renderer = self
+            .renderer
+            .as_mut()
+            .ok_or_else(|| anyhow!("embedded graph renderer is unavailable"))?;
+        let node_ids = renderer
+            .scene_state()
+            .nodes()
+            .take(257)
+            .map(|node| node.id)
+            .collect::<Vec<_>>();
+        if node_ids.len() < 2 {
+            return Err(anyhow!("interaction stress requires at least two nodes"));
+        }
+        renderer
+            .set_external_selection(Some(node_ids[0]), false)
+            .context("seed interaction stress selection")?;
+        for update in 0..WARMUP_UPDATES {
+            renderer
+                .set_external_hover(Some(node_ids[1 + update % (node_ids.len() - 1)]))
+                .context("warm interaction overlays")?;
+        }
+        let before = renderer.interaction_allocation_stats();
+        let mut samples = Vec::with_capacity(MEASURED_UPDATES);
+        for update in 0..MEASURED_UPDATES {
+            let started = Instant::now();
+            renderer
+                .set_external_hover(Some(node_ids[1 + update % (node_ids.len() - 1)]))
+                .context("stress interaction overlays")?;
+            samples.push(started.elapsed().as_micros());
+        }
+        let after = renderer.interaction_allocation_stats();
+        renderer
+            .set_external_hover(None)
+            .context("clear interaction stress hover")?;
+        renderer
+            .set_external_selection(None, false)
+            .context("clear interaction stress selection")?;
+        samples.sort_unstable();
+        let p95_index = samples
+            .len()
+            .saturating_mul(95)
+            .div_ceil(100)
+            .saturating_sub(1);
+        Ok(InteractionStressProof {
+            updates: MEASURED_UPDATES as u32,
+            cpu_p95_us: samples.get(p95_index).copied().unwrap_or(0),
+            cpu_max_us: samples.last().copied().unwrap_or(0),
+            stable_capacities: before.queue_capacity == after.queue_capacity
+                && before.route_node_capacity == after.route_node_capacity
+                && before.route_edge_capacity == after.route_edge_capacity,
+            route_node_capacity: after.route_node_capacity,
+            route_edge_capacity: after.route_edge_capacity,
+        })
+    }
+}
+
 impl GraphProofHandle {
     pub(super) fn new(
         parent: ParentWindowHandle,

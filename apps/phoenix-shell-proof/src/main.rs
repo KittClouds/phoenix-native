@@ -138,7 +138,9 @@ fn main() {
         }
         (None, None) => None,
     };
-    let kernel_result = if archive_path.is_some() || publication_root.is_some() {
+    let kernel_result = if let Some(root) = publication_root {
+        PhoenixKernel::start_production_at_root(workspace_path.clone(), root)
+    } else if archive_path.is_some() {
         PhoenixKernel::start_with_product_index(
             workspace_path.clone(),
             initial_scene,

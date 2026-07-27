@@ -13,6 +13,7 @@ pub struct CameraSnapshot {
 }
 
 pub struct Camera {
+    orbit_center: Vec3,
     target: Vec3,
     yaw: f32,
     pitch: f32,
@@ -31,6 +32,7 @@ impl Camera {
         let viewport_width = width.max(1.0);
         let viewport_height = height.max(1.0);
         Self {
+            orbit_center: Vec3::ZERO,
             target: Vec3::ZERO,
             yaw: 0.0,
             pitch: 0.2,
@@ -80,9 +82,7 @@ impl Camera {
 
     #[must_use]
     pub fn view_basis(&self) -> (Vec3, Vec3) {
-        let forward = (self.target - self.eye_position()).normalize_or_zero();
-        let right = forward.cross(Vec3::Y).try_normalize().unwrap_or(Vec3::X);
-        let up = right.cross(forward).normalize_or_zero();
+        let (right, up, _) = self.frame_basis();
         (right, up)
     }
 
@@ -112,24 +112,61 @@ impl Camera {
     }
 
     pub fn orbit(&mut self, delta_x: f32, delta_y: f32) {
-        self.yaw += delta_x * 0.005;
-        self.pitch -= delta_y * 0.005;
+        // Keep the scene's screen-space offset stable while the view tilts. This
+        // matches the Angular renderer: a prior pan rotates with the camera frame
+        // instead of becoming the fixed pivot that the graph spins around.
+        let (old_right, old_up, old_backward) = self.frame_basis();
+        let offset = self.target - self.orbit_center;
+        let local_offset = Vec3::new(
+            offset.dot(old_right),
+            offset.dot(old_up),
+            offset.dot(old_backward),
+        );
+
+        self.yaw += delta_x * 0.006;
+        self.pitch += delta_y * 0.004;
         let limit = std::f32::consts::FRAC_PI_2 - 0.01;
         self.pitch = self.pitch.clamp(-limit, limit);
+
+        let (right, up, backward) = self.frame_basis();
+        self.target = self.orbit_center
+            + right * local_offset.x
+            + up * local_offset.y
+            + backward * local_offset.z;
     }
 
     pub fn pan(&mut self, delta_x: f32, delta_y: f32) {
-        let (right, up) = self.view_basis();
-        let world_per_pixel = 2.0 * self.distance * (self.fov_y * 0.5).tan() / self.viewport_height;
-        self.target -= right * delta_x * world_per_pixel;
-        self.target += up * delta_y * world_per_pixel;
+        let world_per_pixel = 0.0045 * self.distance;
+        // Angular stores pan as world X/Y camera-target offsets. The orbit path
+        // then carries that offset through subsequent yaw/tilt changes.
+        self.target.x -= delta_x * world_per_pixel;
+        self.target.y += delta_y * world_per_pixel;
     }
 
     pub fn zoom(&mut self, delta: f32) {
         self.distance = (self.distance * (-delta * 0.12).exp()).clamp(0.05, 100_000.0);
     }
 
+    pub fn zoom_at(&mut self, delta: f32, screen_x: f32, screen_y: f32) {
+        let previous_distance = self.distance;
+        let next_distance = (previous_distance * (-delta * 0.12).exp()).clamp(0.05, 100_000.0);
+        if next_distance == previous_distance {
+            return;
+        }
+
+        // Angular only retargets on zoom-in. Zoom-out keeps the current framing,
+        // which avoids target drift during repeated wheel reversals.
+        if next_distance < previous_distance {
+            if let Some(anchor) = self.target_plane_anchor(screen_x, screen_y) {
+                let ratio = next_distance / previous_distance;
+                self.target = anchor + (self.target - anchor) * ratio;
+            }
+        }
+        self.distance = next_distance;
+    }
+
     pub fn reset(&mut self) {
+        self.orbit_center = Vec3::ZERO;
         self.target = Vec3::ZERO;
         self.yaw = 0.0;
         self.pitch = 0.2;
@@ -143,7 +180,8 @@ impl Camera {
     }
 
     pub fn focus(&mut self, position: [f32; 3]) {
-        self.target = Vec3::from_array(position);
+        self.orbit_center = Vec3::from_array(position);
+        self.target = self.orbit_center;
         self.distance = self.distance.clamp(8.0, 180.0);
     }
 
@@ -168,7 +206,8 @@ impl Camera {
             return;
         }
 
-        self.target = (min + max) * 0.5;
+        self.orbit_center = (min + max) * 0.5;
+        self.target = self.orbit_center;
         let radius = nodes
             .map(|node| {
                 (Vec3::from_array(node.position) - self.target).length() + node.radius.max(0.0)
@@ -188,6 +227,27 @@ impl Camera {
         let near = inverse.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
         let far = inverse.project_point3(Vec3::new(ndc_x, ndc_y, 1.0));
         (near, (far - near).normalize_or_zero())
+    }
+
+    fn frame_basis(&self) -> (Vec3, Vec3, Vec3) {
+        let backward = (self.eye_position() - self.target)
+            .try_normalize()
+            .unwrap_or(Vec3::Z);
+        let forward = -backward;
+        let right = forward.cross(Vec3::Y).try_normalize().unwrap_or(Vec3::X);
+        let up = right.cross(forward).normalize_or_zero();
+        (right, up, backward)
+    }
+
+    fn target_plane_anchor(&self, screen_x: f32, screen_y: f32) -> Option<Vec3> {
+        let (ray_origin, ray_direction) = self.viewport_to_ray(screen_x, screen_y);
+        let plane_normal = (self.target - self.eye_position()).normalize_or_zero();
+        let denominator = ray_direction.dot(plane_normal);
+        if denominator.abs() <= 1.0e-6 {
+            return None;
+        }
+        let distance = (self.target - ray_origin).dot(plane_normal) / denominator;
+        (distance >= 0.0).then(|| ray_origin + ray_direction * distance)
     }
 }
 
@@ -259,5 +319,69 @@ mod tests {
         assert_eq!(camera.snapshot().yaw, 0.72);
         assert!(camera.snapshot().pitch < std::f32::consts::FRAC_PI_2);
         assert_eq!(camera.snapshot().distance, distance);
+    }
+
+    #[test]
+    fn orbit_preserves_a_panned_scene_offset_in_the_camera_frame() {
+        let mut camera = Camera::new(1200.0, 800.0);
+        camera.pan(80.0, -30.0);
+        let (old_right, old_up, old_backward) = camera.frame_basis();
+        let old_offset = camera.target - camera.orbit_center;
+        let old_local = Vec3::new(
+            old_offset.dot(old_right),
+            old_offset.dot(old_up),
+            old_offset.dot(old_backward),
+        );
+
+        camera.orbit(90.0, 45.0);
+
+        let (right, up, backward) = camera.frame_basis();
+        let offset = camera.target - camera.orbit_center;
+        let local = Vec3::new(offset.dot(right), offset.dot(up), offset.dot(backward));
+        assert!((local - old_local).length() < 0.0001);
+        assert_ne!(camera.target, old_offset);
+    }
+
+    #[test]
+    fn vertical_drag_uses_the_angular_tilt_direction_and_sensitivity() {
+        let mut camera = Camera::new(800.0, 600.0);
+        camera.orbit(0.0, 25.0);
+        assert!((camera.snapshot().pitch - 0.3).abs() < 0.0001);
+    }
+
+    #[test]
+    fn pan_matches_angular_world_xy_offsets_after_tilt() {
+        let mut camera = Camera::new(800.0, 600.0);
+        camera.orbit(60.0, 35.0);
+        let before = camera.target;
+        camera.pan(10.0, -5.0);
+        let scale = 0.0045 * camera.distance;
+        assert!((camera.target.x - (before.x - 10.0 * scale)).abs() < 0.0001);
+        assert!((camera.target.y - (before.y - 5.0 * scale)).abs() < 0.0001);
+        assert_eq!(camera.target.z, before.z);
+    }
+
+    #[test]
+    fn zoom_in_tracks_the_pointer_on_the_camera_target_plane() {
+        let mut camera = Camera::new(1000.0, 800.0);
+        let anchor = camera.target_plane_anchor(750.0, 400.0).unwrap();
+        let old_target = camera.target;
+        let old_distance = camera.distance;
+
+        camera.zoom_at(1.0, 750.0, 400.0);
+
+        let ratio = camera.distance / old_distance;
+        let expected = anchor + (old_target - anchor) * ratio;
+        assert!((camera.target - expected).length() < 0.0001);
+        assert!(camera.target.x > old_target.x);
+    }
+
+    #[test]
+    fn zoom_out_keeps_the_current_target() {
+        let mut camera = Camera::new(1000.0, 800.0);
+        camera.pan(20.0, -10.0);
+        let target = camera.target;
+        camera.zoom_at(-1.0, 900.0, 100.0);
+        assert_eq!(camera.target, target);
     }
 }

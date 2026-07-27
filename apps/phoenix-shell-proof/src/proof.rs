@@ -252,9 +252,15 @@ fn inspect_soak_authority(kernel: &Arc<PhoenixKernel>) -> Result<SoakAuthority, 
     let scene = snapshot
         .resident_scene
         .ok_or_else(|| "verified resident scene is missing".to_string())?;
-    if scene.source() != SceneSource::VerificationFixture {
-        return Err("automated proof did not use the explicit fixture/recovery seam".into());
-    }
+    let resident_source = match scene.source() {
+        SceneSource::Backend => "backend_publication",
+        SceneSource::VerificationFixture => "verification_fixture",
+        SceneSource::Archive | SceneSource::RegistryOnly => {
+            return Err(
+                "automated proof requires a full backend publication or explicit fixture".into(),
+            )
+        }
+    };
     let metrics = kernel.metrics();
     Ok(SoakAuthority {
         workspace_revision: snapshot.workspace.revision(),
@@ -266,7 +272,7 @@ fn inspect_soak_authority(kernel: &Arc<PhoenixKernel>) -> Result<SoakAuthority, 
         ner_revision: snapshot.atlas_registry.ner_revision,
         canonical_entities: snapshot.atlas_registry.entities.len(),
         resident_generation: scene.generation().0,
-        resident_source: "verification_fixture",
+        resident_source,
         kernel_command_queue_high_water: metrics.command_queue_high_water,
         kernel_commands_pending: metrics.commands_pending,
     })

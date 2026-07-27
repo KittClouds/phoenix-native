@@ -8,6 +8,9 @@ const GOLDEN_ANGLE: f32 = 2.399_963_1;
 const MIN_CAP_APERTURE: f32 = 0.055;
 const CAP_RING_STEP: f32 = 0.032;
 const MAX_CAP_APERTURE: f32 = 0.30;
+const ROOT_CAP_MIN_APERTURE: f32 = 0.85;
+const ROOT_CAP_MAX_APERTURE: f32 = PI - 0.12;
+const ROOT_CAP_SATURATION: f32 = 6.0;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapsNode {
@@ -109,6 +112,9 @@ fn child_direction(node: &CapsNode, parent: CapsNode, parent_direction: Vec3) ->
     } else {
         fallback
     };
+    if parent.role <= CapsRole::Episode {
+        return root_cap_direction(node, parent, center);
+    }
     let (tangent_u, tangent_v) = tangent_basis(center);
     let ring = integer_ring(node.sibling_rank);
     let ambiguity = f32::from(node.membership_count.saturating_sub(1).min(8)) * 0.012;
@@ -120,6 +126,29 @@ fn child_direction(node: &CapsNode, parent: CapsNode, parent_direction: Vec3) ->
         + signed_unit(node.stable_id, 8) * 0.08;
     let tangent = tangent_u * angle.cos() + tangent_v * angle.sin();
     (center * aperture.cos() + tangent * aperture.sin()).normalize()
+}
+
+fn root_cap_direction(node: &CapsNode, parent: CapsNode, center: Vec3) -> Vec3 {
+    // Document and episode descendants define the global CAPS chart. A
+    // fixed narrow child aperture turns every real document into one dense
+    // lobe regardless of node count, leaving the orthogonal Klein sections
+    // as decorative scenery. Grow the spherical cap toward the full chart as
+    // siblings accumulate, while retaining the parent axis and chronological
+    // rank as stable semantic coordinates.
+    let count = node.sibling_count.max(1) as f32;
+    let coverage = count / (count + ROOT_CAP_SATURATION);
+    let aperture =
+        ROOT_CAP_MIN_APERTURE + coverage * (ROOT_CAP_MAX_APERTURE - ROOT_CAP_MIN_APERTURE);
+    let ordinal = (node.sibling_rank as f32 + 0.5) / count;
+    let cos_theta = 1.0 - ordinal * (1.0 - aperture.cos());
+    let sin_theta = (1.0 - cos_theta * cos_theta).max(0.0).sqrt();
+    let (tangent_u, tangent_v) = tangent_basis(center);
+    let stable_phase = signed_unit(parent.stable_id, 4) * PI;
+    let angle = node.sibling_rank as f32 * GOLDEN_ANGLE
+        + stable_phase
+        + signed_unit(node.stable_id, 8) * 0.08;
+    let tangent = tangent_u * angle.cos() + tangent_v * angle.sin();
+    (center * cos_theta + tangent * sin_theta).normalize()
 }
 
 fn tangent_basis(direction: Vec3) -> (Vec3, Vec3) {
@@ -265,6 +294,56 @@ mod tests {
             layout(&nodes).unwrap_or_else(|error| panic!("{error}")),
             layout(&nodes).unwrap_or_else(|error| panic!("{error}"))
         );
+    }
+
+    #[test]
+    fn episode_children_occupy_the_global_caps_chart() {
+        const CHUNKS: u32 = 128;
+        let mut nodes = Vec::with_capacity(CHUNKS as usize + 1);
+        nodes.push(node(1, CapsRole::Episode, None, 0, 1));
+        for rank in 0..CHUNKS {
+            nodes.push(node(
+                10 + u64::from(rank),
+                CapsRole::Chunk,
+                Some(0),
+                rank,
+                CHUNKS,
+            ));
+        }
+        let positions = layout(&nodes).unwrap_or_else(|error| panic!("{error}"));
+        let directions = positions[1..]
+            .iter()
+            .map(|position| Vec3::from_array(position.position).normalize())
+            .collect::<Vec<_>>();
+        let centroid = directions.iter().copied().sum::<Vec3>() / CHUNKS as f32;
+        assert!(
+            centroid.length() < 0.14,
+            "global chart collapsed into a lobe: {centroid:?}"
+        );
+        for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+            let (minimum, maximum) = directions.iter().map(|direction| direction.dot(axis)).fold(
+                (f32::INFINITY, f32::NEG_INFINITY),
+                |(minimum, maximum), value| (minimum.min(value), maximum.max(value)),
+            );
+            assert!(minimum < -0.70, "negative axis coverage {minimum}");
+            assert!(maximum > 0.70, "positive axis coverage {maximum}");
+        }
+    }
+
+    #[test]
+    fn local_descendants_remain_inside_their_parent_cap() {
+        let nodes = [
+            node(1, CapsRole::Episode, None, 0, 1),
+            node(2, CapsRole::Chunk, Some(0), 0, 1),
+            node(3, CapsRole::Entity, Some(1), 0, 3),
+            node(4, CapsRole::Entity, Some(1), 1, 3),
+            node(5, CapsRole::Entity, Some(1), 2, 3),
+        ];
+        let positions = layout(&nodes).unwrap_or_else(|error| panic!("{error}"));
+        let chunk = Vec3::from_array(positions[1].position).normalize();
+        for entity in &positions[2..] {
+            assert!(chunk.dot(Vec3::from_array(entity.position).normalize()) > 0.95);
+        }
     }
 
     #[test]

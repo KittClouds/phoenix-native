@@ -3,6 +3,7 @@
 mod compile;
 mod error;
 mod layout;
+mod scene_build;
 
 #[cfg(test)]
 mod tests;
@@ -12,5 +13,6 @@ pub use compile::{
     NativeSceneCompilerInput,
 };
 pub use error::NativeSceneCompilerError;
+pub use layout::project_node_positions;
 pub use layout::{compile_caps_positions, CapsNode};
 pub use phoenix_scene_contract::NATIVE_SCENE_COMPILER_CONTRACT;

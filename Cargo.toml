@@ -4,6 +4,7 @@ members = [
     "crates/graph-model",
     "crates/gpui-animated-gradient-text",
     "crates/graph-render-wgpu",
+    "crates/phoenix-analysis-contract",
     "crates/phoenix-app-core",
     "crates/phoenix-scene-compiler",
     "crates/phoenix-scene-archive",
@@ -12,6 +13,8 @@ members = [
     "crates/phoenix-scene-publisher",
     "crates/phoenix-workspace",
     "apps/graph-demo",
+    "apps/phoenix-legacy-bridge",
+    "apps/phoenix-analysis-proof",
     "apps/phoenix-release-lock",
     "apps/phoenix-shell-proof",
     "vendor/velotype",
@@ -20,6 +23,7 @@ default-members = [
     "crates/graph-model",
     "crates/gpui-animated-gradient-text",
     "crates/graph-render-wgpu",
+    "crates/phoenix-analysis-contract",
     "crates/phoenix-app-core",
     "crates/phoenix-scene-compiler",
     "crates/phoenix-scene-archive",
@@ -49,6 +53,7 @@ memmap2 = "0.9"
 gpui = "=0.2.2"
 gpui-component = "=0.5.1"
 pollster = "0.4"
+postcard = { version = "1.1", features = ["alloc"] }
 raw-window-handle = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -57,6 +62,7 @@ thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 wgpu = "24.0"
+zstd = "0.13"
 glyphon = "=0.8.0"
 windows = { version = "0.61", features = [
     "Win32_Foundation",

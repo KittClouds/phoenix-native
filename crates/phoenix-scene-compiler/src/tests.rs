@@ -5,7 +5,8 @@ use crate::{
 use glam::Vec3;
 use phoenix_scene_archive::ArchiveManifold;
 use phoenix_scene_contract::{
-    CapsRole, EntityKind, HighlightPalette, RelationFamily, CHUNK_NODE_KIND, EPISODE_NODE_KIND,
+    CapsRole, EntityKind, HighlightPalette, RelationFamily, CHUNK_NODE_KIND, DOCUMENT_NODE_KIND,
+    EPISODE_NODE_KIND, EVIDENCE_NODE_KIND,
 };
 use phoenix_scene_publisher::ScenePublicationKind;
 use phoenix_workspace::{
@@ -33,11 +34,11 @@ fn compiles_canonical_mentions_into_one_deterministic_full_scene(
 
     assert_eq!(
         NATIVE_SCENE_COMPILER_CONTRACT,
-        "phoenix.native.active-document-scene-compiler/v1"
+        "phoenix.native.active-document-scene-compiler/v2"
     );
     assert_eq!(compiled.publication.kind, ScenePublicationKind::Full);
-    assert_eq!(compiled.receipt.node_count, 4);
-    assert_eq!(compiled.receipt.edge_count, 4);
+    assert_eq!(compiled.receipt.node_count, 7);
+    assert_eq!(compiled.receipt.edge_count, 7);
     assert_eq!(compiled.receipt.verified_mentions, 2);
     assert_eq!(
         compiled.publication.document_id,
@@ -45,7 +46,7 @@ fn compiles_canonical_mentions_into_one_deterministic_full_scene(
     );
     assert_eq!(
         std::array::from_fn::<_, 5, _>(|page| compiled.publication.positions[page].len()),
-        [4; 5]
+        [7; 5]
     );
     assert_eq!(compiled.anchors.len(), 2);
     compiled.publication.validate()?;
@@ -94,8 +95,10 @@ fn compiles_canonical_mentions_into_one_deterministic_full_scene(
     let caps = &compiled.publication.positions[ArchiveManifold::Caps as usize];
     for (slot, style) in compiled.publication.styles.iter().enumerate() {
         let expected = match style.kind {
+            DOCUMENT_NODE_KIND => CapsRole::Document.world_radius(),
             EPISODE_NODE_KIND => CapsRole::Episode.world_radius(),
             CHUNK_NODE_KIND => CapsRole::Chunk.world_radius(),
+            EVIDENCE_NODE_KIND => CapsRole::Evidence.world_radius(),
             _ => CapsRole::Entity.world_radius(),
         };
         assert!((Vec3::from_array(caps[slot].position).length() - expected).abs() < 0.001);
@@ -110,7 +113,7 @@ fn compiles_canonical_mentions_into_one_deterministic_full_scene(
     for entity in caps.iter().take(2) {
         assert!(
             chunk_direction.dot(Vec3::from_array(entity.position).normalize()) > 0.93,
-            "entities must occupy their explicit chunk cap"
+            "entities must remain inside the chunk/evidence cap chain"
         );
     }
 
@@ -164,8 +167,27 @@ fn paragraph_boundaries_do_not_invent_cross_paragraph_edges(
             .iter()
             .filter(|edge| edge.relation_mask == RelationFamily::Structural.mask().0)
             .count(),
-        4
+        7
     );
+    fixture.cleanup();
+    Ok(())
+}
+
+#[test]
+fn explicit_event_entities_occupy_the_event_shell() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = fixture("event-shell", "The Launch began.")?;
+    let start = fixture.content.find("Launch").ok_or("Launch")?;
+    let mut registry = EntityRegistry::empty();
+    registry.tag(&fixture.lease, tag(EntityKind::Event, start, "Launch"))?;
+    let compiled = compile_active_document(NativeSceneCompilerInput {
+        generation_id: 1,
+        registry_revision: registry.revision(),
+        document: &fixture.lease,
+        registry: &registry,
+        palette: HighlightPalette::default(),
+    })?;
+    let position = compiled.publication.positions[ArchiveManifold::Caps as usize][0].position;
+    assert!((Vec3::from_array(position).length() - CapsRole::Event.world_radius()).abs() < 0.001);
     fixture.cleanup();
     Ok(())
 }

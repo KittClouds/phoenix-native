@@ -1,5 +1,6 @@
 use crate::{
-    NativeSceneCompileReceipt, NativeScenePublishCommand, NerEntityBatch, ScenePublicationReceipt,
+    AnalysisPublicationReceipt, NativeSceneCompileReceipt, NativeScenePublishCommand,
+    NerEntityBatch, NliPublication, ScenePublicationReceipt,
 };
 use phoenix_scene_contract::{
     DocumentId, GraphAction, GraphViewState, HighlightPalette, Manifold, SceneSource, StyleState,
@@ -29,6 +30,7 @@ pub enum KernelCommand {
     },
     TagSelection(Box<EntityTagCommand>),
     PublishNerEntities(NerEntityBatch),
+    PublishNliArtifact(NliPublication),
     PublishNativeScene(Box<NativeScenePublishCommand>),
     PublishDocumentAnchors(Arc<VerifiedDocumentAnchors>),
     SetManifold(Manifold),
@@ -95,6 +97,7 @@ pub enum KernelOutcome {
     DocumentSaved(DocumentRevision),
     EntityTagged(EntityTagResult),
     NerEntitiesPublished(NerPublicationResult),
+    NliCandidatesPublished(AnalysisPublicationReceipt),
     GraphRebuilt(GraphRebuildReceipt),
     SceneGenerationPublished(ScenePublicationReceipt),
     GraphActionQueued(GraphAction),
@@ -149,6 +152,9 @@ pub enum KernelEventKind {
         registry_revision: u64,
         canonical_entities: usize,
         scene_publication: Option<ScenePublicationReceipt>,
+    },
+    NliCandidatesCommitted {
+        receipt: AnalysisPublicationReceipt,
     },
     ManifoldChanged(Manifold),
     GraphViewChanged(GraphViewState),

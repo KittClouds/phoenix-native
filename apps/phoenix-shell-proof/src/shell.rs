@@ -1,3 +1,4 @@
+mod atlas_control;
 mod atlas_entities;
 mod drawer;
 mod entity_tags;
@@ -75,6 +76,7 @@ pub struct PhoenixShell {
     left_sidebar_width: f32,
     right_sidebar_width: f32,
     drawer_layout: drawer::DrawerLayout,
+    drawer_tab: drawer::DrawerTab,
     document_metrics: footer::DocumentMetrics,
     status: SharedString,
 }
@@ -152,6 +154,7 @@ impl PhoenixShell {
             left_sidebar_width: LEFT_SIDEBAR_INITIAL_WIDTH,
             right_sidebar_width: RIGHT_SIDEBAR_INITIAL_WIDTH,
             drawer_layout: drawer::DrawerLayout::new(proof_mode || soak_mode || design_preview),
+            drawer_tab: drawer::DrawerTab::Graph,
             document_metrics,
             status,
         };

@@ -43,20 +43,24 @@ impl ScenePublicationStore {
         let parent = workspace_path.parent().ok_or_else(|| {
             ScenePublicationError::WorkspacePathWithoutParent(workspace_path.to_path_buf())
         })?;
-        Ok(Self {
-            root: parent.join(STORE_DIRECTORY),
+        Ok(Self::at_root(parent.join(STORE_DIRECTORY)))
+    }
+
+    /// Opens an explicit production authority root. Unlike [`Self::open_current_at`],
+    /// this handle may publish newer generations and is therefore only created
+    /// by the single owning kernel.
+    #[must_use]
+    pub fn at_root(root: impl Into<PathBuf>) -> Self {
+        Self {
+            root: root.into(),
             nonce: AtomicU64::new(1),
-        })
+        }
     }
 
     /// Opens the atomically selected generation from an explicit publication
     /// root without granting the caller a publication handle.
     pub fn open_current_at(root: &Path) -> Result<Option<PublishedScene>, ScenePublicationError> {
-        Self {
-            root: root.to_path_buf(),
-            nonce: AtomicU64::new(1),
-        }
-        .open_current()
+        Self::at_root(root).open_current()
     }
 
     #[must_use]

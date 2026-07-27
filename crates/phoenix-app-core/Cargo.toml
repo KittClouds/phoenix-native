@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 blake3.workspace = true
 hashbrown.workspace = true
+phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
 phoenix-scene-compiler = { path = "../phoenix-scene-compiler" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }

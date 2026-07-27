@@ -3,6 +3,21 @@ mod caps;
 pub use caps::{layout as compile_caps_positions, CapsNode};
 use phoenix_scene_archive::PositionRecord;
 
+/// Projects one stable node into every non-authoritative manifold lane.
+///
+/// Backend adapters use this only while compiling a packed generation. The
+/// renderer never invokes layout code or reconstructs graph products.
+#[must_use]
+pub fn project_node_positions(
+    stable_id: u64,
+    ordinal: usize,
+    count: usize,
+    family_slot: u16,
+    degree: u32,
+) -> [PositionRecord; 5] {
+    positions(stable_id, ordinal, count, family_slot, degree)
+}
+
 pub(crate) fn positions(
     stable_id: u64,
     ordinal: usize,

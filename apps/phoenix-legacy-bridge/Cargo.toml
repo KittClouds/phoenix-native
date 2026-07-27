@@ -1,0 +1,21 @@
+[package]
+name = "phoenix-legacy-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+blake3.workspace = true
+hashbrown.workspace = true
+memmap2.workspace = true
+phoenix-scene-archive = { path = "../../crates/phoenix-scene-archive" }
+phoenix-scene-compiler = { path = "../../crates/phoenix-scene-compiler" }
+phoenix-scene-contract = { path = "../../crates/phoenix-scene-contract" }
+phoenix-scene-product-index = { path = "../../crates/phoenix-scene-product-index" }
+phoenix-scene-publisher = { path = "../../crates/phoenix-scene-publisher" }
+serde.workspace = true
+serde_json.workspace = true
+zstd.workspace = true

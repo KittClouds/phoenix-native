@@ -20,13 +20,38 @@ const ATLAS_MAX_WIDTH: f32 = 460.;
 const GRAPH_MIN_WIDTH: f32 = 360.;
 pub(super) const ACCENT: u32 = 0x57e2bb;
 pub(super) const ACCENT_DIM: u32 = 0x173b32;
-const GRAPH_TABS: [&str; 5] = [
-    "GRAPH",
-    "PATTERNS",
-    "PLOT THREADS",
-    "WORLDBUILDING",
-    "ATLAS CONTROL",
-];
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum DrawerTab {
+    Graph,
+    Patterns,
+    PlotThreads,
+    Worldbuilding,
+    AtlasControl,
+}
+
+impl DrawerTab {
+    const ALL: [Self; 5] = [
+        Self::Graph,
+        Self::Patterns,
+        Self::PlotThreads,
+        Self::Worldbuilding,
+        Self::AtlasControl,
+    ];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Graph => "GRAPH",
+            Self::Patterns => "PATTERNS",
+            Self::PlotThreads => "PLOT THREADS",
+            Self::Worldbuilding => "WORLDBUILDING",
+            Self::AtlasControl => "ATLAS CONTROL",
+        }
+    }
+
+    const fn is_active_product(self) -> bool {
+        matches!(self, Self::Graph | Self::AtlasControl)
+    }
+}
 
 fn atlas_split_id(left_open: bool, right_open: bool) -> &'static str {
     match (left_open, right_open) {
@@ -79,6 +104,29 @@ impl DrawerLayout {
 }
 
 impl PhoenixShell {
+    pub(super) fn select_drawer_tab(&mut self, tab: DrawerTab, cx: &mut Context<Self>) {
+        if !tab.is_active_product() || self.drawer_tab == tab {
+            return;
+        }
+        if tab != DrawerTab::Graph {
+            if let Some(graph) = self.graph.borrow().as_ref() {
+                if let Err(error) = graph.hide_viewport() {
+                    lifecycle::mark_proof_failed();
+                    self.status = format!("GRAPH BLOCKED / {error:#}").into();
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        self.drawer_tab = tab;
+        self.status = match tab {
+            DrawerTab::Graph => "GRAPH / RESIDENT GENERATION".into(),
+            DrawerTab::AtlasControl => "ATLAS CONTROL / NATIVE AUTHORITY".into(),
+            _ => unreachable!("inactive tabs cannot be selected"),
+        };
+        cx.notify();
+    }
+
     pub(super) fn toggle_drawer(&mut self, cx: &mut Context<Self>) {
         if self.drawer_layout.is_open() {
             if let Some(graph) = self.graph.borrow().as_ref() {
@@ -180,6 +228,30 @@ impl PhoenixShell {
     }
 
     pub(super) fn render_drawer_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let body = match self.drawer_tab {
+            DrawerTab::Graph => self.render_graph_drawer(cx),
+            DrawerTab::AtlasControl => self.render_atlas_control(cx).into_any_element(),
+            _ => scene_error_panel(
+                "PHX_DORMANT_SURFACE",
+                "This surface is not active",
+                "Dormant tabs carry no routes, commands, or data models.",
+            )
+            .into_any_element(),
+        };
+        div()
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .border_t_1()
+            .border_color(rgb(BORDER_BRIGHT))
+            .bg(rgb(SURFACE))
+            .child(self.render_drawer_tabs(cx))
+            .child(body)
+    }
+
+    fn render_graph_drawer(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let atlas_width = self.drawer_layout.atlas_width();
         let shell = cx.entity().clone();
         let split_id = atlas_split_id(self.left_open, self.right_open);
@@ -210,10 +282,8 @@ impl PhoenixShell {
             .min_h_0()
             .flex()
             .flex_col()
-            .border_t_1()
-            .border_color(rgb(BORDER_BRIGHT))
             .bg(rgb(SURFACE))
-            .child(self.render_drawer_tabs(cx))
+            .child(self.render_graph_controls(cx))
             .child(
                 div()
                     .w_full()
@@ -223,6 +293,7 @@ impl PhoenixShell {
                     .flex()
                     .child(split),
             )
+            .into_any_element()
     }
 
     fn render_graph_panel(&self) -> gpui::AnyElement {
@@ -264,30 +335,35 @@ impl PhoenixShell {
             .border_b_1()
             .border_color(rgb(BORDER))
             .bg(rgb(0x171918));
-        for (index, label) in GRAPH_TABS.into_iter().enumerate() {
+        for tab in DrawerTab::ALL {
+            let selected = self.drawer_tab == tab;
+            let enabled = tab.is_active_product();
             tabs = tabs.child(
                 div()
+                    .id(("drawer-tab", tab as usize))
                     .h_full()
                     .flex()
                     .items_center()
                     .px_3()
                     .text_xs()
-                    .text_color(rgb(if index == 0 { TEXT } else { TEXT_MUTED }))
-                    .when(index == 0, |tab| {
-                        tab.border_b_2().border_color(rgb(ACCENT)).bg(rgb(0x1d2321))
+                    .text_color(rgb(if selected { TEXT } else { TEXT_MUTED }))
+                    .when(selected, |item| {
+                        item.border_b_2()
+                            .border_color(rgb(ACCENT))
+                            .bg(rgb(0x1d2321))
                     })
-                    .when(index != 0, |tab| tab.opacity(0.58))
-                    .child(label),
+                    .when(enabled, |item| {
+                        item.cursor_pointer()
+                            .hover(|hover| hover.bg(rgb(0x202624)).text_color(rgb(TEXT)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.select_drawer_tab(tab, cx);
+                            }))
+                    })
+                    .when(!enabled, |item| item.opacity(0.42))
+                    .child(tab.label()),
             );
         }
-        div()
-            .w_full()
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .overflow_hidden()
-            .child(tabs.overflow_hidden())
-            .child(self.render_graph_controls(cx))
+        tabs.overflow_hidden()
     }
 }
 
@@ -363,11 +439,11 @@ mod tests {
 
     #[test]
     fn inactive_tabs_are_compile_time_markup_only() {
-        assert_eq!(GRAPH_TABS[0], "GRAPH");
-        assert_eq!(
-            &GRAPH_TABS[1..],
-            &["PATTERNS", "PLOT THREADS", "WORLDBUILDING", "ATLAS CONTROL"]
-        );
+        assert!(DrawerTab::Graph.is_active_product());
+        assert!(DrawerTab::AtlasControl.is_active_product());
+        assert!(!DrawerTab::Patterns.is_active_product());
+        assert!(!DrawerTab::PlotThreads.is_active_product());
+        assert!(!DrawerTab::Worldbuilding.is_active_product());
     }
 
     #[test]

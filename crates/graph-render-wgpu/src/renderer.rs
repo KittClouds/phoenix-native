@@ -2,7 +2,7 @@ use crate::buffers::CameraUniform;
 use crate::camera::Camera;
 use crate::events::PendingEvents;
 use crate::gpu_scene::GpuScene;
-use crate::interaction::{logical_to_physical, PointerState};
+use crate::interaction::{logical_to_physical, physical_delta_to_logical, PointerState};
 use crate::labels::{LabelFocus, LabelLayer};
 use crate::path_layer::PreparedPathLayer;
 use crate::picking::{PickIntent, PickingPass};
@@ -464,15 +464,17 @@ impl GraphRenderer {
                 let (previous_x, previous_y) = self.pointer.position;
                 self.pointer.update_drag(x, y);
                 self.pointer.position = (x, y);
+                let delta_x = physical_delta_to_logical(x - previous_x, self.scale_factor);
+                let delta_y = physical_delta_to_logical(y - previous_y, self.scale_factor);
                 if self.pointer.left_down && self.pointer.dragged {
-                    if self.pointer.shift_down {
-                        self.camera.pan(x - previous_x, y - previous_y);
+                    if self.pointer.shift_down || self.pointer.alt_down {
+                        self.camera.pan(delta_x, delta_y);
                     } else {
-                        self.camera.orbit(x - previous_x, y - previous_y);
+                        self.camera.orbit(delta_x, delta_y);
                     }
                     self.camera_changed()
-                } else if self.pointer.middle_down {
-                    self.camera.pan(x - previous_x, y - previous_y);
+                } else if self.pointer.middle_down || self.pointer.right_down {
+                    self.camera.pan(delta_x, delta_y);
                     self.camera_changed()
                 } else if !self.pointer.left_down {
                     self.picking.request(x, y, PickIntent::Hover);
@@ -487,16 +489,18 @@ impl GraphRenderer {
                 y,
                 button,
                 shift,
+                alt,
             } => {
                 let point = self.physical_point(x, y);
                 self.pointer.position = point;
                 self.pointer.shift_down = shift;
+                self.pointer.alt_down = alt;
                 self.pointer.press_origin = Some(point);
                 self.pointer.dragged = false;
                 match button {
                     PointerButton::Left => self.pointer.left_down = true,
                     PointerButton::Middle => self.pointer.middle_down = true,
-                    PointerButton::Right => {}
+                    PointerButton::Right => self.pointer.right_down = true,
                 }
                 self.redraw_requested = true;
                 None
@@ -512,13 +516,16 @@ impl GraphRenderer {
                     }
                 } else if button == PointerButton::Middle {
                     self.pointer.middle_down = false;
+                } else if button == PointerButton::Right {
+                    self.pointer.right_down = false;
                 }
                 self.pointer.press_origin = None;
                 self.pointer.dragged = false;
                 None
             }
             GraphInput::Wheel { delta_y, .. } => {
-                self.camera.zoom(delta_y);
+                self.camera
+                    .zoom_at(delta_y, self.pointer.position.0, self.pointer.position.1);
                 self.camera_changed()
             }
             GraphInput::Resize {
