@@ -1,0 +1,170 @@
+{
+  "contract": "phoenix.native.exact-parity-release-lock/v1",
+  "cohort_id": "shortrun-b/angular-v3/fnv64-a88cd38f42d7035c/2026-07-26",
+  "captured_at": "2026-07-26T16:55:24.8699221-04:00",
+  "document": {
+    "note_id": "05dbbd93-e0f7-4fb2-937e-92a2352dcbae",
+    "title": "Shortrun B",
+    "version": 1784769182797,
+    "markdown_utf16_chars": 154105,
+    "markdown_utf8_bytes": 159402,
+    "markdown_sha256": "9beafe8bd23317e118d218d99a21a21d53ed61371d6fbf60d76b0f0eedc9b8c7",
+    "plain_text_utf16_chars": 154024,
+    "plain_text_utf8_bytes": 159321,
+    "plain_text_sha256": "35b84b355d120491df7ecd9d0ebb7090523426985d2d3a25cdb93c765556ea90",
+    "footer_words": 26198,
+    "footer_chars_without_line_breaks": 152000
+  },
+  "angular_runtime": {
+    "binary_sha256": "b150734917f8a28c5559d9680095aa28f3e04e12f60145b63fd879517e3c4895",
+    "repo_head": "596b01bc6f8bbc4999c6a8db8d0514e12aa8e30b",
+    "dirty_status_sha256": "666da36ee8f4d28b780b51f8dcc47014a41cccd42dd3dd0c44d4bef339465aaf",
+    "page_url": "http://localhost:4200/",
+    "packet_schema": "phoenix-galaxy-scene-packet/v2"
+  },
+  "native_runtime": {
+    "binary_sha256": "578dda1111c3eeafe6a714f2a444bbc129bdad681b56d5a4c44a17d78d6205d5",
+    "proof_contract": "phoenix.native.release-lock-cut6/v1"
+  },
+  "model_runtime": {
+    "status": "not_emitted_by_angular_scene_packet",
+    "identities": []
+  },
+  "manifolds": [
+    {
+      "name": "hybrid",
+      "layout_mode": "hybridSpace",
+      "generation_id": "fnv64-a88cd38f42d7035c",
+      "authority_receipt": "fnv64-a88cd38f42d7035c\u0000embeddings\u0000hybrid\u0000{\"layoutMode\":\"hybridSpace\",\"sourceMode\":\"embeddings\",\"embeddingTopologyMode\":\"off\",\"nodeDistance\":0.65,\"edgeLength\":1,\"edgeCurveStrength\":0.25}\u0000accepted\u0000all\u0000",
+      "node_count": 642,
+      "edge_count": 9219,
+      "packet_hash": "fnv1a64:7836f9206330d934",
+      "pages": {
+        "shared/node-identity-keys": { "elements": 1284, "bytes": 5136, "hash": "fnv1a64:a155029167eef7dd" },
+        "shared/edge-identity-keys": { "elements": 18438, "bytes": 73752, "hash": "fnv1a64:a77fec30c0069e64" },
+        "shared/edge-pairs": { "elements": 18438, "bytes": 73752, "hash": "fnv1a64:ccce8a3c37d502d0" },
+        "manifold/positions-3d": { "elements": 1926, "bytes": 7704, "hash": "fnv1a64:6a317eb59653f2d9" },
+        "manifold/node-colors-rgba8": { "elements": 2568, "bytes": 2568, "hash": "fnv1a64:2f89444ebcd6776a" },
+        "manifold/edge-colors-rgba8": { "elements": 73752, "bytes": 73752, "hash": "fnv1a64:a15961702478be6c" },
+        "detail/string-offsets": { "elements": 23575, "bytes": 94300, "hash": "fnv1a64:9d4f83dcdaae75f0" },
+        "detail/string-slab": { "elements": 1559330, "bytes": 1559330, "hash": "fnv1a64:202e2e496865e77d" },
+        "guide/header": { "elements": 10, "bytes": 40, "hash": "fnv1a64:72d69fd73bd300e3" },
+        "guide/metadata": { "elements": 0, "bytes": 0, "hash": "fnv1a64:9e3779b9811c9dc5" },
+        "guide/offsets": { "elements": 0, "bytes": 0, "hash": "fnv1a64:9e3779b9811c9dc5" },
+        "guide/colors-f64": { "elements": 0, "bytes": 0, "hash": "fnv1a64:9e3779b9811c9dc5" },
+        "guide/positions-f32": { "elements": 0, "bytes": 0, "hash": "fnv1a64:9e3779b9811c9dc5" },
+        "guide/node-string-refs": { "elements": 0, "bytes": 0, "hash": "fnv1a64:9e3779b9811c9dc5" },
+        "guide/string-offsets": { "elements": 1, "bytes": 4, "hash": "fnv1a64:63e155e94b95f515" },
+        "guide/string-slab": { "elements": 0, "bytes": 0, "hash": "fnv1a64:9e3779b9811c9dc5" }
+      }
+    },
+    {
+      "name": "hopf",
+      "layout_mode": "hopfProjection",
+      "generation_id": "fnv64-a88cd38f42d7035c",
+      "authority_receipt": "fnv64-a88cd38f42d7035c\u0000embeddings\u0000hopf\u0000{\"layoutMode\":\"hopfProjection\",\"sourceMode\":\"embeddings\",\"embeddingTopologyMode\":\"off\",\"nodeDistance\":0.65,\"edgeLength\":1,\"edgeCurveStrength\":0.25}\u0000accepted\u0000all\u0000",
+      "node_count": 3663,
+      "edge_count": 21795,
+      "packet_hash": "fnv1a64:f999636fa5718a43",
+      "pages": {
+        "shared/node-identity-keys": { "elements": 7326, "bytes": 29304, "hash": "fnv1a64:4ae86deacf62b18e" },
+        "shared/edge-identity-keys": { "elements": 43590, "bytes": 174360, "hash": "fnv1a64:c64cedef19af6b23" },
+        "shared/edge-pairs": { "elements": 43590, "bytes": 174360, "hash": "fnv1a64:ce3dcebd8f667b41" },
+        "manifold/positions-3d": { "elements": 10989, "bytes": 43956, "hash": "fnv1a64:9c3320ec775768f0" },
+        "manifold/node-colors-rgba8": { "elements": 14652, "bytes": 14652, "hash": "fnv1a64:453045e6d262b322" },
+        "manifold/edge-colors-rgba8": { "elements": 174360, "bytes": 174360, "hash": "fnv1a64:876705c186ac9c45" },
+        "detail/string-offsets": { "elements": 72895, "bytes": 291580, "hash": "fnv1a64:7966b5300fe6a02c" },
+        "detail/string-slab": { "elements": 3857298, "bytes": 3857298, "hash": "fnv1a64:8bd2beb4d9838180" },
+        "guide/header": { "elements": 10, "bytes": 40, "hash": "fnv1a64:a4560dbb312a6367" },
+        "guide/metadata": { "elements": 3690, "bytes": 14760, "hash": "fnv1a64:6a60ce92e04f2566" },
+        "guide/offsets": { "elements": 1476, "bytes": 5904, "hash": "fnv1a64:f9e28054af42a128" },
+        "guide/colors-f64": { "elements": 2214, "bytes": 17712, "hash": "fnv1a64:8001d0fa5f97578e" },
+        "guide/positions-f32": { "elements": 194754, "bytes": 779016, "hash": "fnv1a64:a62be05257e00f26" },
+        "guide/node-string-refs": { "elements": 8217, "bytes": 32868, "hash": "fnv1a64:681408114b7c016d" },
+        "guide/string-offsets": { "elements": 4033, "bytes": 16132, "hash": "fnv1a64:40555afeadbd3882" },
+        "guide/string-slab": { "elements": 324219, "bytes": 324219, "hash": "fnv1a64:c902f08cee74fbe8" }
+      }
+    },
+    {
+      "name": "caps",
+      "layout_mode": "lorentzTree",
+      "generation_id": "fnv64-a88cd38f42d7035c",
+      "authority_receipt": "fnv64-a88cd38f42d7035c\u0000embeddings\u0000lorentz\u0000{\"layoutMode\":\"lorentzTree\",\"sourceMode\":\"embeddings\",\"embeddingTopologyMode\":\"off\",\"nodeDistance\":0.65,\"edgeLength\":1,\"edgeCurveStrength\":0.25}\u0000accepted\u0000all\u0000",
+      "node_count": 642,
+      "edge_count": 9219,
+      "packet_hash": "fnv1a64:c529aa3a1832262e",
+      "pages": {
+        "shared/node-identity-keys": { "elements": 1284, "bytes": 5136, "hash": "fnv1a64:a155029167eef7dd" },
+        "shared/edge-identity-keys": { "elements": 18438, "bytes": 73752, "hash": "fnv1a64:a77fec30c0069e64" },
+        "shared/edge-pairs": { "elements": 18438, "bytes": 73752, "hash": "fnv1a64:ccce8a3c37d502d0" },
+        "manifold/positions-3d": { "elements": 1926, "bytes": 7704, "hash": "fnv1a64:8dc18476d979fc0a" },
+        "manifold/node-colors-rgba8": { "elements": 2568, "bytes": 2568, "hash": "fnv1a64:2f89444ebcd6776a" },
+        "manifold/edge-colors-rgba8": { "elements": 73752, "bytes": 73752, "hash": "fnv1a64:a15961702478be6c" },
+        "detail/string-offsets": { "elements": 23575, "bytes": 94300, "hash": "fnv1a64:9d4f83dcdaae75f0" },
+        "detail/string-slab": { "elements": 1559330, "bytes": 1559330, "hash": "fnv1a64:202e2e496865e77d" },
+        "guide/header": { "elements": 10, "bytes": 40, "hash": "fnv1a64:e20a4424378b8f60" },
+        "guide/metadata": { "elements": 2700, "bytes": 10800, "hash": "fnv1a64:0c473efc05b394d8" },
+        "guide/offsets": { "elements": 1080, "bytes": 4320, "hash": "fnv1a64:3a9f6e5579a6f7c9" },
+        "guide/colors-f64": { "elements": 1620, "bytes": 12960, "hash": "fnv1a64:428ab147be3c2c2b" },
+        "guide/positions-f32": { "elements": 33312, "bytes": 133248, "hash": "fnv1a64:92340ad82a90881c" },
+        "guide/node-string-refs": { "elements": 520, "bytes": 2080, "hash": "fnv1a64:ae8b050684895f32" },
+        "guide/string-offsets": { "elements": 546, "bytes": 2184, "hash": "fnv1a64:6825cf3994e6c7c5" },
+        "guide/string-slab": { "elements": 50476, "bytes": 50476, "hash": "fnv1a64:5d6dea81f5771055" }
+      }
+    },
+    {
+      "name": "transit",
+      "layout_mode": "transitManifold",
+      "generation_id": "fnv64-a88cd38f42d7035c",
+      "authority_receipt": "fnv64-a88cd38f42d7035c\u0000embeddings\u0000product\u0000{\"layoutMode\":\"transitManifold\",\"sourceMode\":\"embeddings\",\"embeddingTopologyMode\":\"off\",\"nodeDistance\":0.65,\"edgeLength\":1,\"edgeCurveStrength\":0.25}\u0000accepted\u0000all\u0000",
+      "node_count": 642,
+      "edge_count": 9219,
+      "packet_hash": "fnv1a64:0b05d6e74b513c73",
+      "pages": {
+        "shared/node-identity-keys": { "elements": 1284, "bytes": 5136, "hash": "fnv1a64:a155029167eef7dd" },
+        "shared/edge-identity-keys": { "elements": 18438, "bytes": 73752, "hash": "fnv1a64:a77fec30c0069e64" },
+        "shared/edge-pairs": { "elements": 18438, "bytes": 73752, "hash": "fnv1a64:ccce8a3c37d502d0" },
+        "manifold/positions-3d": { "elements": 1926, "bytes": 7704, "hash": "fnv1a64:49f743dc6ba9ad10" },
+        "manifold/node-colors-rgba8": { "elements": 2568, "bytes": 2568, "hash": "fnv1a64:2f89444ebcd6776a" },
+        "manifold/edge-colors-rgba8": { "elements": 73752, "bytes": 73752, "hash": "fnv1a64:a15961702478be6c" },
+        "detail/string-offsets": { "elements": 23575, "bytes": 94300, "hash": "fnv1a64:9d4f83dcdaae75f0" },
+        "detail/string-slab": { "elements": 1559330, "bytes": 1559330, "hash": "fnv1a64:202e2e496865e77d" },
+        "guide/header": { "elements": 10, "bytes": 40, "hash": "fnv1a64:0a1a2b08911a649c" },
+        "guide/metadata": { "elements": 3570, "bytes": 14280, "hash": "fnv1a64:0afa52a82581c64c" },
+        "guide/offsets": { "elements": 1428, "bytes": 5712, "hash": "fnv1a64:17782c66597abefa" },
+        "guide/colors-f64": { "elements": 2142, "bytes": 17136, "hash": "fnv1a64:4b0f770ad986dff6" },
+        "guide/positions-f32": { "elements": 21096, "bytes": 84384, "hash": "fnv1a64:65d204276b160d53" },
+        "guide/node-string-refs": { "elements": 1141, "bytes": 4564, "hash": "fnv1a64:c3ff58862c9a39c2" },
+        "guide/string-offsets": { "elements": 938, "bytes": 3752, "hash": "fnv1a64:a5308fa666f18ef2" },
+        "guide/string-slab": { "elements": 98261, "bytes": 98261, "hash": "fnv1a64:39d3154276d6ea6e" }
+      }
+    },
+    {
+      "name": "siegel",
+      "layout_mode": "siegelFinsler",
+      "generation_id": "fnv64-a88cd38f42d7035c",
+      "authority_receipt": "fnv64-a88cd38f42d7035c\u0000embeddings\u0000siegel\u0000{\"layoutMode\":\"siegelFinsler\",\"sourceMode\":\"embeddings\",\"embeddingTopologyMode\":\"off\",\"nodeDistance\":0.65,\"edgeLength\":1,\"edgeCurveStrength\":0.25}\u0000accepted\u0000all\u0000",
+      "node_count": 642,
+      "edge_count": 9219,
+      "packet_hash": "fnv1a64:55ac17cc9af3f978",
+      "pages": {
+        "shared/node-identity-keys": { "elements": 1284, "bytes": 5136, "hash": "fnv1a64:a155029167eef7dd" },
+        "shared/edge-identity-keys": { "elements": 18438, "bytes": 73752, "hash": "fnv1a64:a77fec30c0069e64" },
+        "shared/edge-pairs": { "elements": 18438, "bytes": 73752, "hash": "fnv1a64:ccce8a3c37d502d0" },
+        "manifold/positions-3d": { "elements": 1926, "bytes": 7704, "hash": "fnv1a64:c31f60eae1732dd6" },
+        "manifold/node-colors-rgba8": { "elements": 2568, "bytes": 2568, "hash": "fnv1a64:2f89444ebcd6776a" },
+        "manifold/edge-colors-rgba8": { "elements": 73752, "bytes": 73752, "hash": "fnv1a64:a15961702478be6c" },
+        "detail/string-offsets": { "elements": 23575, "bytes": 94300, "hash": "fnv1a64:9d4f83dcdaae75f0" },
+        "detail/string-slab": { "elements": 1559330, "bytes": 1559330, "hash": "fnv1a64:202e2e496865e77d" },
+        "guide/header": { "elements": 10, "bytes": 40, "hash": "fnv1a64:ff5aa2b0d4e695ac" },
+        "guide/metadata": { "elements": 2690, "bytes": 10760, "hash": "fnv1a64:58a96880911449ec" },
+        "guide/offsets": { "elements": 1076, "bytes": 4304, "hash": "fnv1a64:eb1dd29b0dac10b7" },
+        "guide/colors-f64": { "elements": 1614, "bytes": 12912, "hash": "fnv1a64:93b1a88d4d01e9d1" },
+        "guide/positions-f32": { "elements": 27552, "bytes": 110208, "hash": "fnv1a64:5e56e17765d7b8db" },
+        "guide/node-string-refs": { "elements": 584, "bytes": 2336, "hash": "fnv1a64:086c59c370adbdc7" },
+        "guide/string-offsets": { "elements": 583, "bytes": 2332, "hash": "fnv1a64:09d6e63721bd215b" },
+        "guide/string-slab": { "elements": 52576, "bytes": 52576, "hash": "fnv1a64:0a0b9849634b09d5" }
+      }
+    }
+  ]
+}

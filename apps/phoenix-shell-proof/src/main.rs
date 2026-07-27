@@ -1,3 +1,8 @@
+#[cfg(feature = "legacy-graph-adapter")]
+compile_error!(
+    "PHOENIX_LEGACY_GRAPH_ADAPTER_FORBIDDEN: the native release has no legacy graph fallback"
+);
+
 mod graph_window;
 mod lifecycle;
 mod proof;
@@ -9,6 +14,7 @@ use phoenix_app_core::PhoenixKernel;
 use phoenix_scene_archive::PhoenixSceneArchiveV1;
 use phoenix_scene_contract::{ResidentScene, ResidentSceneLoadError, SceneSource};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
+use phoenix_scene_publisher::{ScenePublicationReceipt, ScenePublicationStore};
 use phoenix_workspace::default_workspace_path;
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -22,6 +28,12 @@ fn main() {
     let arguments = std::env::args_os().collect::<Vec<_>>();
     let proof_mode = arguments.iter().any(|argument| argument == "--proof");
     let soak_mode = arguments.iter().any(|argument| argument == "--soak");
+    let design_preview = arguments
+        .iter()
+        .any(|argument| argument == "--design-preview");
+    let require_full_scene = arguments
+        .iter()
+        .any(|argument| argument == "--require-full-scene");
     if proof_mode && soak_mode {
         fail_start(
             "PHOENIX_RUN_MODE_CONFLICT",
@@ -29,6 +41,7 @@ fn main() {
         );
     }
     let automated_mode = proof_mode || soak_mode;
+    let isolated_mode = automated_mode || design_preview;
     let archive_path = match scene_archive_argument(&arguments) {
         Ok(path) => path,
         Err(error) => fail_start("PHOENIX_SCENE_ARCHIVE_ARGUMENT_FAILED", error),
@@ -37,10 +50,20 @@ fn main() {
         Ok(path) => path,
         Err(error) => fail_start("PHOENIX_SCENE_PRODUCT_INDEX_ARGUMENT_FAILED", error),
     };
-    if automated_mode && product_index_path.is_none() {
+    let publication_root = match scene_publication_root_argument(&arguments) {
+        Ok(path) => path,
+        Err(error) => fail_start("PHOENIX_SCENE_PUBLICATION_ROOT_ARGUMENT_FAILED", error),
+    };
+    if publication_root.is_some() && (archive_path.is_some() || product_index_path.is_some()) {
+        fail_start(
+            "PHOENIX_SCENE_AUTHORITY_CONFLICT",
+            "--scene-publication-root cannot be combined with archive or product-index paths",
+        );
+    }
+    if automated_mode && product_index_path.is_none() && publication_root.is_none() {
         fail_start(
             "PHOENIX_SCENE_PRODUCT_INDEX_REQUIRED",
-            "--proof and --soak require --scene-product-index <path>",
+            "--proof and --soak require a product index or publication root",
         );
     }
     if product_index_path.is_some() && archive_path.is_none() {
@@ -49,7 +72,7 @@ fn main() {
             "--scene-product-index requires --scene-archive",
         );
     }
-    let workspace_path = if automated_mode {
+    let workspace_path = if isolated_mode {
         proof_workspace_path()
     } else {
         match default_workspace_path() {
@@ -60,23 +83,44 @@ fn main() {
             }
         }
     };
-    let (initial_scene, scene_error) = match archive_path.as_ref() {
-        Some(path) => match load_resident_scene(path) {
-            Ok(scene) => (Some(scene), None),
-            Err(error) if automated_mode => fail_start(error.code(), error.detail()),
-            Err(error) => {
-                eprintln!("{error}");
-                (None, Some(error))
+    let mut publication_receipt = None;
+    let mut published_product_index = None;
+    let (initial_scene, scene_error) = match publication_root.as_ref() {
+        Some(root) => match ScenePublicationStore::open_current_at(root) {
+            Ok(Some(published)) => {
+                publication_receipt = Some(published.receipt);
+                published_product_index = Some(published.product_index);
+                (Some(published.scene), None)
             }
+            Ok(None) => fail_start(
+                "PHOENIX_SCENE_PUBLICATION_MISSING",
+                "publication root has no current manifest",
+            ),
+            Err(error) => fail_start("PHOENIX_SCENE_PUBLICATION_OPEN_FAILED", error),
         },
-        None if automated_mode => fail_start(
-            "PHOENIX_SCENE_ARCHIVE_REQUIRED",
-            "--proof and --soak require --scene-archive <path>",
-        ),
-        None => (None, None),
+        None => match archive_path.as_ref() {
+            Some(path) => match load_resident_scene(path) {
+                Ok(scene) => (Some(scene), None),
+                Err(error) if automated_mode => fail_start(error.code(), error.detail()),
+                Err(error) => {
+                    eprintln!("{error}");
+                    (None, Some(error))
+                }
+            },
+            None if automated_mode => fail_start(
+                "PHOENIX_SCENE_ARCHIVE_REQUIRED",
+                "--proof and --soak require a scene archive or publication root",
+            ),
+            None => (None, None),
+        },
     };
-    let initial_product_index = match product_index_path {
-        Some(path) => {
+    let initial_product_index = match (published_product_index, product_index_path) {
+        (Some(index), None) => Some(index),
+        (Some(_), Some(_)) => fail_start(
+            "PHOENIX_SCENE_AUTHORITY_CONFLICT",
+            "publication root cannot be combined with a product index path",
+        ),
+        (None, Some(path)) => {
             let Some(scene) = initial_scene.as_ref() else {
                 fail_start(
                     "PHOENIX_SCENE_PRODUCT_INDEX_WITHOUT_ARCHIVE",
@@ -92,9 +136,9 @@ fn main() {
             }
             Some(Arc::new(index))
         }
-        None => None,
+        (None, None) => None,
     };
-    let kernel_result = if archive_path.is_some() {
+    let kernel_result = if archive_path.is_some() || publication_root.is_some() {
         PhoenixKernel::start_with_product_index(
             workspace_path.clone(),
             initial_scene,
@@ -110,7 +154,10 @@ fn main() {
             std::process::exit(1);
         }
     };
-    report_active_publication(&kernel);
+    if let Err(error) = validate_required_full_scene(&kernel, require_full_scene) {
+        fail_start("PHOENIX_FULL_SCENE_REQUIRED", error);
+    }
+    report_active_publication(&kernel, publication_receipt);
     let app_kernel = Arc::clone(&kernel);
     Application::new()
         .with_assets(VelotypeAssets)
@@ -135,6 +182,7 @@ fn main() {
                         shell::PhoenixShell::new(
                             proof_mode,
                             soak_mode,
+                            design_preview,
                             kernel,
                             scene_error,
                             window,
@@ -180,11 +228,14 @@ fn load_resident_scene(
     Ok(Arc::new(scene))
 }
 
-fn report_active_publication(kernel: &PhoenixKernel) {
+fn report_active_publication(
+    kernel: &PhoenixKernel,
+    external_receipt: Option<ScenePublicationReceipt>,
+) {
     let Ok(snapshot) = kernel.snapshot() else {
         return;
     };
-    let Some(receipt) = snapshot.scene_publication else {
+    let Some(receipt) = snapshot.scene_publication.or(external_receipt) else {
         println!("PHOENIX_SCENE_AUTHORITY fixture_or_recovery");
         return;
     };
@@ -200,6 +251,30 @@ fn report_active_publication(kernel: &PhoenixKernel) {
         hex_hash(receipt.archive_cohort_hash),
         hex_hash(receipt.product_index_hash),
     );
+}
+
+fn validate_required_full_scene(
+    kernel: &PhoenixKernel,
+    required: bool,
+) -> Result<(), &'static str> {
+    if !required {
+        return Ok(());
+    }
+    let snapshot = kernel
+        .snapshot()
+        .map_err(|_| "kernel snapshot is unavailable")?;
+    let scene = snapshot
+        .resident_scene
+        .as_ref()
+        .ok_or("no resident scene is available")?;
+    let inventory = scene.inventory();
+    if inventory.node_count == 0 || inventory.edge_count == 0 {
+        return Err("resident scene is registry-only or empty");
+    }
+    if snapshot.scene_product_index.is_none() {
+        return Err("resident scene has no verified product index");
+    }
+    Ok(())
 }
 
 fn hex_hash(hash: [u8; 32]) -> String {
@@ -260,6 +335,12 @@ fn scene_product_index_argument(arguments: &[OsString]) -> Result<Option<PathBuf
     path_argument(arguments, "--scene-product-index")
 }
 
+fn scene_publication_root_argument(
+    arguments: &[OsString],
+) -> Result<Option<PathBuf>, &'static str> {
+    path_argument(arguments, "--scene-publication-root")
+}
+
 fn path_argument(
     arguments: &[OsString],
     name: &'static str,
@@ -293,12 +374,32 @@ fn fail_start(marker: &str, error: impl std::fmt::Display) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use super::mandatory_runtime_filter;
+    use super::{mandatory_runtime_filter, scene_publication_root_argument};
+    use std::ffi::OsString;
     use tracing_subscriber::EnvFilter;
 
     #[test]
     fn mandatory_runtime_filter_survives_user_warning_filter() {
         let filter = mandatory_runtime_filter(EnvFilter::new("warn"));
         assert!(filter.to_string().contains("wgpu_hal::vulkan::conv=error"));
+    }
+
+    #[test]
+    fn publication_root_accepts_split_and_equals_arguments() {
+        let split = [
+            OsString::from("phoenix-shell"),
+            OsString::from("--scene-publication-root"),
+            OsString::from(r"C:\verified\scene-publications-v1"),
+        ];
+        let equals = [
+            OsString::from("phoenix-shell"),
+            OsString::from(r"--scene-publication-root=C:\verified\scene-publications-v1"),
+        ];
+        let expected = Some(r"C:\verified\scene-publications-v1".into());
+        assert_eq!(
+            scene_publication_root_argument(&split),
+            Ok(expected.clone())
+        );
+        assert_eq!(scene_publication_root_argument(&equals), Ok(expected));
     }
 }

@@ -88,8 +88,8 @@ impl GraphLensUniform {
     #[must_use]
     pub fn from_view(view: GraphViewState, product_index_enabled: bool) -> Self {
         Self {
-            family_mask: split_u64(view.families.0),
-            scope_mask: split_u64(view.scope.0),
+            family_mask: split_u64(view.family_mask().0),
+            scope_mask: split_u64(view.scope_mask().0),
             relation_mask: split_u64(view.relations.0),
             review_mask: view.reviews.0,
             product_index_enabled: u32::from(product_index_enabled),
@@ -110,20 +110,26 @@ const fn split_u64(value: u64) -> [u32; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use phoenix_scene_contract::{FamilyMask, GraphScope, RelationMask, ReviewMask};
+    use phoenix_scene_contract::{
+        GraphLens, GraphScope, GraphSurface, RelationMask, ReviewMask, ScopeMask,
+    };
 
     #[test]
     fn view_masks_split_without_losing_high_bits() {
         let view = GraphViewState {
-            families: FamilyMask(0xfedc_ba98_7654_3210),
-            scope: GraphScope(0x0123_4567_89ab_cdef),
+            surface: GraphSurface::Atlas,
+            lens: GraphLens::Discourse,
+            scope: GraphScope::Note,
             relations: RelationMask(0xaaaa_bbbb_cccc_dddd),
             reviews: ReviewMask::PROPOSED,
             ..GraphViewState::default()
         };
         let uniform = GraphLensUniform::from_view(view, true);
-        assert_eq!(uniform.family_mask, [0x7654_3210, 0xfedc_ba98]);
-        assert_eq!(uniform.scope_mask, [0x89ab_cdef, 0x0123_4567]);
+        assert_eq!(
+            uniform.family_mask,
+            [GraphLens::Discourse.family_mask().0 as u32, 0]
+        );
+        assert_eq!(uniform.scope_mask, [ScopeMask::NOTE.0 as u32, 0]);
         assert_eq!(uniform.relation_mask, [0xcccc_dddd, 0xaaaa_bbbb]);
         assert_eq!(uniform.review_mask, 2);
         assert_eq!(uniform.product_index_enabled, 1);

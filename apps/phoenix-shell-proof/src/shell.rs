@@ -2,6 +2,7 @@ mod atlas_entities;
 mod drawer;
 mod entity_tags;
 mod footer;
+mod graph_controls;
 mod graph_viewport;
 mod highlights;
 mod view;
@@ -12,6 +13,7 @@ use crate::proof;
 use gpui::{AppContext as _, Context, Entity, SharedString, Timer, Window};
 use gpui_component::input::{InputEvent, InputState};
 use hashbrown::HashSet;
+use phoenix_app_core::GraphProvenanceReceipt;
 use phoenix_app_core::{KernelCommand, KernelOutcome, KernelSnapshot, PhoenixKernel};
 use phoenix_scene_contract::ResidentSceneLoadError;
 use phoenix_workspace::{DocumentLease, EntryId, EntryKind, WorkspaceEntry, ROOT_ID};
@@ -59,6 +61,8 @@ pub struct PhoenixShell {
     graph_geometry: Rc<Cell<Option<ViewportGeometry>>>,
     scene_error: Option<ResidentSceneLoadError>,
     graph_init_error: Option<String>,
+    graph_rebuild_pending: bool,
+    graph_provenance: Option<GraphProvenanceReceipt>,
     proof_pending: bool,
     soak_mode: bool,
     expanded: HashSet<EntryId>,
@@ -71,6 +75,7 @@ pub struct PhoenixShell {
     left_sidebar_width: f32,
     right_sidebar_width: f32,
     drawer_layout: drawer::DrawerLayout,
+    document_metrics: footer::DocumentMetrics,
     status: SharedString,
 }
 
@@ -78,6 +83,7 @@ impl PhoenixShell {
     pub fn new(
         proof_mode: bool,
         soak_mode: bool,
+        design_preview: bool,
         kernel: Arc<PhoenixKernel>,
         scene_error: Option<ResidentSceneLoadError>,
         window: &mut Window,
@@ -119,6 +125,7 @@ impl PhoenixShell {
             .as_ref()
             .map(|lease| lease.content.to_string())
             .unwrap_or_default();
+        let document_metrics = footer::DocumentMetrics::from_text(&initial_markdown);
         let editor = cx.new(|cx| velotype::Editor::embedded_from_markdown(cx, initial_markdown));
         cx.subscribe(&editor, Self::on_editor_event).detach();
         let mut shell = Self {
@@ -131,6 +138,8 @@ impl PhoenixShell {
             graph_init_error: parent
                 .is_none()
                 .then(|| "GPUI parent window handle is unavailable".into()),
+            graph_rebuild_pending: false,
+            graph_provenance: None,
             proof_pending: proof_mode || soak_mode,
             soak_mode,
             expanded,
@@ -142,7 +151,8 @@ impl PhoenixShell {
             right_open: true,
             left_sidebar_width: LEFT_SIDEBAR_INITIAL_WIDTH,
             right_sidebar_width: RIGHT_SIDEBAR_INITIAL_WIDTH,
-            drawer_layout: drawer::DrawerLayout::new(proof_mode || soak_mode),
+            drawer_layout: drawer::DrawerLayout::new(proof_mode || soak_mode || design_preview),
+            document_metrics,
             status,
         };
         shell.initialize_highlights(cx);
@@ -464,6 +474,13 @@ impl PhoenixShell {
         event: &velotype::EditorEvent,
         cx: &mut Context<Self>,
     ) {
+        if matches!(event, velotype::EditorEvent::DocumentChanged { .. }) {
+            self.document_metrics = editor.read_with(cx, |editor, cx| {
+                footer::DocumentMetrics::from_text(&editor.host_document_text(cx))
+            });
+            cx.notify();
+            return;
+        }
         if let velotype::EditorEvent::EntityTagRequested(request) = event {
             self.tag_entity_selection(editor, request, cx);
             return;
@@ -528,6 +545,7 @@ impl PhoenixShell {
             .as_ref()
             .map(|lease| lease.content.to_string())
             .unwrap_or_default();
+        self.document_metrics = footer::DocumentMetrics::from_text(&markdown);
         self.editor.update(cx, |editor, cx| {
             editor.replace_embedded_document(markdown, cx)
         });

@@ -3,35 +3,26 @@ use crate::camera::Camera;
 use crate::events::PendingEvents;
 use crate::gpu_scene::GpuScene;
 use crate::interaction::{logical_to_physical, PointerState};
+use crate::labels::{LabelFocus, LabelLayer};
+use crate::path_layer::PreparedPathLayer;
 use crate::picking::{PickIntent, PickingPass};
 use crate::pipelines::{
     bind_group, create_layouts, create_pipelines, lens_bind_group, RenderLayouts, RenderPipelines,
 };
+use crate::renderer_support::create_depth_texture;
+pub(crate) use crate::renderer_support::{preferred_present_mode, validate_view_authority};
 use crate::{
-    GpuAllocationStats, GpuSceneMetrics, GraphEvent, GraphInput, GraphLensUniform, PointerButton,
-    PositionSwitchMetrics, ProductInstallMetrics, RenderError, SceneState, SnapshotMetrics,
+    FrameMetrics, GpuAllocationStats, GpuSceneMetrics, GraphEvent, GraphInput, GraphLensUniform,
+    LensUpdateMetrics, PointerButton, PositionSwitchMetrics, ProductInstallMetrics, RenderError,
+    SceneState, SnapshotMetrics,
 };
 use graph_model::{GraphDiff, GraphRevision, GraphSnapshot};
-use phoenix_scene_archive::{ManifoldPageSet, PositionRecord};
-use phoenix_scene_contract::{GraphViewState, SceneAuthority};
+use phoenix_scene_archive::{LabelPriorityRecord, ManifoldPageSet, PositionRecord};
+use phoenix_scene_contract::{GraphViewState, Manifold};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct FrameMetrics {
-    pub frame_number: u64,
-    pub cpu_encode_submit_us: u128,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct LensUpdateMetrics {
-    pub bytes_uploaded: usize,
-    pub uniform_writes: u64,
-    pub topology_buffer_generation_before: u64,
-    pub topology_buffer_generation_after: u64,
-}
 
 pub struct GraphRenderer {
     device: Arc<wgpu::Device>,
@@ -56,6 +47,8 @@ pub struct GraphRenderer {
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
     scene: GpuScene,
+    prepared_paths: PreparedPathLayer,
+    labels: LabelLayer,
     picking: PickingPass,
     pointer: PointerState,
     events: PendingEvents,
@@ -204,6 +197,14 @@ impl GraphRenderer {
             &picking_shader,
         );
         let (depth_texture, depth_view) = create_depth_texture(&device, width, height);
+        let labels = LabelLayer::new(&device, &queue, surface_config.format);
+        let prepared_paths = PreparedPathLayer::new(
+            &device,
+            &layouts.camera,
+            &layouts.lens,
+            &layouts.edges,
+            surface_config.format,
+        )?;
 
         tracing::info!(
             format = ?surface_config.format,
@@ -235,6 +236,8 @@ impl GraphRenderer {
             depth_texture,
             depth_view,
             scene,
+            prepared_paths,
+            labels,
             picking,
             pointer: PointerState::default(),
             events: PendingEvents::new(),
@@ -260,8 +263,10 @@ impl GraphRenderer {
         if metrics.bindings_changed {
             self.refresh_scene_bindings();
         }
-        self.camera.fit_graph(self.scene.state().nodes());
+        self.fit_active_graph();
         self.write_camera();
+        self.labels.clear();
+        self.prepared_paths.clear();
         self.redraw_requested = true;
         tracing::info!(
             nodes = metrics.node_count,
@@ -312,8 +317,10 @@ impl GraphRenderer {
         self.loaded_cohort_hash = cohort_hash;
         self.active_view = GraphViewState::default();
         self.write_lens_uniform(GraphLensUniform::UNFILTERED);
-        self.camera.fit_graph(self.scene.state().nodes());
+        self.fit_active_graph();
         self.write_camera();
+        self.labels.clear();
+        self.prepared_paths.clear();
         self.redraw_requested = true;
         tracing::info!(
             nodes = metrics.node_count,
@@ -338,6 +345,17 @@ impl GraphRenderer {
         Ok(metrics)
     }
 
+    pub fn set_product_index_shared(
+        &mut self,
+        index: Arc<PhoenixSceneProductIndexV1>,
+        priorities: &[LabelPriorityRecord],
+    ) -> Result<ProductInstallMetrics, RenderError> {
+        let metrics = self.set_product_index(&index)?;
+        self.labels.install(index, priorities);
+        self.redraw_requested = true;
+        Ok(metrics)
+    }
+
     pub fn set_graph_view(
         &mut self,
         view: GraphViewState,
@@ -351,6 +369,7 @@ impl GraphRenderer {
         let before = self.scene.allocation_stats();
         self.write_lens_uniform(GraphLensUniform::from_view(view, index_hash.is_some()));
         self.active_view = view;
+        self.labels.mark_dirty();
         self.redraw_requested = true;
         let after = self.scene.allocation_stats();
         Ok(LensUpdateMetrics {
@@ -372,6 +391,7 @@ impl GraphRenderer {
         let metrics = self
             .scene
             .switch_archive_positions(positions, &self.queue)?;
+        self.labels.mark_dirty();
         self.redraw_requested = true;
         tracing::debug!(
             nodes = metrics.node_count,
@@ -389,6 +409,7 @@ impl GraphRenderer {
         if metrics.bindings_changed {
             self.refresh_scene_bindings();
         }
+        self.write_camera();
         self.redraw_requested = true;
         tracing::debug!(
             nodes_added = metrics.nodes_added,
@@ -417,6 +438,13 @@ impl GraphRenderer {
     #[must_use]
     pub const fn graph_view(&self) -> GraphViewState {
         self.active_view
+    }
+
+    fn fit_active_graph(&mut self) {
+        self.camera.fit_graph(self.scene.state().nodes());
+        if self.active_view.manifold == Manifold::Caps {
+            self.camera.orient(0.72, 0.34);
+        }
     }
 
     #[must_use]
@@ -502,7 +530,7 @@ impl GraphRenderer {
                 None
             }
             GraphInput::FitGraph => {
-                self.camera.fit_graph(self.scene.state().nodes());
+                self.fit_active_graph();
                 self.camera_changed()
             }
             GraphInput::ResetCamera => {
@@ -533,6 +561,7 @@ impl GraphRenderer {
                         &self.queue,
                     );
                     self.events.push_hover(result.node);
+                    self.labels.mark_dirty();
                     self.redraw_requested = true;
                 }
                 PickIntent::Select if self.scene.selected_node() != result.node => {
@@ -541,6 +570,7 @@ impl GraphRenderer {
                     if let Err(error) = self.events.push_selection(result.node) {
                         tracing::error!(%error, "selection event rejected");
                     }
+                    self.labels.mark_dirty();
                     self.redraw_requested = true;
                 }
                 _ => {}
@@ -550,6 +580,56 @@ impl GraphRenderer {
 
     pub fn drain_events(&mut self) -> impl Iterator<Item = GraphEvent> + '_ {
         self.events.drain()
+    }
+
+    pub fn set_external_selection(
+        &mut self,
+        node: Option<graph_model::NodeId>,
+        focus: bool,
+    ) -> Result<(), RenderError> {
+        if let Some(node) = node {
+            let slot = self
+                .scene
+                .state()
+                .node_slot(node)
+                .ok_or(RenderError::NodeNotFound(node))?;
+            if focus {
+                let position = self
+                    .scene
+                    .state()
+                    .node_at_slot(slot)
+                    .ok_or(RenderError::NodeNotFound(node))?
+                    .position;
+                self.camera.focus(position);
+                self.write_camera();
+            }
+        }
+        self.scene
+            .update_highlights(self.scene.hover_node(), node, &self.queue);
+        self.labels.mark_dirty();
+        self.redraw_requested = true;
+        Ok(())
+    }
+
+    pub fn set_external_hover(
+        &mut self,
+        node: Option<graph_model::NodeId>,
+    ) -> Result<(), RenderError> {
+        if let Some(node) = node {
+            if self.scene.state().node_slot(node).is_none() {
+                return Err(RenderError::NodeNotFound(node));
+            }
+        }
+        self.scene
+            .update_highlights(node, self.scene.selected_node(), &self.queue);
+        self.labels.mark_dirty();
+        self.redraw_requested = true;
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn interaction_allocation_stats(&self) -> crate::InteractionAllocationStats {
+        self.scene.interaction_allocation_stats()
     }
 
     #[must_use]
@@ -588,6 +668,17 @@ impl GraphRenderer {
             &self.lens_bind_group,
             self.scene.node_draw_slots(),
         );
+        self.labels.prepare(
+            &self.device,
+            &self.queue,
+            &self.camera,
+            self.scene.state(),
+            self.active_view,
+            LabelFocus {
+                hover: self.scene.hover_node(),
+                selected: self.scene.selected_node(),
+            },
+        )?;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("graph color pass"),
@@ -618,8 +709,14 @@ impl GraphRenderer {
             pass.set_pipeline(&self.pipelines.background);
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.draw(0..3, 0..1);
+            self.prepared_paths.render(
+                &mut pass,
+                &self.camera_bind_group,
+                &self.lens_bind_group,
+                &self.edge_bind_group,
+            );
             let edge_slots = self.scene.edge_draw_slots();
-            if edge_slots != 0 {
+            if edge_slots != 0 && !self.prepared_paths.has_paths() {
                 pass.set_pipeline(&self.pipelines.edges);
                 pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 pass.set_bind_group(1, &self.node_bind_group, &[]);
@@ -636,9 +733,11 @@ impl GraphRenderer {
                 pass.draw(0..4, 0..node_slots);
             }
         }
+        self.labels.render_onto(&mut encoder, &view)?;
         self.queue.submit(Some(encoder.finish()));
         self.picking.begin_map_after_submit();
         output.present();
+        self.labels.trim();
         self.frame_count = self.frame_count.wrapping_add(1);
         let metrics = FrameMetrics {
             frame_number: self.frame_count,
@@ -668,6 +767,7 @@ impl GraphRenderer {
         self.write_camera();
         (self.depth_texture, self.depth_view) = create_depth_texture(&self.device, width, height);
         self.picking.resize(&self.device, width, height);
+        self.labels.mark_dirty();
         self.redraw_requested = true;
     }
 
@@ -680,16 +780,16 @@ impl GraphRenderer {
 
     fn camera_changed(&mut self) -> Option<GraphEvent> {
         self.write_camera();
+        self.labels.mark_dirty();
         self.redraw_requested = true;
         Some(GraphEvent::CameraChanged(self.camera.snapshot()))
     }
 
     fn write_camera(&self) {
-        self.queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::bytes_of(&self.camera.uniform()),
-        );
+        let mut uniform = self.camera.uniform();
+        uniform.edge_opacity = crate::color::dense_edge_opacity(self.scene.state().edge_count());
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
     }
 
     fn refresh_scene_bindings(&mut self) {
@@ -724,62 +824,4 @@ impl GraphRenderer {
         self.lens_uniform_writes = self.lens_uniform_writes.saturating_add(1);
     }
 }
-
-pub(crate) fn validate_view_authority(
-    view: GraphViewState,
-    revision: Option<GraphRevision>,
-    cohort_hash: Option<[u8; 32]>,
-    resident_product_hash: Option<[u8; 32]>,
-) -> Result<Option<[u8; 32]>, RenderError> {
-    let (generation, expected_cohort, index_hash) = match view.authority {
-        SceneAuthority::Unavailable => return Err(RenderError::GraphViewGenerationMismatch),
-        SceneAuthority::Archive {
-            generation,
-            cohort_hash,
-            product_index_hash,
-        } => (generation, cohort_hash, product_index_hash),
-    };
-    if revision != Some(GraphRevision(generation.0)) || cohort_hash != Some(expected_cohort) {
-        return Err(RenderError::GraphViewGenerationMismatch);
-    }
-    if index_hash != resident_product_hash {
-        return Err(RenderError::GraphViewProductIndexMismatch);
-    }
-    if index_hash.is_none() && !view.is_unfiltered() {
-        return Err(RenderError::GraphViewProductIndexRequired);
-    }
-    Ok(index_hash)
-}
-
-pub(crate) fn preferred_present_mode(modes: &[wgpu::PresentMode]) -> Option<wgpu::PresentMode> {
-    [
-        wgpu::PresentMode::Mailbox,
-        wgpu::PresentMode::Immediate,
-        wgpu::PresentMode::Fifo,
-    ]
-    .into_iter()
-    .find(|candidate| modes.contains(candidate))
-}
-
-fn create_depth_texture(
-    device: &wgpu::Device,
-    width: u32,
-    height: u32,
-) -> (wgpu::Texture, wgpu::TextureView) {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("graph frame depth"),
-        size: wgpu::Extent3d {
-            width: width.max(1),
-            height: height.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    (texture, view)
-}
+mod geometry;

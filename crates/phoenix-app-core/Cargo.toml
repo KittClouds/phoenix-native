@@ -10,6 +10,7 @@ publish = false
 blake3.workspace = true
 hashbrown.workspace = true
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
+phoenix-scene-compiler = { path = "../phoenix-scene-compiler" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }
 phoenix-scene-publisher = { path = "../phoenix-scene-publisher" }

@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 bytemuck.workspace = true
 glam.workspace = true
+glyphon.workspace = true
 graph-model = { path = "../graph-model" }
 hashbrown.workspace = true
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }

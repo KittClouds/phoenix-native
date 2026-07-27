@@ -1,9 +1,12 @@
+use crate::color::{rich_edge_rgba, srgb_rgba_to_linear};
 use crate::RenderError;
 use bytemuck::{Pod, Zeroable};
 use graph_model::{EdgeVisual, NodeVisual};
 
-pub const HOVERED_FLAG: u16 = 1 << 0;
-pub const SELECTED_FLAG: u16 = 1 << 1;
+pub const HOVERED_FLAG: u16 = 1 << 12;
+pub const SELECTED_FLAG: u16 = 1 << 13;
+pub const NEIGHBOR_FLAG: u16 = 1 << 14;
+pub const ROUTE_FLAG: u16 = 1 << 15;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -41,7 +44,7 @@ impl NodeGpu {
                 node.position[2],
                 node.radius,
             ],
-            color: node.color,
+            color: srgb_rgba_to_linear(node.color),
             id_low: node.id.0 as u32,
             id_high: (node.id.0 >> 32) as u32,
             kind_flags: (u32::from(node.kind) << 16) | u32::from(flags),
@@ -87,7 +90,7 @@ impl EdgeGpu {
             target_slot,
             kind_flags: (u32::from(edge.kind) << 16) | u32::from(edge.flags),
             _padding0: 0,
-            color: edge.color,
+            color: rich_edge_rgba(edge.color),
             width: edge.width,
             id_low: edge.id.0 as u32,
             id_high: (edge.id.0 >> 32) as u32,
@@ -104,7 +107,8 @@ pub struct CameraUniform {
     pub view_right: [f32; 4],
     pub view_up: [f32; 4],
     pub viewport_size: [f32; 2],
-    pub _padding: [f32; 2],
+    pub edge_opacity: f32,
+    pub _padding: f32,
 }
 
 const _: () = assert!(std::mem::size_of::<CameraUniform>() == 128);

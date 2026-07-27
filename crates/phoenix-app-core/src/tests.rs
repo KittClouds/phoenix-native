@@ -4,14 +4,19 @@ use phoenix_scene_archive::{
     PhoenixSceneArchiveBuilderV1, PhoenixSceneArchiveV1, PositionRecord, TopologyRecord,
 };
 use phoenix_scene_contract::{
-    AnchorCandidate, AnchorSource, EntityFamily, EntityKind, FamilyMask, GraphScope, HighlightMode,
-    RelationMask, ReviewMask, SceneAuthority, SceneContractError, VerifiedDocumentAnchors,
+    AnchorCandidate, AnchorSource, EntityFamily, EntityKind, GraphAction, GraphLens, GraphScope,
+    GraphSurface, HighlightMode, RelationFamily, ReviewMask, SceneAuthority, SceneContractError,
+    VerifiedDocumentAnchors,
 };
 use phoenix_scene_product_index::{
     PhoenixSceneProductIndexBuilderV1, PhoenixSceneProductIndexV1, ProductIndexBinding, ReviewState,
 };
+use phoenix_workspace::{EntityTag, NerPublicationResult};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+mod graph_view_tests;
+mod selection_tests;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -118,7 +123,10 @@ fn full_publication(generation_id: u64, registry_revision: u64) -> NativeScenePu
             provenance_ref: u32::MAX,
         }],
         edge_products: Vec::new(),
-        entity_mappings: Vec::new(),
+        entity_mappings: vec![phoenix_scene_product_index::EntityNodeMappingRecord {
+            entity_id: 9001,
+            node_id: 501,
+        }],
         references: Vec::new(),
     }
 }
@@ -427,7 +435,10 @@ fn production_publication_is_atomic_monotonic_and_restart_durable(
     assert_eq!(registry_receipt.node_count, 0);
     let full_generation = registry_receipt.generation_id + 1;
     let published = kernel.execute(KernelCommand::PublishNativeScene(Box::new(
-        full_publication(full_generation, initial.atlas_registry.registry_revision),
+        NativeScenePublishCommand::backend(full_publication(
+            full_generation,
+            initial.atlas_registry.registry_revision,
+        )),
     )))?;
     let full_receipt = match published.outcome {
         KernelOutcome::SceneGenerationPublished(receipt) => receipt,
@@ -437,7 +448,10 @@ fn production_publication_is_atomic_monotonic_and_restart_durable(
     assert_eq!(full_receipt.node_count, 1);
     assert!(matches!(
         kernel.execute(KernelCommand::PublishNativeScene(Box::new(
-            full_publication(full_generation, initial.atlas_registry.registry_revision,)
+            NativeScenePublishCommand::backend(full_publication(
+                full_generation,
+                initial.atlas_registry.registry_revision,
+            ))
         ))),
         Err(KernelError::ScenePublication(
             ScenePublicationError::StaleGeneration { .. }
@@ -468,6 +482,127 @@ fn production_publication_is_atomic_monotonic_and_restart_durable(
             .map(|scene| scene.source()),
         Some(phoenix_scene_contract::SceneSource::Backend)
     );
+    reopened.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start_production(path.clone())?;
+    let initial = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("initial lease missing")?;
+    let content: Arc<str> = Arc::from("Ryan entered New Rome.");
+    kernel.execute(KernelCommand::TagSelection(Box::new(EntityTagCommand {
+        lease: initial.token(),
+        content: Arc::clone(&content),
+        tag: EntityTag {
+            kind: EntityKind::Character,
+            custom_kind: None,
+            start: 0,
+            end: 4,
+            surface: "Ryan".into(),
+        },
+    })))?;
+    let lease = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("tagged lease missing")?;
+    kernel.execute(KernelCommand::TagSelection(Box::new(EntityTagCommand {
+        lease: lease.token(),
+        content,
+        tag: EntityTag {
+            kind: EntityKind::Location,
+            custom_kind: None,
+            start: 13,
+            end: 21,
+            surface: "New Rome".into(),
+        },
+    })))?;
+
+    let rebuilt = kernel.rebuild_active_scene()?;
+    let receipt = match rebuilt.outcome {
+        KernelOutcome::GraphRebuilt(receipt) => receipt,
+        other => return Err(format!("unexpected rebuild outcome: {other:?}").into()),
+    };
+    assert_eq!(receipt.compile.node_count, 4);
+    assert_eq!(receipt.compile.edge_count, 4);
+    assert_eq!(receipt.compile.verified_mentions, 2);
+    assert_eq!(receipt.publication.kind, ScenePublicationKind::Full);
+    assert_eq!(receipt.publication.node_count, 4);
+    assert_eq!(receipt.publication.edge_count, 4);
+
+    let snapshot = kernel.snapshot()?;
+    let scene = snapshot.resident_scene.as_ref().ok_or("scene missing")?;
+    assert_eq!(scene.source(), phoenix_scene_contract::SceneSource::Backend);
+    assert_eq!(scene.inventory().node_count, 4);
+    assert_eq!(scene.inventory().edge_count, 4);
+    let anchors = snapshot
+        .document_anchors
+        .as_ref()
+        .ok_or("resident anchors missing")?;
+    assert_eq!(anchors.source(), AnchorSource::ResidentGraph);
+    assert_eq!(
+        anchors.graph_generation(),
+        Some(GraphGeneration(receipt.publication.generation_id))
+    );
+    assert_eq!(anchors.anchors().len(), 2);
+    assert!(anchors
+        .anchors()
+        .iter()
+        .all(|anchor| anchor.entity_slot < 2));
+    assert_eq!(
+        kernel.events_after(0)?.last().map(|event| &event.kind),
+        Some(&KernelEventKind::GraphRebuilt { receipt })
+    );
+    kernel.shutdown()?;
+    drop(kernel);
+
+    let reopened = PhoenixKernel::start_production(path.clone())?;
+    let reopened_snapshot = reopened.snapshot()?;
+    assert_eq!(
+        reopened_snapshot.scene_publication,
+        Some(receipt.publication)
+    );
+    assert_eq!(
+        reopened_snapshot
+            .resident_scene
+            .as_ref()
+            .map(|scene| scene.source()),
+        Some(phoenix_scene_contract::SceneSource::Backend)
+    );
+    reopened.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn native_rebuild_without_verified_mentions_preserves_current_generation(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start_production(path.clone())?;
+    let initial = kernel
+        .snapshot()?
+        .scene_publication
+        .ok_or("initial publication missing")?;
+    assert!(matches!(
+        kernel.rebuild_active_scene(),
+        Err(KernelError::SceneCompiler(
+            NativeSceneCompilerError::NoVerifiedMentions
+        ))
+    ));
+    assert_eq!(kernel.snapshot()?.scene_publication, Some(initial));
+    kernel.shutdown()?;
+    drop(kernel);
+
+    let reopened = PhoenixKernel::start_production(path.clone())?;
+    assert_eq!(reopened.snapshot()?.scene_publication, Some(initial));
     reopened.shutdown()?;
     let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);
@@ -521,82 +656,6 @@ fn registry_only_scene_uses_canonical_ids_and_reopens_before_full_graph(
     let reopened = PhoenixKernel::start_production(path.clone())?;
     assert_eq!(reopened.snapshot()?.scene_publication, Some(publication));
     reopened.shutdown()?;
-    let parent = path.parent().ok_or("test path has no parent")?;
-    let _ = std::fs::remove_dir_all(parent);
-    Ok(())
-}
-
-#[test]
-fn graph_view_is_kernel_owned_and_preserves_resident_arrays(
-) -> Result<(), Box<dyn std::error::Error>> {
-    let path = path();
-    let scene = scene(71)?;
-    let index = product_index(&scene)?;
-    let kernel = PhoenixKernel::start_with_product_index(
-        path.clone(),
-        Some(Arc::clone(&scene)),
-        Some(Arc::clone(&index)),
-    )?;
-    let initial = kernel.snapshot()?;
-    assert!(Arc::ptr_eq(
-        initial.resident_scene.as_ref().ok_or("scene missing")?,
-        &scene
-    ));
-    assert!(Arc::ptr_eq(
-        initial
-            .scene_product_index
-            .as_ref()
-            .ok_or("product index missing")?,
-        &index
-    ));
-    let mut view = initial.graph_view;
-    view.scope = GraphScope(0b10);
-    view.families = FamilyMask(0b100);
-    view.reviews = ReviewMask::ACCEPTED;
-    view.relations = RelationMask(0b1000);
-    kernel.execute(KernelCommand::SetGraphView(Box::new(view)))?;
-    let updated = kernel.snapshot()?;
-    assert_eq!(updated.graph_view, view);
-    assert!(Arc::ptr_eq(
-        updated.resident_scene.as_ref().ok_or("scene missing")?,
-        &scene
-    ));
-    assert!(Arc::ptr_eq(
-        updated
-            .scene_product_index
-            .as_ref()
-            .ok_or("product index missing")?,
-        &index
-    ));
-    kernel.shutdown()?;
-    let parent = path.parent().ok_or("test path has no parent")?;
-    let _ = std::fs::remove_dir_all(parent);
-    Ok(())
-}
-
-#[test]
-fn graph_view_rejects_missing_or_stale_product_authority() -> Result<(), Box<dyn std::error::Error>>
-{
-    let path = path();
-    let scene = scene(72)?;
-    let kernel = PhoenixKernel::start(path.clone(), Some(scene))?;
-    let mut filtered = kernel.snapshot()?.graph_view;
-    filtered.families = FamilyMask(1);
-    assert!(matches!(
-        kernel.execute(KernelCommand::SetGraphView(Box::new(filtered))),
-        Err(KernelError::ProductIndexRequiredForFilteredView)
-    ));
-    let mut stale = kernel.snapshot()?.graph_view;
-    stale.authority = SceneAuthority::Archive {
-        generation: GraphGeneration(999),
-        cohort_hash: [0; 32],
-        product_index_hash: None,
-    };
-    assert!(matches!(
-        kernel.execute(KernelCommand::SetGraphView(Box::new(stale))),
-        Err(KernelError::StaleGraphViewAuthority)
-    ));
-    kernel.shutdown()?;
     let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);
     Ok(())

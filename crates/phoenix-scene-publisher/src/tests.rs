@@ -106,7 +106,10 @@ fn atomic_manifest_reopens_the_exact_pair() -> Result<(), Box<dyn std::error::Er
     let reopened = store
         .open_current()?
         .ok_or("publication manifest was not visible")?;
+    let externally_reopened = ScenePublicationStore::open_current_at(store.root())?
+        .ok_or("explicit publication root was not visible")?;
     assert_eq!(published.receipt, reopened.receipt);
+    assert_eq!(published.receipt, externally_reopened.receipt);
     assert_eq!(reopened.scene.generation().0, 1);
     assert_eq!(reopened.scene.source(), SceneSource::RegistryOnly);
     assert_eq!(
@@ -116,6 +119,21 @@ fn atomic_manifest_reopens_the_exact_pair() -> Result<(), Box<dyn std::error::Er
             .ok_or("missing product label")?,
         "Atlas entity"
     );
+    assert!(reopened
+        .scene
+        .archive()
+        .has_page(phoenix_scene_archive::PageKey::shared(
+            phoenix_scene_archive::PageKind::LabelPriority
+        )));
+    for manifold in phoenix_scene_archive::ArchiveManifold::ALL {
+        assert!(reopened
+            .scene
+            .archive()
+            .has_page(phoenix_scene_archive::PageKey::manifold(
+                phoenix_scene_archive::PageKind::BundledPaths,
+                manifold,
+            )));
+    }
     assert_eq!(
         reopened
             .product_index

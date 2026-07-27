@@ -67,30 +67,63 @@ fn publish_registry_scene(
 pub(super) fn publish_full_scene(
     shared: &KernelShared,
     sequence: u64,
-    publication: NativeScenePublication,
+    command: NativeScenePublishCommand,
 ) -> Result<CommandReceipt, KernelError> {
-    if publication.kind != ScenePublicationKind::Full {
-        return Err(KernelError::BackendPublicationMustBeFull);
-    }
-    let (publisher, registry_revision) = {
-        let state = read_state(shared)?;
-        let publisher = shared
-            .publisher
-            .as_ref()
-            .ok_or(KernelError::ProductionPublisherUnavailable)?;
+    validate_compiled_metadata(&command)?;
+    let compile_receipt = command.compile_receipt;
+    let (publication_receipt, revision) =
+        publish_and_install(shared, command.publication, command.anchors)?;
+    let (event, outcome) = if let Some(compile) = compile_receipt {
+        let receipt = GraphRebuildReceipt {
+            compile,
+            publication: publication_receipt,
+        };
         (
-            Arc::clone(publisher),
-            state.atlas_registry.registry_revision,
+            KernelEventKind::GraphRebuilt { receipt },
+            KernelOutcome::GraphRebuilt(receipt),
+        )
+    } else {
+        (
+            KernelEventKind::SceneGenerationPublished {
+                receipt: publication_receipt,
+            },
+            KernelOutcome::SceneGenerationPublished(publication_receipt),
         )
     };
-    if publication.registry_revision != registry_revision {
-        return Err(KernelError::PublicationRegistryMismatch {
-            publication: publication.registry_revision,
-            current: registry_revision,
-        });
+    push_event(
+        shared,
+        KernelEvent {
+            sequence,
+            kernel_revision: revision,
+            kind: event,
+        },
+    )?;
+    Ok(receipt(sequence, revision, outcome))
+}
+
+fn validate_compiled_metadata(command: &NativeScenePublishCommand) -> Result<(), KernelError> {
+    let Some(compile) = command.compile_receipt else {
+        if command.anchors.is_some() {
+            return Err(KernelError::CompiledPublicationMismatch);
+        }
+        return Ok(());
+    };
+    let generation = command.publication.generation_id;
+    let anchors = command
+        .anchors
+        .as_ref()
+        .ok_or(KernelError::CompiledPublicationMismatch)?;
+    if compile.generation_id != generation
+        || compile.registry_revision != command.publication.registry_revision
+        || command.publication.document_id != Some(compile.document_id)
+        || anchors.document() != DocumentId(compile.document_id)
+        || anchors.document_revision() != compile.document_revision
+        || anchors.content_hash() != compile.content_hash
+        || anchors.graph_generation() != Some(GraphGeneration(generation))
+    {
+        return Err(KernelError::CompiledPublicationMismatch);
     }
-    let published = publisher.publish(publication)?;
-    install_published_scene(shared, sequence, published)
+    Ok(())
 }
 
 pub(super) fn install_published_scene_state(
@@ -107,15 +140,55 @@ pub(super) fn install_published_scene_state(
     state.scene_product_index = Some(published.product_index);
     state.scene_publication = Some(receipt);
     state.graph_view = graph_view;
+    state.graph_selection = GraphSelectionState {
+        revision: state.graph_selection.revision.saturating_add(1),
+        ..GraphSelectionState::default()
+    };
     state.document_anchors = None;
     Ok(receipt)
 }
 
-fn install_published_scene(
+fn publish_and_install(
     shared: &KernelShared,
-    sequence: u64,
-    published: PublishedScene,
-) -> Result<CommandReceipt, KernelError> {
+    publication: NativeScenePublication,
+    anchors: Option<Arc<VerifiedDocumentAnchors>>,
+) -> Result<(ScenePublicationReceipt, u64), KernelError> {
+    if publication.kind != ScenePublicationKind::Full {
+        return Err(KernelError::BackendPublicationMustBeFull);
+    }
+    let (publisher, registry_revision) = {
+        let state = read_state(shared)?;
+        if let Some(anchors) = anchors.as_ref() {
+            let active_document = state
+                .active_document
+                .ok_or(KernelError::DocumentAnchorsNotActive)?;
+            let active_lease = state
+                .active_document_lease
+                .as_ref()
+                .ok_or(KernelError::DocumentAnchorsNotActive)?;
+            if anchors.document() != active_document
+                || anchors.document_revision() != active_lease.revision.0
+                || anchors.content_hash() != active_lease.content_hash.0
+            {
+                return Err(KernelError::DocumentAnchorsNotActive);
+            }
+        }
+        let publisher = shared
+            .publisher
+            .as_ref()
+            .ok_or(KernelError::ProductionPublisherUnavailable)?;
+        (
+            Arc::clone(publisher),
+            state.atlas_registry.registry_revision,
+        )
+    };
+    if publication.registry_revision != registry_revision {
+        return Err(KernelError::PublicationRegistryMismatch {
+            publication: publication.registry_revision,
+            current: registry_revision,
+        });
+    }
+    let published = publisher.publish(publication)?;
     let mut state = write_state(shared)?;
     if let Some(current) = state.scene_publication {
         if published.receipt.generation_id <= current.generation_id {
@@ -126,24 +199,10 @@ fn install_published_scene(
         }
     }
     let publication_receipt = install_published_scene_state(&mut state, published)?;
+    state.document_anchors = anchors;
     state.revision = checked_revision(state.revision)?;
     let revision = state.revision;
-    drop(state);
-    push_event(
-        shared,
-        KernelEvent {
-            sequence,
-            kernel_revision: revision,
-            kind: KernelEventKind::SceneGenerationPublished {
-                receipt: publication_receipt,
-            },
-        },
-    )?;
-    Ok(receipt(
-        sequence,
-        revision,
-        KernelOutcome::SceneGenerationPublished(publication_receipt),
-    ))
+    Ok((publication_receipt, revision))
 }
 
 fn registry_publication(

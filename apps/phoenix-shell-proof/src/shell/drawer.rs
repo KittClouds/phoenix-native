@@ -2,12 +2,12 @@ use super::{
     graph_viewport, PhoenixShell, BORDER, BORDER_BRIGHT, CANVAS, SURFACE, TEXT, TEXT_MUTED,
 };
 use crate::lifecycle;
-use gpui::{div, prelude::*, px, rgb, Context, IntoElement};
+use gpui::{div, prelude::*, px, rgb, Context, IntoElement, Window};
 use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::PixelsExt;
-use phoenix_app_core::KernelCommand;
-use phoenix_scene_contract::Manifold;
+use phoenix_app_core::KernelOutcome;
 use std::rc::Rc;
+use std::sync::Arc;
 
 pub(super) const DRAWER_INITIAL_HEIGHT: f32 = 420.;
 pub(super) const DRAWER_MIN_HEIGHT: f32 = 280.;
@@ -103,6 +103,80 @@ impl PhoenixShell {
         self.kernel_snapshot()
             .map(|snapshot| snapshot.atlas_registry.entities.len())
             .unwrap_or(0)
+    }
+
+    pub(super) fn start_native_scene_rebuild(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.graph_rebuild_pending {
+            return;
+        }
+        self.graph_rebuild_pending = true;
+        self.status = "GRAPH REBUILD / COMPILING VERIFIED ACTIVE DOCUMENT".into();
+        cx.notify();
+        let kernel = Arc::clone(&self.kernel);
+        let background = cx.background_executor().clone();
+        cx.spawn_in(window, async move |shell, async_cx| {
+            let result = background
+                .spawn(async move { kernel.rebuild_active_scene() })
+                .await;
+            if let Err(error) = shell.update(async_cx, |this, cx| {
+                this.graph_rebuild_pending = false;
+                match result {
+                    Ok(command) => match command.outcome {
+                        KernelOutcome::GraphRebuilt(receipt) => {
+                            let sync = this
+                                .graph
+                                .borrow()
+                                .as_ref()
+                                .map(|graph| graph.sync_kernel_state());
+                            match sync {
+                                Some(Ok(())) => {
+                                    this.status = format!(
+                                        "GRAPH REBUILT / G{} / {}N / {}E / {} US",
+                                        receipt.publication.generation_id,
+                                        receipt.publication.node_count,
+                                        receipt.publication.edge_count,
+                                        receipt.compile.compile_micros
+                                    )
+                                    .into();
+                                }
+                                Some(Err(error)) => {
+                                    lifecycle::mark_proof_failed();
+                                    this.status = format!(
+                                        "GRAPH BLOCKED / G{} PUBLISHED / PRESENTATION {error:#}",
+                                        receipt.publication.generation_id
+                                    )
+                                    .into();
+                                }
+                                None => {
+                                    this.status = format!(
+                                        "GRAPH BLOCKED / G{} PUBLISHED / HOST UNAVAILABLE",
+                                        receipt.publication.generation_id
+                                    )
+                                    .into();
+                                }
+                            }
+                        }
+                        _ => {
+                            lifecycle::mark_proof_failed();
+                            this.status =
+                                "GRAPH BLOCKED / REBUILD RECEIPT CONTRACT MISMATCH".into();
+                        }
+                    },
+                    Err(error) => {
+                        this.status = format!("GRAPH BLOCKED / REBUILD / {error}").into();
+                    }
+                }
+                cx.notify();
+            }) {
+                lifecycle::mark_proof_failed();
+                eprintln!("PHOENIX_NATIVE_REBUILD_DELIVERY_FAILED {error:#}");
+            }
+        })
+        .detach();
     }
 
     pub(super) fn render_drawer_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -206,71 +280,6 @@ impl PhoenixShell {
                     .child(label),
             );
         }
-        let active = self
-            .kernel_snapshot()
-            .map(|snapshot| snapshot.graph_view.manifold)
-            .unwrap_or(Manifold::Hybrid);
-        let mut manifolds = div()
-            .h(px(34.))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .gap_1()
-            .px_3()
-            .border_b_1()
-            .border_color(rgb(BORDER))
-            .bg(rgb(0x121615));
-        for manifold in Manifold::ALL {
-            let selected = manifold == active;
-            manifolds = manifolds.child(
-                div()
-                    .id(("manifold-selector", manifold as usize))
-                    .px_3()
-                    .py_1()
-                    .rounded_sm()
-                    .text_xs()
-                    .cursor_pointer()
-                    .text_color(rgb(if selected { ACCENT } else { TEXT_MUTED }))
-                    .when(selected, |button| {
-                        button
-                            .bg(rgb(ACCENT_DIM))
-                            .border_1()
-                            .border_color(rgb(0x2a6d5b))
-                    })
-                    .hover(|button| button.bg(rgb(0x202825)).text_color(rgb(TEXT)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        match this.kernel.execute(KernelCommand::SetManifold(manifold)) {
-                            Ok(_) => {
-                                let sync = this
-                                    .graph
-                                    .borrow()
-                                    .as_ref()
-                                    .map(|graph| graph.sync_kernel_state());
-                                match sync {
-                                    Some(Err(error)) => {
-                                        lifecycle::mark_proof_failed();
-                                        this.status =
-                                            format!("MANIFOLD BLOCKED / {error:#}").into();
-                                    }
-                                    Some(Ok(())) => {
-                                        this.status =
-                                            format!("MANIFOLD / {manifold:?} REQUESTED").into();
-                                    }
-                                    None => {
-                                        this.status =
-                                            "MANIFOLD BLOCKED / GRAPH HOST UNAVAILABLE".into();
-                                    }
-                                }
-                            }
-                            Err(error) => {
-                                this.status = format!("MANIFOLD BLOCKED / {error}").into();
-                            }
-                        }
-                        cx.notify();
-                    }))
-                    .child(format!("{manifold:?}").to_uppercase()),
-            );
-        }
         div()
             .w_full()
             .flex_shrink_0()
@@ -278,7 +287,7 @@ impl PhoenixShell {
             .flex_col()
             .overflow_hidden()
             .child(tabs.overflow_hidden())
-            .child(manifolds.overflow_hidden())
+            .child(self.render_graph_controls(cx))
     }
 }
 

@@ -5,10 +5,17 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+default = []
+# This feature exists only as an architecture tripwire. Production code must
+# never compile with a browser/legacy graph adapter linked back in.
+legacy-graph-adapter = []
+
 [dependencies]
 anyhow.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
+gpui-animated-gradient-text = { path = "../../crates/gpui-animated-gradient-text" }
 graph-model = { path = "../../crates/graph-model" }
 graph-render-wgpu = { path = "../../crates/graph-render-wgpu" }
 phoenix-app-core = { path = "../../crates/phoenix-app-core" }

@@ -75,7 +75,7 @@ impl SceneState {
         self.edges.get(slot as usize)?.as_ref()
     }
 
-    pub fn nodes(&self) -> impl Iterator<Item = &NodeVisual> {
+    pub fn nodes(&self) -> impl Iterator<Item = &NodeVisual> + Clone {
         self.nodes.iter().filter_map(Option::as_ref)
     }
 

@@ -8,6 +8,9 @@ publish = false
 
 [dependencies]
 blake3.workspace = true
+bytemuck.workspace = true
+glam.workspace = true
+hashbrown.workspace = true
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }

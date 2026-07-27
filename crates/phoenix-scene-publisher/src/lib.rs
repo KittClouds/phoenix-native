@@ -8,6 +8,7 @@
 mod error;
 mod manifest;
 mod model;
+mod prepared_pages;
 mod store;
 
 pub use error::ScenePublicationError;

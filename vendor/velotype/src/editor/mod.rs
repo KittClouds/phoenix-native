@@ -179,6 +179,7 @@ pub struct EntityTagRequest {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EditorEvent {
+    DocumentChanged { revision: u64 },
     SaveRequested,
     EntityTagRequested(EntityTagRequest),
 }

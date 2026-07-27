@@ -4,7 +4,8 @@ struct CameraUniform {
     view_right: vec4<f32>,
     view_up: vec4<f32>,
     viewport_size: vec2<f32>,
-    _padding: vec2<f32>,
+    edge_opacity: f32,
+    _padding: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -48,19 +49,19 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let cyan = exp(-dot(lower_right * vec2<f32>(0.82, 1.35), lower_right) * 2.3);
     let atmosphere = exp(-dot(center * vec2<f32>(0.48, 0.82), center) * 1.1);
 
-    var color = vec3<f32>(0.007, 0.012, 0.014);
-    color += vec3<f32>(0.010, 0.090, 0.071) * phthalo;
-    color += vec3<f32>(0.010, 0.048, 0.061) * cyan;
-    color += vec3<f32>(0.008, 0.025, 0.024) * atmosphere;
+    var color = vec3<f32>(0.00061, 0.00121, 0.00304);
+    color += vec3<f32>(0.0012, 0.0060, 0.0042) * phthalo;
+    color += vec3<f32>(0.0008, 0.0028, 0.0045) * cyan;
+    color += vec3<f32>(0.0007, 0.0018, 0.0016) * atmosphere;
 
     let major_grid = line_grid(point, 2.25);
     let minor_grid = line_grid(point, 9.0);
-    color += vec3<f32>(0.055, 0.145, 0.122) * major_grid * 0.11;
-    color += vec3<f32>(0.035, 0.095, 0.082) * minor_grid * 0.045;
+    color += vec3<f32>(0.008, 0.020, 0.016) * major_grid * 0.08;
+    color += vec3<f32>(0.004, 0.010, 0.008) * minor_grid * 0.025;
 
     let vignette_radius = dot(point * vec2<f32>(0.72, 0.92), point);
     let vignette = 1.0 - smoothstep(0.42, 2.15, vignette_radius);
-    color *= mix(0.58, 1.0, vignette);
+    color *= mix(0.72, 1.0, vignette);
 
     return vec4<f32>(color, 1.0);
 }

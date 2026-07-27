@@ -1,0 +1,28 @@
+[package]
+name = "phoenix-scene-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+blake3.workspace = true
+glam.workspace = true
+hashbrown.workspace = true
+memchr.workspace = true
+phoenix-scene-archive = { path = "../phoenix-scene-archive" }
+phoenix-scene-contract = { path = "../phoenix-scene-contract" }
+phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }
+phoenix-scene-publisher = { path = "../phoenix-scene-publisher" }
+phoenix-workspace = { path = "../phoenix-workspace" }
+smallvec.workspace = true
+thiserror.workspace = true
+
+[[bench]]
+name = "active_document_compile"
+harness = false
+
+[[bench]]
+name = "caps_layout"
+harness = false

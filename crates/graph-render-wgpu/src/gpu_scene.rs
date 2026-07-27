@@ -1,12 +1,19 @@
-use crate::buffers::{EdgeGpu, NodeGpu, ResizableBuffer};
+use crate::buffers::{
+    EdgeGpu, NodeGpu, ResizableBuffer, HOVERED_FLAG, NEIGHBOR_FLAG, ROUTE_FLAG, SELECTED_FLAG,
+};
+use crate::gpu_scene_support::{
+    mark_edge, mark_node, metrics_from_changes, reserve_slots, write_dirty_ranges,
+};
+use crate::interaction_index::InteractionIndex;
 use crate::{EdgeProductGpu, NodeProductGpu, RenderError, SceneChanges, SceneState};
 use graph_model::{GraphDiff, GraphRevision, GraphSnapshot, NodeId};
 use phoenix_scene_archive::{ManifoldPageSet, PositionRecord};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
-use std::ops::Range;
 use std::time::Instant;
 
+pub(crate) const MAX_INTERACTION_NODE_SLOTS: usize = 4096;
+pub(crate) const MAX_INTERACTION_EDGE_SLOTS: usize = 8192;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SnapshotMetrics {
     pub node_count: usize,
@@ -15,14 +22,12 @@ pub struct SnapshotMetrics {
     pub elapsed_us: u128,
     pub bindings_changed: bool,
 }
-
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PositionSwitchMetrics {
     pub node_count: usize,
     pub bytes_uploaded: usize,
     pub elapsed_us: u128,
 }
-
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ProductInstallMetrics {
     pub node_records: usize,
@@ -31,7 +36,6 @@ pub struct ProductInstallMetrics {
     pub bindings_changed: bool,
     pub elapsed_us: u128,
 }
-
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GpuSceneMetrics {
     pub nodes_added: usize,
@@ -44,7 +48,6 @@ pub struct GpuSceneMetrics {
     pub diff_apply_duration_us: u128,
     pub bindings_changed: bool,
 }
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GpuAllocationStats {
     pub node_capacity: usize,
@@ -57,7 +60,18 @@ pub struct GpuAllocationStats {
     pub edge_product_buffer_generation: u64,
     pub allocated_bytes: usize,
 }
-
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InteractionAllocationStats {
+    pub node_slot_capacity: usize,
+    pub edge_slot_capacity: usize,
+    pub node_dirty_capacity: usize,
+    pub edge_dirty_capacity: usize,
+    pub queue_capacity: usize,
+    pub route_node_capacity: usize,
+    pub route_edge_capacity: usize,
+    pub route_nodes: usize,
+    pub route_edges: usize,
+}
 pub struct GpuScene {
     state: SceneState,
     node_gpu_data: Vec<NodeGpu>,
@@ -71,6 +85,11 @@ pub struct GpuScene {
     bound_product_hash: Option<[u8; 32]>,
     hover_node: Option<NodeId>,
     selected_node: Option<NodeId>,
+    interaction: InteractionIndex,
+    interaction_node_slots: Vec<u32>,
+    interaction_edge_slots: Vec<u32>,
+    interaction_node_dirty: Vec<u32>,
+    interaction_edge_dirty: Vec<u32>,
 }
 
 impl GpuScene {
@@ -108,6 +127,11 @@ impl GpuScene {
             bound_product_hash: None,
             hover_node: None,
             selected_node: None,
+            interaction: InteractionIndex::default(),
+            interaction_node_slots: Vec::new(),
+            interaction_edge_slots: Vec::new(),
+            interaction_node_dirty: Vec::new(),
+            interaction_edge_dirty: Vec::new(),
         })
     }
 
@@ -371,6 +395,37 @@ impl GpuScene {
                 &changes.dirty_edge_slots,
             );
         }
+        self.interaction.rebuild(&self.state);
+        self.interaction_node_slots.clear();
+        self.interaction_edge_slots.clear();
+        self.interaction_node_dirty.clear();
+        self.interaction_edge_dirty.clear();
+        reserve_slots(
+            &mut self.interaction_node_slots,
+            self.state
+                .node_capacity_slots()
+                .min(MAX_INTERACTION_NODE_SLOTS),
+        );
+        reserve_slots(
+            &mut self.interaction_node_dirty,
+            self.state
+                .node_capacity_slots()
+                .min(MAX_INTERACTION_NODE_SLOTS)
+                .saturating_mul(2),
+        );
+        reserve_slots(
+            &mut self.interaction_edge_slots,
+            self.state
+                .edge_capacity_slots()
+                .min(MAX_INTERACTION_EDGE_SLOTS),
+        );
+        reserve_slots(
+            &mut self.interaction_edge_dirty,
+            self.state
+                .edge_capacity_slots()
+                .min(MAX_INTERACTION_EDGE_SLOTS)
+                .saturating_mul(2),
+        );
 
         Ok(metrics_from_changes(
             &changes,
@@ -389,34 +444,105 @@ impl GpuScene {
         selected: Option<NodeId>,
         queue: &wgpu::Queue,
     ) -> usize {
-        let mut slots = [None; 4];
-        let candidates = [self.hover_node, hover, self.selected_node, selected];
-        let mut count = 0;
-        for id in candidates.into_iter().flatten() {
-            let Some(slot) = self.state.node_slot(id) else {
-                continue;
-            };
-            if !slots[..count].contains(&Some(slot)) {
-                slots[count] = Some(slot);
-                count += 1;
+        self.interaction_node_dirty.clear();
+        self.interaction_node_dirty
+            .extend_from_slice(&self.interaction_node_slots);
+        self.interaction_edge_dirty.clear();
+        self.interaction_edge_dirty
+            .extend_from_slice(&self.interaction_edge_slots);
+        for &slot in &self.interaction_node_slots {
+            if let Some(node) = self.state.node_at_slot(slot) {
+                self.node_gpu_data[slot as usize] = NodeGpu::from_visual(node, false, false);
             }
         }
+        for &slot in &self.interaction_edge_slots {
+            if let Some(edge) = self.state.edge_at_slot(slot) {
+                let source = self.state.node_slot(edge.source).unwrap_or_default();
+                let target = self.state.node_slot(edge.target).unwrap_or_default();
+                self.edge_gpu_data[slot as usize] = EdgeGpu::from_visual(edge, source, target);
+            }
+        }
+        self.interaction_node_slots.clear();
+        self.interaction_edge_slots.clear();
         self.hover_node = hover.filter(|id| self.state.node_slot(*id).is_some());
         self.selected_node = selected.filter(|id| self.state.node_slot(*id).is_some());
+        let hover_slot = self.hover_node.and_then(|id| self.state.node_slot(id));
+        let selected_slot = self.selected_node.and_then(|id| self.state.node_slot(id));
 
-        let mut dirty = Vec::with_capacity(count);
-        for slot in slots.into_iter().flatten() {
-            if let Some(node) = self.state.node_at_slot(slot) {
-                self.node_gpu_data[slot as usize] = NodeGpu::from_visual(
-                    node,
-                    self.hover_node == Some(node.id),
-                    self.selected_node == Some(node.id),
+        if let Some(slot) = hover_slot {
+            mark_node(
+                &mut self.node_gpu_data,
+                &mut self.interaction_node_slots,
+                &mut self.interaction_node_dirty,
+                slot,
+                HOVERED_FLAG,
+            );
+        }
+        if let Some(slot) = selected_slot {
+            mark_node(
+                &mut self.node_gpu_data,
+                &mut self.interaction_node_slots,
+                &mut self.interaction_node_dirty,
+                slot,
+                SELECTED_FLAG,
+            );
+            for adjacency in self.interaction.neighbors(slot) {
+                mark_node(
+                    &mut self.node_gpu_data,
+                    &mut self.interaction_node_slots,
+                    &mut self.interaction_node_dirty,
+                    adjacency.node_slot,
+                    NEIGHBOR_FLAG,
                 );
-                dirty.push(slot);
+                mark_edge(
+                    &mut self.edge_gpu_data,
+                    &mut self.interaction_edge_slots,
+                    &mut self.interaction_edge_dirty,
+                    adjacency.edge_slot,
+                    NEIGHBOR_FLAG,
+                );
             }
         }
-        dirty.sort_unstable();
-        write_dirty_ranges(&self.node_buffer, queue, &self.node_gpu_data, &dirty)
+        if let (Some(source), Some(target)) = (selected_slot, hover_slot) {
+            self.interaction.compute_route(source, target);
+            for &slot in self.interaction.route_nodes() {
+                mark_node(
+                    &mut self.node_gpu_data,
+                    &mut self.interaction_node_slots,
+                    &mut self.interaction_node_dirty,
+                    slot,
+                    ROUTE_FLAG,
+                );
+            }
+            for &slot in self.interaction.route_edges() {
+                mark_edge(
+                    &mut self.edge_gpu_data,
+                    &mut self.interaction_edge_slots,
+                    &mut self.interaction_edge_dirty,
+                    slot,
+                    ROUTE_FLAG,
+                );
+            }
+        }
+        self.interaction_node_slots.sort_unstable();
+        self.interaction_node_slots.dedup();
+        self.interaction_edge_slots.sort_unstable();
+        self.interaction_edge_slots.dedup();
+        self.interaction_node_dirty.sort_unstable();
+        self.interaction_node_dirty.dedup();
+        self.interaction_edge_dirty.sort_unstable();
+        self.interaction_edge_dirty.dedup();
+        write_dirty_ranges(
+            &self.node_buffer,
+            queue,
+            &self.node_gpu_data,
+            &self.interaction_node_dirty,
+        ) + write_dirty_ranges(
+            &self.edge_buffer,
+            queue,
+            &self.edge_gpu_data,
+            &self.interaction_edge_dirty,
+        )
     }
 
     #[must_use]
@@ -465,6 +591,22 @@ impl GpuScene {
                 .saturating_add(edge_bytes)
                 .saturating_add(node_product_bytes)
                 .saturating_add(edge_product_bytes),
+        }
+    }
+
+    #[must_use]
+    pub fn interaction_allocation_stats(&self) -> InteractionAllocationStats {
+        let index = self.interaction.stats();
+        InteractionAllocationStats {
+            node_slot_capacity: self.interaction_node_slots.capacity(),
+            edge_slot_capacity: self.interaction_edge_slots.capacity(),
+            node_dirty_capacity: self.interaction_node_dirty.capacity(),
+            edge_dirty_capacity: self.interaction_edge_dirty.capacity(),
+            queue_capacity: index.queue_capacity,
+            route_node_capacity: index.route_node_capacity,
+            route_edge_capacity: index.route_edge_capacity,
+            route_nodes: index.route_nodes,
+            route_edges: index.route_edges,
         }
     }
 
@@ -529,6 +671,37 @@ impl GpuScene {
         self.edge_product_buffer
             .write(queue, 0, &self.edge_product_data);
         self.bound_product_hash = None;
+        self.interaction.rebuild(&self.state);
+        self.interaction_node_slots.clear();
+        self.interaction_edge_slots.clear();
+        self.interaction_node_dirty.clear();
+        self.interaction_edge_dirty.clear();
+        reserve_slots(
+            &mut self.interaction_node_slots,
+            self.state
+                .node_capacity_slots()
+                .min(MAX_INTERACTION_NODE_SLOTS),
+        );
+        reserve_slots(
+            &mut self.interaction_node_dirty,
+            self.state
+                .node_capacity_slots()
+                .min(MAX_INTERACTION_NODE_SLOTS)
+                .saturating_mul(2),
+        );
+        reserve_slots(
+            &mut self.interaction_edge_slots,
+            self.state
+                .edge_capacity_slots()
+                .min(MAX_INTERACTION_EDGE_SLOTS),
+        );
+        reserve_slots(
+            &mut self.interaction_edge_dirty,
+            self.state
+                .edge_capacity_slots()
+                .min(MAX_INTERACTION_EDGE_SLOTS)
+                .saturating_mul(2),
+        );
         Ok(node_reallocated
             || edge_reallocated
             || node_product_reallocated
@@ -568,55 +741,5 @@ impl GpuScene {
             };
         }
         Ok(())
-    }
-}
-
-fn write_dirty_ranges<T: bytemuck::Pod>(
-    buffer: &ResizableBuffer,
-    queue: &wgpu::Queue,
-    data: &[T],
-    slots: &[u32],
-) -> usize {
-    let mut count = 0;
-    for range in coalesced_ranges(slots) {
-        buffer.write(queue, range.start, &data[range]);
-        count += 1;
-    }
-    count
-}
-
-fn coalesced_ranges(slots: &[u32]) -> impl Iterator<Item = Range<usize>> + '_ {
-    let mut cursor = 0;
-    std::iter::from_fn(move || {
-        let first = *slots.get(cursor)? as usize;
-        let mut end = first + 1;
-        cursor += 1;
-        while let Some(&slot) = slots.get(cursor) {
-            if slot as usize != end {
-                break;
-            }
-            end += 1;
-            cursor += 1;
-        }
-        Some(first..end)
-    })
-}
-
-fn metrics_from_changes(
-    changes: &SceneChanges,
-    ranges: usize,
-    elapsed_us: u128,
-    bindings_changed: bool,
-) -> GpuSceneMetrics {
-    GpuSceneMetrics {
-        nodes_added: changes.nodes_added,
-        nodes_updated: changes.nodes_updated,
-        nodes_removed: changes.nodes_removed,
-        edges_added: changes.edges_added,
-        edges_updated: changes.edges_updated,
-        edges_removed: changes.edges_removed,
-        buffer_ranges_updated: ranges,
-        diff_apply_duration_us: elapsed_us,
-        bindings_changed,
     }
 }

@@ -1,4 +1,5 @@
 use crate::manifest::MANIFEST_FILE;
+use crate::prepared_pages::add_prepared_pages;
 use crate::{
     NativeScenePublication, ScenePublicationError, ScenePublicationKind, ScenePublicationReceipt,
 };
@@ -46,6 +47,16 @@ impl ScenePublicationStore {
             root: parent.join(STORE_DIRECTORY),
             nonce: AtomicU64::new(1),
         })
+    }
+
+    /// Opens the atomically selected generation from an explicit publication
+    /// root without granting the caller a publication handle.
+    pub fn open_current_at(root: &Path) -> Result<Option<PublishedScene>, ScenePublicationError> {
+        Self {
+            root: root.to_path_buf(),
+            nonce: AtomicU64::new(1),
+        }
+        .open_current()
     }
 
     #[must_use]
@@ -139,6 +150,7 @@ impl ScenePublicationStore {
         let edge_count = publication.edges.len() as u64;
 
         let mut archive = PhoenixSceneArchiveBuilderV1::new(generation_id)?;
+        add_prepared_pages(&mut archive, &publication)?;
         archive
             .add_records(
                 PageKey::shared(PageKind::NodeIdentity),

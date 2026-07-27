@@ -63,6 +63,11 @@ impl Camera {
     }
 
     #[must_use]
+    pub fn viewport_size(&self) -> (u32, u32) {
+        (self.viewport_width as u32, self.viewport_height as u32)
+    }
+
+    #[must_use]
     pub fn eye_position(&self) -> Vec3 {
         let cos_pitch = self.pitch.cos();
         self.target
@@ -101,7 +106,8 @@ impl Camera {
             view_right: [right.x, right.y, right.z, 0.0],
             view_up: [up.x, up.y, up.z, 0.0],
             viewport_size: [self.viewport_width, self.viewport_height],
-            _padding: [0.0; 2],
+            edge_opacity: 0.18,
+            _padding: 0.0,
         }
     }
 
@@ -130,11 +136,27 @@ impl Camera {
         self.distance = 100.0;
     }
 
-    pub fn fit_graph<'a>(&mut self, nodes: impl IntoIterator<Item = &'a NodeVisual>) {
+    pub fn orient(&mut self, yaw: f32, pitch: f32) {
+        self.yaw = yaw;
+        let limit = std::f32::consts::FRAC_PI_2 - 0.01;
+        self.pitch = pitch.clamp(-limit, limit);
+    }
+
+    pub fn focus(&mut self, position: [f32; 3]) {
+        self.target = Vec3::from_array(position);
+        self.distance = self.distance.clamp(8.0, 180.0);
+    }
+
+    pub fn fit_graph<'a, I>(&mut self, nodes: I)
+    where
+        I: IntoIterator<Item = &'a NodeVisual>,
+        I::IntoIter: Clone,
+    {
+        let nodes = nodes.into_iter();
         let mut min = Vec3::splat(f32::INFINITY);
         let mut max = Vec3::splat(f32::NEG_INFINITY);
         let mut found = false;
-        for node in nodes {
+        for node in nodes.clone() {
             found = true;
             let position = Vec3::from_array(node.position);
             let radius = Vec3::splat(node.radius);
@@ -147,7 +169,11 @@ impl Camera {
         }
 
         self.target = (min + max) * 0.5;
-        let radius = ((max - min) * 0.5).length().max(1.0);
+        let radius = nodes
+            .map(|node| {
+                (Vec3::from_array(node.position) - self.target).length() + node.radius.max(0.0)
+            })
+            .fold(1.0_f32, f32::max);
         let vertical_half = self.fov_y * 0.5;
         let horizontal_half = (vertical_half.tan() * self.aspect).atan();
         let limiting_half_angle = vertical_half.min(horizontal_half);
@@ -200,9 +226,38 @@ mod tests {
     }
 
     #[test]
+    fn fit_graph_uses_the_scene_radius_not_the_empty_box_corners() {
+        let mut camera = Camera::new(800.0, 800.0);
+        let nodes = [
+            node(1, [-36.0, 0.0, 0.0]),
+            node(2, [36.0, 0.0, 0.0]),
+            node(3, [0.0, -36.0, 0.0]),
+            node(4, [0.0, 36.0, 0.0]),
+            node(5, [0.0, 0.0, -36.0]),
+            node(6, [0.0, 0.0, 36.0]),
+        ];
+        camera.fit_graph(&nodes);
+        let exact_radius = 38.0_f32;
+        let expected = exact_radius / (camera.snapshot().fov_y * 0.5).sin() * 1.1;
+        assert!((camera.snapshot().distance - expected).abs() < 0.001);
+        assert!(camera.snapshot().distance < 112.0);
+    }
+
+    #[test]
     fn resize_updates_projection_aspect() {
         let mut camera = Camera::new(800.0, 600.0);
         camera.resize(1920.0, 1080.0);
         assert!((camera.snapshot().aspect - 16.0 / 9.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn explicit_orientation_clamps_pitch_without_moving_the_fit() {
+        let mut camera = Camera::new(800.0, 600.0);
+        camera.fit_graph(&[node(1, [-10.0, 0.0, 0.0]), node(2, [10.0, 0.0, 0.0])]);
+        let distance = camera.snapshot().distance;
+        camera.orient(0.72, std::f32::consts::PI);
+        assert_eq!(camera.snapshot().yaw, 0.72);
+        assert!(camera.snapshot().pitch < std::f32::consts::FRAC_PI_2);
+        assert_eq!(camera.snapshot().distance, distance);
     }
 }

@@ -338,6 +338,9 @@ impl Editor {
     pub(super) fn mark_dirty(&mut self, cx: &mut Context<Self>) {
         self.document_revision = self.document_revision.wrapping_add(1);
         self.clear_semantic_highlights(cx);
+        cx.emit(super::EditorEvent::DocumentChanged {
+            revision: self.document_revision,
+        });
         if !self.document_dirty {
             self.document_dirty = true;
             self.pending_window_edited = true;

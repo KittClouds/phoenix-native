@@ -73,7 +73,7 @@ pub fn create_pipelines(
         &[&layouts.camera, &layouts.nodes, &layouts.lens],
         &node_shader,
         surface_format,
-        true,
+        false,
     );
     let edges = pipeline(
         device,

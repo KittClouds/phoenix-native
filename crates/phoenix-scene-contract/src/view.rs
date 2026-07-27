@@ -32,12 +32,56 @@ impl SceneAuthority {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphSurface {
+    #[default]
+    Entities,
+    Atlas,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphLens {
+    #[default]
+    Entities,
+    Structure,
+    Facts,
+    Discourse,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphScope {
+    #[default]
+    Global,
+    Narrative,
+    Note,
+    Compare,
+}
+
+impl GraphScope {
+    #[must_use]
+    pub const fn mask(self) -> ScopeMask {
+        match self {
+            Self::Global => ScopeMask::ALL,
+            Self::Narrative => ScopeMask::NARRATIVE,
+            Self::Note => ScopeMask::NOTE,
+            Self::Compare => ScopeMask::COMPARE,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct GraphScope(pub u64);
+pub struct ScopeMask(pub u64);
 
-impl GraphScope {
+impl ScopeMask {
+    pub const NOTE: Self = Self(1 << 0);
+    pub const REGISTRY: Self = Self(1 << 1);
+    pub const NARRATIVE: Self = Self(1 << 2);
+    pub const COMPARE: Self = Self(1 << 3);
     pub const ALL: Self = Self(u64::MAX);
 }
 
@@ -47,7 +91,24 @@ impl GraphScope {
 pub struct FamilyMask(pub u64);
 
 impl FamilyMask {
-    pub const ALL: Self = Self(u64::MAX);
+    pub const ENTITIES: Self = Self((1 << 8) - 1);
+    pub const STRUCTURE: Self = Self(1 << 8);
+    pub const FACTS: Self = Self(1 << 9);
+    pub const DISCOURSE: Self = Self(1 << 10);
+    pub const ALL: Self =
+        Self(Self::ENTITIES.0 | Self::STRUCTURE.0 | Self::FACTS.0 | Self::DISCOURSE.0);
+}
+
+impl GraphLens {
+    #[must_use]
+    pub const fn family_mask(self) -> FamilyMask {
+        match self {
+            Self::Entities => FamilyMask::ENTITIES,
+            Self::Structure => FamilyMask::STRUCTURE,
+            Self::Facts => FamilyMask::FACTS,
+            Self::Discourse => FamilyMask::DISCOURSE,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -59,7 +120,51 @@ impl ReviewMask {
     pub const ACCEPTED: Self = Self(1);
     pub const PROPOSED: Self = Self(2);
     pub const REJECTED: Self = Self(4);
-    pub const ALL: Self = Self(Self::ACCEPTED.0 | Self::PROPOSED.0 | Self::REJECTED.0);
+    pub const VISIBLE: Self = Self(Self::ACCEPTED.0 | Self::PROPOSED.0);
+    pub const ALL: Self = Self(Self::VISIBLE.0 | Self::REJECTED.0);
+
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    #[must_use]
+    pub const fn toggled(self, other: Self) -> Self {
+        Self(self.0 ^ other.0)
+    }
+
+    #[must_use]
+    pub const fn is_visible_selection(self) -> bool {
+        self.0 != 0 && self.0 & !Self::VISIBLE.0 == 0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[repr(u8)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationFamily {
+    CoOccurrence,
+    Observation,
+    Communication,
+    Causal,
+    Temporal,
+    Structural,
+}
+
+impl RelationFamily {
+    pub const ALL: [Self; 6] = [
+        Self::CoOccurrence,
+        Self::Observation,
+        Self::Communication,
+        Self::Causal,
+        Self::Temporal,
+        Self::Structural,
+    ];
+
+    #[must_use]
+    pub const fn mask(self) -> RelationMask {
+        RelationMask(1 << self as u8)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -68,27 +173,33 @@ impl ReviewMask {
 pub struct RelationMask(pub u64);
 
 impl RelationMask {
-    pub const ALL: Self = Self(u64::MAX);
-}
+    pub const ALL: Self = Self((1 << RelationFamily::ALL.len()) - 1);
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[repr(transparent)]
-#[serde(transparent)]
-pub struct ProjectionProfile(pub u16);
+    #[must_use]
+    pub const fn contains(self, family: RelationFamily) -> bool {
+        self.0 & family.mask().0 != 0
+    }
 
-impl ProjectionProfile {
-    pub const DEFAULT: Self = Self(0);
+    #[must_use]
+    pub const fn toggled(self, family: RelationFamily) -> Self {
+        Self(self.0 ^ family.mask().0)
+    }
+
+    #[must_use]
+    pub const fn is_valid_selection(self) -> bool {
+        self.0 != 0 && self.0 & !Self::ALL.0 == 0
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct GraphViewState {
     pub authority: SceneAuthority,
+    pub surface: GraphSurface,
+    pub lens: GraphLens,
     pub scope: GraphScope,
-    pub families: FamilyMask,
     pub reviews: ReviewMask,
     pub relations: RelationMask,
     pub manifold: Manifold,
-    pub profile: ProjectionProfile,
 }
 
 impl GraphViewState {
@@ -96,12 +207,12 @@ impl GraphViewState {
     pub const fn unavailable() -> Self {
         Self {
             authority: SceneAuthority::Unavailable,
-            scope: GraphScope::ALL,
-            families: FamilyMask::ALL,
-            reviews: ReviewMask::ALL,
+            surface: GraphSurface::Entities,
+            lens: GraphLens::Entities,
+            scope: GraphScope::Global,
+            reviews: ReviewMask::VISIBLE,
             relations: RelationMask::ALL,
             manifold: Manifold::Hybrid,
-            profile: ProjectionProfile::DEFAULT,
         }
     }
 
@@ -122,11 +233,26 @@ impl GraphViewState {
     }
 
     #[must_use]
-    pub const fn is_unfiltered(self) -> bool {
-        self.scope.0 == u64::MAX
-            && self.families.0 == u64::MAX
-            && self.reviews.0 == ReviewMask::ALL.0
-            && self.relations.0 == u64::MAX
+    pub const fn family_mask(self) -> FamilyMask {
+        match self.surface {
+            GraphSurface::Entities => FamilyMask::ENTITIES,
+            GraphSurface::Atlas => self.lens.family_mask(),
+        }
+    }
+
+    #[must_use]
+    pub const fn scope_mask(self) -> ScopeMask {
+        self.scope.mask()
+    }
+
+    #[must_use]
+    pub const fn requires_product_index(self) -> bool {
+        !matches!(self.authority, SceneAuthority::Unavailable)
+    }
+
+    #[must_use]
+    pub const fn is_valid(self) -> bool {
+        self.reviews.is_visible_selection() && self.relations.is_valid_selection()
     }
 }
 
@@ -136,22 +262,52 @@ impl Default for GraphViewState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphAction {
+    Fit,
+    Reset,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn default_view_is_unfiltered_but_has_no_authority() {
+    fn default_view_is_entities_without_authority() {
         let view = GraphViewState::default();
-        assert!(view.is_unfiltered());
+        assert_eq!(view.surface, GraphSurface::Entities);
+        assert_eq!(view.family_mask(), FamilyMask::ENTITIES);
         assert_eq!(view.authority, SceneAuthority::Unavailable);
+        assert!(view.is_valid());
     }
 
     #[test]
-    fn review_mask_names_are_stable_bits() {
-        assert_eq!(ReviewMask::ACCEPTED.0, 1);
-        assert_eq!(ReviewMask::PROPOSED.0, 2);
-        assert_eq!(ReviewMask::REJECTED.0, 4);
-        assert_eq!(ReviewMask::ALL.0, 7);
+    fn atlas_lenses_are_disjoint_named_bits() {
+        let masks = [
+            GraphLens::Entities.family_mask(),
+            GraphLens::Structure.family_mask(),
+            GraphLens::Facts.family_mask(),
+            GraphLens::Discourse.family_mask(),
+        ];
+        for (index, mask) in masks.iter().enumerate() {
+            for other in &masks[index + 1..] {
+                assert_eq!(mask.0 & other.0, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn review_and_relation_toggles_never_need_allocation() {
+        assert_eq!(
+            ReviewMask::VISIBLE.toggled(ReviewMask::PROPOSED),
+            ReviewMask::ACCEPTED
+        );
+        assert!(RelationMask::ALL
+            .toggled(RelationFamily::Temporal)
+            .contains(RelationFamily::Causal));
+        assert!(!RelationMask::ALL
+            .toggled(RelationFamily::Temporal)
+            .contains(RelationFamily::Temporal));
     }
 }

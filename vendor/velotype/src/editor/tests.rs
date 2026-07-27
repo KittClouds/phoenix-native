@@ -74,6 +74,32 @@ impl Render for EmbeddedSaveHost {
     }
 }
 
+struct EmbeddedChangeHost {
+    editor: Entity<Editor>,
+}
+
+impl EmbeddedChangeHost {
+    fn new(revision: std::rc::Rc<std::cell::Cell<u64>>, cx: &mut Context<Self>) -> Self {
+        let editor = cx.new(|cx| Editor::embedded_from_markdown(cx, "kernel text".into()));
+        cx.subscribe(&editor, move |_, _, event, _| {
+            if let EditorEvent::DocumentChanged {
+                revision: changed_revision,
+            } = event
+            {
+                revision.set(*changed_revision);
+            }
+        })
+        .detach();
+        Self { editor }
+    }
+}
+
+impl Render for EmbeddedChangeHost {
+    fn render(&mut self, _window: &mut gpui::Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().child(self.editor.clone())
+    }
+}
+
 #[gpui::test]
 async fn embedded_editor_has_no_file_authority_and_preserves_ingress(cx: &mut TestAppContext) {
     init_editor_test_app(cx);
@@ -103,6 +129,20 @@ async fn embedded_save_emits_host_request_without_writing_a_file(cx: &mut TestAp
         assert!(editor.is_embedded());
         assert!(editor.file_path.is_none());
     });
+}
+
+#[gpui::test]
+async fn embedded_document_changes_publish_the_new_revision(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let revision = std::rc::Rc::new(std::cell::Cell::new(0));
+    let observed = std::rc::Rc::clone(&revision);
+    let (host, cx) = cx.add_window_view(move |_window, cx| EmbeddedChangeHost::new(observed, cx));
+    let editor = host.read_with(cx, |host, _| host.editor.clone());
+
+    editor.update(cx, |editor, cx| editor.mark_dirty(cx));
+    cx.run_until_parked();
+
+    assert_eq!(revision.get(), 1);
 }
 
 #[gpui::test]

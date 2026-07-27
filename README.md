@@ -84,6 +84,20 @@ phoenix-native/
 is retained only as a historical renderer harness and is unreachable unless the
 caller explicitly enables `standalone-harness`.
 
+For graph-product development, use the checked launcher. It opens the atomic
+`current.pspm` authority and refuses missing, corrupt, registry-only, empty, or
+unindexed generations instead of presenting an unexplained empty canvas:
+
+```powershell
+.\scripts\launch-graph-shell.ps1 `
+  -Binary 'C:\phoenix-bin\phoenix-shell.exe' `
+  -ScenePublicationRoot 'C:\phoenix-bin\verified-scene\scene-publications-v1'
+```
+
+The workspace still comes from `%LOCALAPPDATA%\Phoenix\NativeShell`; only the
+explicitly named graph generation comes from the development publication root.
+Entity-only startup remains available by launching `phoenix-shell` normally.
+
 PowerShell:
 
 ```powershell

@@ -1,13 +1,20 @@
 mod buffers;
 mod camera;
+mod color;
 mod error;
 mod events;
 mod gpu_scene;
+mod gpu_scene_support;
 mod interaction;
+mod interaction_index;
+mod labels;
 mod lens;
+mod path_layer;
 mod picking;
 mod pipelines;
 mod renderer;
+mod renderer_metrics;
+mod renderer_support;
 #[cfg(test)]
 mod renderer_tests;
 mod scene_state;
@@ -18,12 +25,14 @@ mod gpu_smoke;
 pub use camera::{Camera, CameraSnapshot};
 pub use error::RenderError;
 pub use gpu_scene::{
-    GpuAllocationStats, GpuSceneMetrics, PositionSwitchMetrics, ProductInstallMetrics,
-    SnapshotMetrics,
+    GpuAllocationStats, GpuSceneMetrics, InteractionAllocationStats, PositionSwitchMetrics,
+    ProductInstallMetrics, SnapshotMetrics,
 };
 pub use interaction::{logical_to_physical, GraphEvent, GraphInput, PointerButton};
 pub use lens::{EdgeProductGpu, GraphLensUniform, NodeProductGpu};
-pub use renderer::{FrameMetrics, GraphRenderer, LensUpdateMetrics};
+pub use path_layer::PreparedGeometryMetrics;
+pub use renderer::GraphRenderer;
+pub use renderer_metrics::{FrameMetrics, LensUpdateMetrics};
 pub use scene_state::{SceneChanges, SceneState};
 
 /// Backends allowed for Phoenix's native renderer.

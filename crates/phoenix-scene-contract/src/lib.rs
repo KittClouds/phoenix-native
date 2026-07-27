@@ -1,18 +1,23 @@
 //! Versioned scene authority shared by the native kernel and renderer consumer.
 
+mod caps;
 mod entities;
 mod highlights;
 mod view;
 
 use phoenix_scene_archive::{
-    ArchiveError, ArchiveManifold, ManifoldPageSet, PageKey, PageKind, PhoenixSceneArchiveV1,
-    ARCHIVE_CONTRACT, FORMAT_VERSION,
+    ArchiveError, ArchiveManifold, GuidePageView, ManifoldPageSet, PageKey, PageKind, PathPageView,
+    PhoenixSceneArchiveV1, ARCHIVE_CONTRACT, FORMAT_VERSION,
 };
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 
+pub use caps::{
+    CapsRole, CAPS_KLEIN_BOUND, CAPS_LAYOUT_CONTRACT, CAPS_WORLD_SCALE, CHUNK_NODE_KIND,
+    EPISODE_NODE_KIND, GUIDE_FLAG_CAP_BOUNDARY, GUIDE_FLAG_CONCENTRATION_AXIS, GUIDE_FLAG_SHELL,
+};
 pub use entities::EntityKind;
 pub use highlights::{
     AnchorCandidate, AnchorSource, DocumentAnchor, EntityFamily, FamilyPalette,
@@ -20,11 +25,12 @@ pub use highlights::{
     HIGHLIGHT_CONTRACT, MAX_DOCUMENT_ANCHORS,
 };
 pub use view::{
-    FamilyMask, GraphScope, GraphViewState, ProjectionProfile, RelationMask, ReviewMask,
-    SceneAuthority,
+    FamilyMask, GraphAction, GraphLens, GraphScope, GraphSurface, GraphViewState, RelationFamily,
+    RelationMask, ReviewMask, SceneAuthority, ScopeMask,
 };
 
 pub const SCENE_CONTRACT: &str = "phoenix.native.resident-scene/v1";
+pub const NATIVE_SCENE_COMPILER_CONTRACT: &str = "phoenix.native.active-document-scene-compiler/v1";
 pub const HOT_MANIFOLD_PAGE_BUDGET_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -80,25 +86,29 @@ pub struct RuntimeCapabilities {
     pub scene_contract: String,
     pub scene_archive_contract: String,
     pub scene_product_index_contract: String,
+    pub scene_compiler_contract: String,
     pub coordinated_native_windows: bool,
     pub bounded_commands: bool,
     pub bounded_events: bool,
     pub durable_workspace: bool,
+    pub native_scene_rebuild: bool,
     pub supported_manifolds: Vec<Manifold>,
 }
 
 impl Default for RuntimeCapabilities {
     fn default() -> Self {
         Self {
-            contract: "phoenix.native.runtime-capabilities/v1".into(),
+            contract: "phoenix.native.runtime-capabilities/v2".into(),
             scene_contract: SCENE_CONTRACT.into(),
             scene_archive_contract: ARCHIVE_CONTRACT.into(),
             scene_product_index_contract: phoenix_scene_product_index::PRODUCT_INDEX_CONTRACT
                 .into(),
+            scene_compiler_contract: NATIVE_SCENE_COMPILER_CONTRACT.into(),
             coordinated_native_windows: true,
             bounded_commands: true,
             bounded_events: true,
             durable_workspace: true,
+            native_scene_rebuild: true,
             supported_manifolds: Manifold::ALL.to_vec(),
         }
     }
@@ -147,6 +157,8 @@ pub struct HotPageInventory {
 pub struct ActiveManifoldPages<'a> {
     pub manifold: Manifold,
     pub pages: ManifoldPageSet<'a>,
+    pub guides: Option<GuidePageView<'a>>,
+    pub prepared_paths: Option<PathPageView<'a>>,
     pub hot_pages: HotPageInventory,
 }
 
@@ -271,11 +283,32 @@ impl ResidentScene {
                 let _ = self.archive.paths(kind, archive_manifold)?;
             }
         }
+        let guides = self
+            .archive
+            .has_page(PageKey::manifold(PageKind::Guides, archive_manifold))
+            .then(|| self.archive.guides(archive_manifold))
+            .transpose()?;
+        let path_kind = preferred_path_kind(manifold);
+        let prepared_paths = self
+            .archive
+            .has_page(PageKey::manifold(path_kind, archive_manifold))
+            .then(|| self.archive.paths(path_kind, archive_manifold))
+            .transpose()?;
         Ok(ActiveManifoldPages {
             manifold,
             pages,
+            guides,
+            prepared_paths,
             hot_pages,
         })
+    }
+}
+
+const fn preferred_path_kind(manifold: Manifold) -> PageKind {
+    match manifold {
+        Manifold::Hybrid | Manifold::Siegel => PageKind::BundledPaths,
+        Manifold::Hopf | Manifold::Transit => PageKind::CurvedPaths,
+        Manifold::Caps => PageKind::StraightPaths,
     }
 }
 

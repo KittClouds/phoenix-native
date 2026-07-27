@@ -191,9 +191,9 @@ pub fn execute(
     }
     let receipt = SceneProductCutReceipt {
         contract: if report.soak_mode {
-            "phoenix.native.scene-product-index-cut2-soak/v1"
+            "phoenix.native.release-lock-cut6-soak/v1"
         } else {
-            "phoenix.native.scene-product-index-cut2/v1"
+            "phoenix.native.release-lock-cut6/v1"
         },
         status: if failures.is_empty() { "pass" } else { "stop" },
         gpui: GPUI_VERSION,
@@ -216,10 +216,10 @@ pub fn execute(
         failures,
     };
     match serde_json::to_string(&receipt) {
-        Ok(json) => println!("PHOENIX_SCENE_PRODUCT_INDEX_CUT2_RECEIPT {json}"),
+        Ok(json) => println!("PHOENIX_RELEASE_LOCK_CUT6_RECEIPT {json}"),
         Err(error) => {
             lifecycle::mark_proof_failed();
-            eprintln!("PHOENIX_SCENE_PRODUCT_INDEX_CUT2_RECEIPT_SERIALIZATION_FAILED {error}");
+            eprintln!("PHOENIX_RELEASE_LOCK_CUT6_RECEIPT_SERIALIZATION_FAILED {error}");
         }
     }
 }
@@ -550,6 +550,21 @@ fn enforce_host(proof: Option<&EmbeddedHostProof>, failures: &mut Vec<String>) {
         failures.push(format!(
             "interactive manifold present p95 {}us exceeds 16700us",
             proof.switch_present_p95_us
+        ));
+    }
+    if proof.interaction_stress.updates != 1_000 {
+        failures.push(format!(
+            "interaction soak completed {} updates, expected 1000",
+            proof.interaction_stress.updates
+        ));
+    }
+    if !proof.interaction_stress.stable_capacities {
+        failures.push("hover/route capacities grew after interaction warmup".into());
+    }
+    if proof.interaction_stress.cpu_p95_us > 16_700 {
+        failures.push(format!(
+            "hover/route CPU p95 {}us exceeds 16700us",
+            proof.interaction_stress.cpu_p95_us
         ));
     }
     if !(proof.focus && proof.resize) {

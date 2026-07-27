@@ -4,7 +4,8 @@ struct CameraUniform {
     view_right: vec4<f32>,
     view_up: vec4<f32>,
     viewport_size: vec2<f32>,
-    _padding: vec2<f32>,
+    edge_opacity: f32,
+    _padding: f32,
 };
 
 struct NodeGpu {
@@ -55,7 +56,15 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
     @location(1) side: f32,
     @location(2) @interpolate(flat) visible: u32,
+    @location(3) @interpolate(flat) flags: u32,
 };
+
+// Line width is relative to the smallest ordinary node, never to either endpoint.
+// This keeps edges stable when degree makes centroids or medoids much larger.
+const BASE_NODE_DIAMETER_PX: f32 = 2.0493;
+const EDGE_WIDTH_SCALE: f32 = 0.90;
+const MIN_EDGE_WIDTH_PX: f32 = 0.64;
+const MAX_EDGE_TO_BASE_NODE_RATIO: f32 = 0.45;
 
 fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
     return ((left.x & right.x) | (left.y & right.y)) != 0u;
@@ -97,7 +106,12 @@ fn vs_main(
     let at_target = vertex_index >= 2u;
     let side = select(1.0, -1.0, vertex_index == 1u || vertex_index == 3u);
     let center = select(source_screen, target_screen, at_target);
-    let half_width = max(edge.width * 0.5, 0.5);
+    let edge_width = clamp(
+        edge.width * EDGE_WIDTH_SCALE,
+        MIN_EDGE_WIDTH_PX,
+        BASE_NODE_DIAMETER_PX * MAX_EDGE_TO_BASE_NODE_RATIO,
+    );
+    let half_width = edge_width * 0.5;
     let screen = center + normal * half_width * side;
     let ndc = (screen / camera.viewport_size - 0.5) * 2.0;
     let clip = select(source_clip, target_clip, at_target);
@@ -111,6 +125,7 @@ fn vs_main(
     output.color = edge.color;
     output.side = side;
     output.visible = select(0u, 1u, is_visible);
+    output.flags = edge.kind_flags & 0xffffu;
     return output;
 }
 
@@ -122,6 +137,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let edge_distance = abs(input.side);
     let derivative = max(fwidth(edge_distance), 0.0001);
     var color = input.color;
+    color.a = min(color.a, camera.edge_opacity);
+    if ((input.flags & 32768u) != 0u) {
+        color = mix(color, vec4<f32>(1.0, 0.147, 0.022, 0.95), 0.82);
+    } else if ((input.flags & 16384u) != 0u) {
+        color = mix(color, vec4<f32>(0.040, 0.672, 0.420, 0.72), 0.54);
+    }
     color.a *= 1.0 - smoothstep(1.0 - derivative, 1.0, edge_distance);
     return color;
 }

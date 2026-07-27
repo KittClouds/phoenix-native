@@ -1545,6 +1545,29 @@ dependencies = [
 
 [[package]]
 name = "cosmic-text"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59fd57d82eb4bfe7ffa9b1cec0c05e2fd378155b47f255a67983cb4afe0e80c2"
+dependencies = [
+ "bitflags 2.13.1",
+ "fontdb 0.16.2",
+ "log",
+ "rangemap",
+ "rayon",
+ "rustc-hash 1.1.0",
+ "rustybuzz 0.14.1",
+ "self_cell",
+ "swash 0.1.19",
+ "sys-locale",
+ "ttf-parser 0.21.1",
+ "unicode-bidi",
+ "unicode-linebreak",
+ "unicode-script",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "cosmic-text"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da46a9d5a8905cc538a4a5bceb6a4510de7a51049c5588c0114efce102bcbbe8"
@@ -1557,7 +1580,7 @@ dependencies = [
  "rustybuzz 0.14.1",
  "self_cell",
  "smol_str",
- "swash",
+ "swash 0.2.10",
  "sys-locale",
  "ttf-parser 0.21.1",
  "unicode-bidi",
@@ -2275,6 +2298,15 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "font-types"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3971f9a5ca983419cdc386941ba3b9e1feba01a0ab888adf78739feb2798492"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
+name = "font-types"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0a7299a780854a6d391be2ae1c8521c9368471b559dbfd6a8dbd9f407eaff100"
@@ -2691,6 +2723,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "glyphon"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc83cc30ed66a0a9e77b7974c91360a13cad5e7ab65aa51e299c383749a018ab"
+dependencies = [
+ "cosmic-text 0.12.1",
+ "etagere",
+ "lru",
+ "rustc-hash 2.1.3",
+ "wgpu",
+]
+
+[[package]]
 name = "gpu-alloc"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2779,7 +2824,7 @@ dependencies = [
  "core-graphics 0.24.0",
  "core-text",
  "core-video",
- "cosmic-text",
+ "cosmic-text 0.14.2",
  "ctor",
  "derive_more",
  "embed-resource",
@@ -2851,10 +2896,13 @@ dependencies = [
 
 [[package]]
 name = "gpui-animated-gradient-text"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "gpui",
+ "gpui-component",
+ "serde",
+ "serde_json",
  "unicode-segmentation",
 ]
 
@@ -3111,6 +3159,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "glam",
+ "glyphon",
  "graph-model",
  "hashbrown 0.15.5",
  "phoenix-scene-archive",
@@ -4024,6 +4073,12 @@ checksum = "0fae87c125b03c1d2c0150c90365d7d6bcc53fb73a9acaef207d2d065860f062"
 dependencies = [
  "imgref",
 ]
+
+[[package]]
+name = "lru"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
 
 [[package]]
 name = "lru-slab"
@@ -5278,12 +5333,26 @@ dependencies = [
  "blake3",
  "hashbrown 0.15.5",
  "phoenix-scene-archive",
+ "phoenix-scene-compiler",
  "phoenix-scene-contract",
  "phoenix-scene-product-index",
  "phoenix-scene-publisher",
  "phoenix-workspace",
  "thiserror 2.0.19",
  "tracing",
+]
+
+[[package]]
+name = "phoenix-release-lock"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "hashbrown 0.15.5",
+ "phoenix-scene-archive",
+ "phoenix-scene-product-index",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5294,6 +5363,23 @@ dependencies = [
  "bytemuck",
  "hashbrown 0.15.5",
  "memmap2",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "phoenix-scene-compiler"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "glam",
+ "hashbrown 0.15.5",
+ "memchr",
+ "phoenix-scene-archive",
+ "phoenix-scene-contract",
+ "phoenix-scene-product-index",
+ "phoenix-scene-publisher",
+ "phoenix-workspace",
+ "smallvec",
  "thiserror 2.0.19",
 ]
 
@@ -5325,6 +5411,9 @@ name = "phoenix-scene-publisher"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "bytemuck",
+ "glam",
+ "hashbrown 0.15.5",
  "phoenix-scene-archive",
  "phoenix-scene-contract",
  "phoenix-scene-product-index",
@@ -5338,6 +5427,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gpui",
+ "gpui-animated-gradient-text",
  "gpui-component",
  "graph-model",
  "graph-render-wgpu",
@@ -6075,12 +6165,22 @@ dependencies = [
 
 [[package]]
 name = "read-fonts"
+version = "0.22.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69aacb76b5c29acfb7f90155d39759a29496aebb49395830e928a9703d2eec2f"
+dependencies = [
+ "bytemuck",
+ "font-types 0.7.3",
+]
+
+[[package]]
+name = "read-fonts"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "046a7d674daf459825b32f5062056d6882db0d2f5a479fbd76ccfc870ac18709"
 dependencies = [
  "bytemuck",
- "font-types",
+ "font-types 0.12.2",
  "once_cell",
 ]
 
@@ -6955,12 +7055,22 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "skrifa"
+version = "0.22.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e1c44ad1f6c5bdd4eefed8326711b7dbda9ea45dfd36068c427d332aa382cbe"
+dependencies = [
+ "bytemuck",
+ "read-fonts 0.22.7",
+]
+
+[[package]]
+name = "skrifa"
 version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
 dependencies = [
  "bytemuck",
- "read-fonts",
+ "read-fonts 0.41.0",
 ]
 
 [[package]]
@@ -7306,13 +7416,24 @@ dependencies = [
 
 [[package]]
 name = "swash"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cbd59f3f359ddd2c95af4758c18270eddd9c730dde98598023cdabff472c2ca2"
+dependencies = [
+ "skrifa 0.22.3",
+ "yazi 0.1.6",
+ "zeno 0.2.3",
+]
+
+[[package]]
+name = "swash"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c2499c2d826531388872b2268718aed907a39bd785ab0dcfe57fab26283f92e"
 dependencies = [
- "skrifa",
- "yazi",
- "zeno",
+ "skrifa 0.44.0",
+ "yazi 0.2.1",
+ "zeno 0.3.3",
 ]
 
 [[package]]
@@ -9743,6 +9864,12 @@ checksum = "7a5a4b21e1a62b67a2970e6831bc091d7b87e119e7f9791aef9702e3bef04448"
 
 [[package]]
 name = "yazi"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c94451ac9513335b5e23d7a8a2b61a7102398b8cca5160829d313e84c9d98be1"
+
+[[package]]
+name = "yazi"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e01738255b5a16e78bbb83e7fbba0a1e7dd506905cfc53f4622d89015a03fbb5"
@@ -9978,6 +10105,12 @@ dependencies = [
  "xim-ctext",
  "xim-parser",
 ]
+
+[[package]]
+name = "zeno"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd15f8e0dbb966fd9245e7498c7e9e5055d9e5c8b676b95bd67091cd11a1e697"
 
 [[package]]
 name = "zeno"

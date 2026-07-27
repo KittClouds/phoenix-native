@@ -45,4 +45,14 @@ pub enum RenderError {
     EdgeNotFound(EdgeId),
     #[error("selection event sequence exhausted")]
     SelectionSequenceExhausted,
+    #[error("GPU label preparation failed: {0}")]
+    LabelPrepare(String),
+    #[error("GPU label rendering failed: {0}")]
+    LabelRender(String),
+    #[error("prepared {resource} point range is outside its verified page")]
+    PreparedGeometryRange { resource: &'static str },
+    #[error("prepared path references edge slot {slot}, but the scene has {edge_count} edges")]
+    PreparedGeometryEdgeSlot { slot: u32, edge_count: usize },
+    #[error("prepared geometry has {actual} segments, exceeding the fixed limit of {limit}")]
+    PreparedGeometryOversized { actual: usize, limit: usize },
 }

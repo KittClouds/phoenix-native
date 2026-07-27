@@ -76,14 +76,14 @@ pub struct HighlightPalette {
 impl Default for HighlightPalette {
     fn default() -> Self {
         Self {
-            character: family(0x4f7cff, 0xb45cff),
-            location: family(0x21d17d, 0x52e8b8),
-            organization: family(0x52c8ff, 0x5b8cff),
-            item: family(0xffbf47, 0xff7a59),
-            concept: family(0x36d9c2, 0x5ee7ff),
-            event: family(0xff7a45, 0xffcf45),
-            structure: family(0xe44c8f, 0xa971ff),
-            other: family(0xb6c4bf, 0x6f9187),
+            character: family(0x2450e6, 0x7c3aed),
+            location: family(0x00a95c, 0x00c48c),
+            organization: family(0x0077b6, 0x2563eb),
+            item: family(0xe39b00, 0xe4572e),
+            concept: family(0x00a896, 0x0891b2),
+            event: family(0xe35216, 0xd7a000),
+            structure: family(0xc02667, 0x7c3aed),
+            other: family(0x71817b, 0x4b6b61),
         }
     }
 }

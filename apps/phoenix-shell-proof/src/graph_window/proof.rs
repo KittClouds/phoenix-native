@@ -1,6 +1,6 @@
 use super::{
-    GraphGpuTelemetry, GraphQueueMetrics, GraphWake, GraphWindowCommand, ParentWindowHandle,
-    ViewportGeometry, ViewportMailbox,
+    GraphGpuTelemetry, GraphQueueMetrics, GraphWake, GraphWindowCommand, InteractionStressProof,
+    ParentWindowHandle, ViewportGeometry, ViewportMailbox,
 };
 use crate::lifecycle;
 use anyhow::{anyhow, Context, Result};
@@ -45,6 +45,7 @@ pub struct EmbeddedHostProof {
     pub resize_present_p95_us: u128,
     pub resize_present_max_us: u128,
     pub graph_command_queue_high_water: u64,
+    pub interaction_stress: InteractionStressProof,
     pub gpu_before: GraphGpuTelemetry,
     pub gpu_after: GraphGpuTelemetry,
     pub focus: bool,
@@ -128,6 +129,7 @@ impl GraphProofHandle {
                 );
             }
         }
+        let interaction_stress = self.stress_interaction()?;
         let mut hidden = original;
         hidden.visible = false;
         self.set_proof_viewport(hidden)?;
@@ -254,6 +256,7 @@ impl GraphProofHandle {
             resize_present_p95_us,
             resize_present_max_us,
             graph_command_queue_high_water: self.queue_metrics.high_water.load(Ordering::Relaxed),
+            interaction_stress,
             gpu_before,
             gpu_after,
             focus,
@@ -296,6 +299,15 @@ impl GraphProofHandle {
         receiver
             .recv_timeout(Duration::from_secs(10))
             .context("embedded graph focus probe timed out")
+    }
+
+    fn stress_interaction(&self) -> Result<InteractionStressProof> {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        self.send(GraphWindowCommand::StressInteraction(sender))?;
+        receiver
+            .recv_timeout(Duration::from_secs(30))
+            .context("embedded graph interaction stress timed out")?
+            .map_err(|error| anyhow!(error))
     }
 
     fn switch_manifold(&self, manifold: Manifold) -> Result<()> {

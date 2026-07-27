@@ -1,14 +1,16 @@
+mod commands;
 mod manifold;
 mod proof;
+mod sync;
 mod viewport;
 
 use crate::lifecycle;
 use anyhow::{anyhow, Context, Result};
-use graph_model::GraphRevision;
-use graph_render_wgpu::{GraphInput, GraphRenderer, PointerButton};
-use phoenix_app_core::PhoenixKernel;
+use graph_model::{GraphRevision, NodeId};
+use graph_render_wgpu::{GraphEvent, GraphInput, GraphRenderer, PointerButton};
+use phoenix_app_core::{GraphSelectionCommand, GraphSelectionOrigin, KernelCommand, PhoenixKernel};
+use phoenix_scene_archive::{PageKey, PageKind};
 use phoenix_scene_contract::{GraphGeneration, GraphViewState, Manifold};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -24,6 +26,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::window::{Window, WindowId};
 
+use commands::{GraphQueueMetrics, GraphWake, GraphWindowCommand};
 use manifold::{FixedSamples, PendingManifoldSwitch};
 pub use manifold::{GraphGpuTelemetry, ManifoldSwitchReceipt};
 use proof::ProjectionIdentity;
@@ -33,43 +36,14 @@ pub use viewport::{ParentWindowHandle, ViewportGeometry};
 
 const COMMAND_CAPACITY: usize = 64;
 
-enum GraphWindowCommand {
-    SyncKernelState,
-    ResetSwitchTelemetry,
-    ProbeFocus(SyncSender<bool>),
-    Barrier(SyncSender<()>),
-    Telemetry(SyncSender<GraphGpuTelemetry>),
-    Shutdown,
-}
-
-#[derive(Default)]
-struct GraphQueueMetrics {
-    pending: AtomicU64,
-    high_water: AtomicU64,
-}
-
-impl GraphQueueMetrics {
-    fn begin_send(&self) {
-        let pending = self
-            .pending
-            .fetch_add(1, Ordering::Relaxed)
-            .saturating_add(1);
-        self.high_water.fetch_max(pending, Ordering::Relaxed);
-    }
-
-    fn cancel_send(&self) {
-        self.pending.fetch_sub(1, Ordering::Relaxed);
-    }
-
-    fn received(&self) {
-        self.pending.fetch_sub(1, Ordering::Relaxed);
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum GraphWake {
-    CommandsReady,
-    ViewportReady,
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub struct InteractionStressProof {
+    pub updates: u32,
+    pub cpu_p95_us: u128,
+    pub cpu_max_us: u128,
+    pub stable_capacities: bool,
+    pub route_node_capacity: usize,
+    pub route_edge_capacity: usize,
 }
 
 struct Ready {
@@ -166,6 +140,14 @@ impl GraphWindow {
             .send(GraphWindowCommand::SyncKernelState)
     }
 
+    pub fn fit_graph(&self) -> Result<()> {
+        self.proof_handle().send(GraphWindowCommand::FitGraph)
+    }
+
+    pub fn reset_camera(&self) -> Result<()> {
+        self.proof_handle().send(GraphWindowCommand::ResetCamera)
+    }
+
     pub fn proof_handle(&self) -> GraphProofHandle {
         GraphProofHandle::new(
             self.parent,
@@ -250,6 +232,7 @@ struct EmbeddedGraphApp {
     loaded_generation: Option<GraphGeneration>,
     loaded_manifold: Manifold,
     loaded_graph_view: GraphViewState,
+    loaded_selection_revision: u64,
     pending_switch: Option<PendingManifoldSwitch>,
     switch_cpu_samples: FixedSamples,
     switch_present_samples: FixedSamples,
@@ -287,6 +270,7 @@ impl EmbeddedGraphApp {
             loaded_generation: None,
             loaded_manifold: Manifold::Hybrid,
             loaded_graph_view: GraphViewState::default(),
+            loaded_selection_revision: 0,
             pending_switch: None,
             switch_cpu_samples: FixedSamples::new(),
             switch_present_samples: FixedSamples::new(),
@@ -349,14 +333,41 @@ impl EmbeddedGraphApp {
                 &active.pages,
             )
             .context("project initial resident scene")?;
-        if let Some(index) = kernel_snapshot.scene_product_index.as_deref() {
-            renderer
-                .set_product_index(index)
-                .context("install initial scene product index")?;
+        renderer
+            .set_prepared_geometry(active.guides, active.prepared_paths)
+            .context("install initial prepared guide/path pages")?;
+        if let Some(index) = kernel_snapshot.scene_product_index.as_ref() {
+            if scene
+                .archive()
+                .has_page(PageKey::shared(PageKind::LabelPriority))
+            {
+                let priorities = scene
+                    .archive()
+                    .typed_page(PageKey::shared(PageKind::LabelPriority))
+                    .context("open resident label-priority page")?;
+                renderer
+                    .set_product_index_shared(Arc::clone(index), priorities)
+                    .context("install initial scene product index")?;
+            } else {
+                tracing::warn!(
+                    generation = scene.generation().0,
+                    code = "PHX_VISUAL_PAGE_MIGRATION_REQUIRED",
+                    "resident pre-Cut-5 archive is unlabelled until the next native rebuild"
+                );
+                renderer
+                    .set_product_index(index)
+                    .context("install pre-Cut-5 product index without labels")?;
+            }
         }
         renderer
             .set_graph_view(kernel_snapshot.graph_view)
             .context("install initial native graph view")?;
+        renderer
+            .set_external_selection(
+                kernel_snapshot.graph_selection.node_id.map(NodeId),
+                kernel_snapshot.graph_selection.origin == GraphSelectionOrigin::Atlas,
+            )
+            .context("install initial graph selection")?;
         let projected_generation = renderer
             .revision()
             .map(|revision| GraphGeneration(revision.0))
@@ -371,6 +382,7 @@ impl EmbeddedGraphApp {
         self.loaded_generation = Some(scene.generation());
         self.loaded_manifold = kernel_snapshot.graph_view.manifold;
         self.loaded_graph_view = kernel_snapshot.graph_view;
+        self.loaded_selection_revision = kernel_snapshot.graph_selection.revision;
         self.max_hot_page_bytes = active.hot_pages.byte_len;
         self.renderer = Some(renderer);
         self.window = Some(Arc::clone(&window));
@@ -411,6 +423,8 @@ impl EmbeddedGraphApp {
             };
             match command {
                 GraphWindowCommand::SyncKernelState => {}
+                GraphWindowCommand::FitGraph => self.send_input(GraphInput::FitGraph),
+                GraphWindowCommand::ResetCamera => self.send_input(GraphInput::ResetCamera),
                 GraphWindowCommand::ResetSwitchTelemetry => {
                     self.switch_cpu_samples = FixedSamples::new();
                     self.switch_present_samples = FixedSamples::new();
@@ -418,6 +432,13 @@ impl EmbeddedGraphApp {
                     self.max_hot_page_bytes = 0;
                     self.latest_switch = None;
                     self.pending_switch = None;
+                }
+                GraphWindowCommand::StressInteraction(sender) => {
+                    let result = self
+                        .stress_interaction()
+                        .map_err(|error| format!("{error:#}"));
+                    let _ = sender.send(result);
+                    window.request_redraw();
                 }
                 GraphWindowCommand::ProbeFocus(sender) => {
                     let _ = sender.send(focus_child(window.as_ref()).unwrap_or(false));
@@ -459,6 +480,62 @@ impl EmbeddedGraphApp {
                 }
             }
         }
+    }
+
+    fn stress_interaction(&mut self) -> Result<InteractionStressProof> {
+        const WARMUP_UPDATES: usize = 128;
+        const MEASURED_UPDATES: usize = 1_000;
+        let renderer = self
+            .renderer
+            .as_mut()
+            .ok_or_else(|| anyhow!("embedded graph renderer is unavailable"))?;
+        let node_ids = renderer
+            .scene_state()
+            .nodes()
+            .take(257)
+            .map(|node| node.id)
+            .collect::<Vec<_>>();
+        if node_ids.len() < 2 {
+            return Err(anyhow!("interaction stress requires at least two nodes"));
+        }
+        renderer
+            .set_external_selection(Some(node_ids[0]), false)
+            .context("seed interaction stress selection")?;
+        for update in 0..WARMUP_UPDATES {
+            renderer
+                .set_external_hover(Some(node_ids[1 + update % (node_ids.len() - 1)]))
+                .context("warm interaction overlays")?;
+        }
+        let before = renderer.interaction_allocation_stats();
+        let mut samples = Vec::with_capacity(MEASURED_UPDATES);
+        for update in 0..MEASURED_UPDATES {
+            let started = Instant::now();
+            renderer
+                .set_external_hover(Some(node_ids[1 + update % (node_ids.len() - 1)]))
+                .context("stress interaction overlays")?;
+            samples.push(started.elapsed().as_micros());
+        }
+        let after = renderer.interaction_allocation_stats();
+        renderer
+            .set_external_hover(None)
+            .context("clear interaction stress hover")?;
+        renderer
+            .set_external_selection(None, false)
+            .context("clear interaction stress selection")?;
+        samples.sort_unstable();
+        let p95_index = samples
+            .len()
+            .saturating_mul(95)
+            .div_ceil(100)
+            .saturating_sub(1);
+        Ok(InteractionStressProof {
+            updates: MEASURED_UPDATES as u32,
+            cpu_p95_us: samples.get(p95_index).copied().unwrap_or(0),
+            cpu_max_us: samples.last().copied().unwrap_or(0),
+            stable_capacities: before == after,
+            route_node_capacity: after.route_node_capacity,
+            route_edge_capacity: after.route_edge_capacity,
+        })
     }
 
     fn process_viewport(&mut self) -> Result<()> {
@@ -513,98 +590,6 @@ impl EmbeddedGraphApp {
         }
         self.applied_geometry = geometry;
         window.request_redraw();
-        Ok(())
-    }
-
-    fn sync_resident_scene(&mut self) -> Result<()> {
-        let snapshot = self.kernel.snapshot().context("read kernel snapshot")?;
-        let scene = snapshot.resident_scene.ok_or_else(|| {
-            anyhow!("[PHX_SCENE_MISSING] resident graph generation was withdrawn")
-        })?;
-        if self.loaded_generation == Some(scene.generation())
-            && self.loaded_graph_view == snapshot.graph_view
-        {
-            return Ok(());
-        }
-        let renderer = self
-            .renderer
-            .as_mut()
-            .ok_or_else(|| anyhow!("graph renderer is unavailable"))?;
-        let before_verifications = scene.archive().verified_page_count();
-        let started = Instant::now();
-        if self.loaded_generation != Some(scene.generation()) {
-            let active = scene
-                .activate_manifold(snapshot.graph_view.manifold)
-                .context("open new resident manifold")?;
-            renderer
-                .set_archive_scene_bound(
-                    GraphRevision(scene.generation().0),
-                    scene.archive_identity().cohort_hash,
-                    &active.pages,
-                )
-                .context("project new resident archive generation")?;
-            if let Some(index) = snapshot.scene_product_index.as_deref() {
-                renderer
-                    .set_product_index(index)
-                    .context("install resident scene product index")?;
-            }
-            renderer
-                .set_graph_view(snapshot.graph_view)
-                .context("install resident graph view")?;
-            self.loaded_generation = Some(scene.generation());
-            self.loaded_manifold = snapshot.graph_view.manifold;
-            self.loaded_graph_view = snapshot.graph_view;
-            self.pending_switch = None;
-        } else {
-            if self.loaded_graph_view.authority.product_index_hash()
-                != snapshot.graph_view.authority.product_index_hash()
-            {
-                let index = snapshot.scene_product_index.as_deref().ok_or_else(|| {
-                    anyhow!("[PHX_PRODUCT_INDEX_MISSING] graph view names a missing index")
-                })?;
-                renderer
-                    .set_product_index(index)
-                    .context("replace resident scene product index")?;
-            }
-            if self.loaded_manifold != snapshot.graph_view.manifold {
-                let active = scene
-                    .activate_manifold(snapshot.graph_view.manifold)
-                    .context("open switched resident manifold")?;
-                let from = self.loaded_manifold;
-                let metrics = renderer
-                    .switch_archive_positions(active.pages.positions)
-                    .context("switch resident manifold positions")?;
-                let cpu_us = started.elapsed().as_micros();
-                let receipt = ManifoldSwitchReceipt {
-                    contract: "phoenix.native.manifold-switch/v1",
-                    generation: scene.generation(),
-                    from,
-                    to: snapshot.graph_view.manifold,
-                    node_count: metrics.node_count,
-                    positions_bytes: std::mem::size_of_val(active.pages.positions),
-                    hot_page_count: active.hot_pages.page_count,
-                    hot_page_bytes: active.hot_pages.byte_len,
-                    page_verifications: scene
-                        .archive()
-                        .verified_page_count()
-                        .saturating_sub(before_verifications),
-                    cpu_us,
-                    first_present_us: 0,
-                };
-                self.loaded_manifold = snapshot.graph_view.manifold;
-                self.manifold_switches = self.manifold_switches.saturating_add(1);
-                self.max_hot_page_bytes = self.max_hot_page_bytes.max(active.hot_pages.byte_len);
-                self.switch_cpu_samples.push(cpu_us);
-                self.pending_switch = Some(PendingManifoldSwitch { receipt, started });
-            }
-            renderer
-                .set_graph_view(snapshot.graph_view)
-                .context("update graph lens uniform")?;
-            self.loaded_graph_view = snapshot.graph_view;
-        }
-        if let Some(window) = self.window.as_ref() {
-            window.request_redraw();
-        }
         Ok(())
     }
 
@@ -730,6 +715,22 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
                 let now = Instant::now();
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.update(now.saturating_duration_since(self.last_update));
+                    for event in renderer.drain_events() {
+                        match event {
+                            GraphEvent::SelectionChanged { node, .. } => {
+                                let command = node.map_or(GraphSelectionCommand::Clear, |node| {
+                                    GraphSelectionCommand::GraphNode(node.0)
+                                });
+                                if let Err(error) = self
+                                    .kernel
+                                    .execute(KernelCommand::SetGraphSelection(command))
+                                {
+                                    tracing::error!(%error, "renderer selection was rejected");
+                                }
+                            }
+                            GraphEvent::HoverChanged(_) | GraphEvent::CameraChanged(_) => {}
+                        }
+                    }
                     match renderer.render() {
                         Ok(metrics) if metrics.frame_number != 0 => {
                             lifecycle::frame_presented();

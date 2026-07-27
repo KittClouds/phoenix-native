@@ -1,15 +1,20 @@
 use crate::buffers::CameraUniform;
 use crate::gpu_scene::GpuScene;
+use crate::labels::{LabelFocus, LabelLayer};
 use crate::picking::PickingPass;
 use crate::pipelines::{bind_group, create_layouts, create_pipelines};
+use crate::Camera;
 use bytemuck::Zeroable;
 use graph_model::{
     EdgeId, EdgeVisual, GraphDiff, GraphRevision, GraphSnapshot, NodeId, NodeVisual,
 };
+use phoenix_scene_archive::LabelPriorityRecord;
+use phoenix_scene_contract::{GraphGeneration, GraphViewState};
 use phoenix_scene_product_index::{
     EdgeProductRecord, NodeProductRecord, PhoenixSceneProductIndexBuilderV1,
     PhoenixSceneProductIndexV1, ProductIndexBinding, ReviewState,
 };
+use std::sync::Arc;
 
 #[test]
 fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
@@ -19,7 +24,7 @@ fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
     });
     let Some(adapter) =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
+            power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
         }))
@@ -62,7 +67,7 @@ fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
     });
     for node in &snapshot.nodes {
         builder
-            .push_node(product_node(node.id.0), "")
+            .push_node(product_node(node.id.0), &format!("Node {}", node.id.0))
             .unwrap_or_else(|error| panic!("{error}"));
     }
     for edge in &snapshot.edges {
@@ -71,8 +76,9 @@ fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
     builder
         .write_to_path(&index_path)
         .unwrap_or_else(|error| panic!("{error}"));
-    let index =
-        PhoenixSceneProductIndexV1::open(&index_path).unwrap_or_else(|error| panic!("{error}"));
+    let index = Arc::new(
+        PhoenixSceneProductIndexV1::open(&index_path).unwrap_or_else(|error| panic!("{error}")),
+    );
     let product_metrics = scene
         .set_product_index(&index, &device, &queue)
         .unwrap_or_else(|error| panic!("{error}"));
@@ -88,6 +94,7 @@ fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
         after_product.edge_buffer_generation
     );
     assert_eq!(scene.bound_product_hash(), Some(index.header().index_hash));
+    encode_nonempty_label_overlay(&device, &queue, &scene, Arc::clone(&index));
     let mut diff = GraphDiff::new(GraphRevision(2));
     let mut updated = node(2);
     updated.position[2] = 5.0;
@@ -107,6 +114,56 @@ fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
     let _ = std::fs::remove_file(index_path);
 }
 
+fn encode_nonempty_label_overlay(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    scene: &GpuScene,
+    index: Arc<PhoenixSceneProductIndexV1>,
+) {
+    let format = wgpu::TextureFormat::Bgra8UnormSrgb;
+    let mut labels = LabelLayer::new(device, queue, format);
+    labels.install(
+        Arc::clone(&index),
+        &[
+            LabelPriorityRecord {
+                node_slot: 0,
+                rank: 0,
+            },
+            LabelPriorityRecord {
+                node_slot: 1,
+                rank: 1,
+            },
+        ],
+    );
+    let camera = Camera::new(640.0, 480.0);
+    labels
+        .prepare(
+            device,
+            queue,
+            &camera,
+            scene.state(),
+            GraphViewState::for_archive(
+                GraphGeneration(1),
+                [7; 32],
+                Some(index.header().index_hash),
+            ),
+            LabelFocus {
+                hover: Some(NodeId(1)),
+                selected: None,
+            },
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    let color = attachment(device, "label smoke color", format);
+    let view = color.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("label overlay smoke encoder"),
+    });
+    labels
+        .render_onto(&mut encoder, &view)
+        .unwrap_or_else(|error| panic!("{error}"));
+    queue.submit(Some(encoder.finish()));
+}
+
 fn encode_background_pass(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -121,6 +178,7 @@ fn encode_background_pass(
     });
     let mut camera = CameraUniform::zeroed();
     camera.viewport_size = [16.0, 16.0];
+    camera.edge_opacity = 0.18;
     queue.write_buffer(&camera_buffer, 0, bytemuck::bytes_of(&camera));
     let camera_bind_group = bind_group(
         device,

@@ -1,13 +1,16 @@
 use super::drawer::{ACCENT, ACCENT_DIM};
+use super::graph_controls::surface_segment;
 use super::{PhoenixShell, BORDER, TEXT, TEXT_MUTED};
 use gpui::{
     div, linear_color_stop, linear_gradient, prelude::*, px, rgb, uniform_list, Context,
-    IntoElement,
+    IntoElement, SharedString,
 };
 use gpui_component::input::Input;
 use gpui_component::{Sizable, StyledExt};
-use phoenix_app_core::{AtlasEntity, AtlasRegistry};
-use phoenix_scene_contract::{EntityKind, HighlightPalette};
+use phoenix_app_core::{AtlasEntity, AtlasRegistry, GraphSelectionCommand, KernelCommand};
+use phoenix_scene_contract::{EntityKind, GraphViewState, HighlightPalette};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 impl PhoenixShell {
@@ -21,6 +24,10 @@ impl PhoenixShell {
             .as_ref()
             .map(|snapshot| *snapshot.highlight_palette)
             .unwrap_or_default();
+        let graph_view = snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.graph_view)
+            .unwrap_or_default();
         let query = self.atlas_search.read(cx).value().trim().to_string();
         let visible = atlas
             .entities
@@ -31,6 +38,11 @@ impl PhoenixShell {
         let visible: Arc<[usize]> = visible.into();
         let list_entities = Arc::clone(&atlas.entities);
         let list_visible = Arc::clone(&visible);
+        let selected_entity = snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.graph_selection.entity_id);
+        let kernel = Arc::clone(&self.kernel);
+        let graph = Rc::clone(&self.graph);
         let list = uniform_list(
             "canonical-atlas-entities",
             visible.len(),
@@ -38,7 +50,13 @@ impl PhoenixShell {
                 range
                     .map(|row| {
                         let entity = &list_entities[list_visible[row]];
-                        atlas_entity_row(entity, palette)
+                        atlas_entity_row(
+                            entity,
+                            palette,
+                            selected_entity == Some(entity.stable_id),
+                            Arc::clone(&kernel),
+                            Rc::clone(&graph),
+                        )
                     })
                     .collect::<Vec<_>>()
             },
@@ -57,7 +75,7 @@ impl PhoenixShell {
                 linear_color_stop(rgb(0x092820), 0.),
                 linear_color_stop(rgb(0x101211), 1.),
             ))
-            .child(atlas_header(&atlas))
+            .child(atlas_header(&atlas, graph_view, cx))
             .child(
                 div()
                     .px_3()
@@ -113,10 +131,14 @@ impl PhoenixShell {
     }
 }
 
-fn atlas_header(atlas: &AtlasRegistry) -> impl IntoElement {
+fn atlas_header(
+    atlas: &AtlasRegistry,
+    graph_view: GraphViewState,
+    cx: &mut Context<PhoenixShell>,
+) -> impl IntoElement {
     div()
-        .px_4()
-        .pt_4()
+        .px_3()
+        .pt_3()
         .pb_3()
         .border_b_1()
         .border_color(rgb(BORDER))
@@ -145,8 +167,16 @@ fn atlas_header(atlas: &AtlasRegistry) -> impl IntoElement {
         )
         .child(
             div()
-                .mt_1()
+                .mt_2()
+                .w_full()
+                .child(surface_segment(graph_view.surface, cx)),
+        )
+        .child(
+            div()
+                .mt_2()
                 .flex()
+                .items_center()
+                .justify_between()
                 .gap_2()
                 .text_xs()
                 .text_color(rgb(TEXT_MUTED))
@@ -205,7 +235,14 @@ fn kind_summary(atlas: &AtlasRegistry, palette: HighlightPalette) -> impl IntoEl
     rows
 }
 
-fn atlas_entity_row(entity: &AtlasEntity, palette: HighlightPalette) -> impl IntoElement {
+fn atlas_entity_row(
+    entity: &AtlasEntity,
+    palette: HighlightPalette,
+    selected: bool,
+    kernel: Arc<phoenix_app_core::PhoenixKernel>,
+    graph: Rc<RefCell<Option<crate::graph_window::GraphWindow>>>,
+) -> impl IntoElement {
+    let stable_id = entity.stable_id;
     let label = Arc::clone(&entity.label);
     let kind = entity
         .custom_kind
@@ -213,6 +250,7 @@ fn atlas_entity_row(entity: &AtlasEntity, palette: HighlightPalette) -> impl Int
         .map(|kind| kind.to_string())
         .unwrap_or_else(|| entity.kind.label().to_uppercase());
     div()
+        .id(SharedString::from(format!("atlas-entity-{stable_id}")))
         .h(px(48.))
         .mx_1()
         .px_2()
@@ -221,6 +259,30 @@ fn atlas_entity_row(entity: &AtlasEntity, palette: HighlightPalette) -> impl Int
         .gap_2()
         .border_b_1()
         .border_color(rgb(0x26302d))
+        .cursor_pointer()
+        .when(selected, |row| {
+            row.bg(linear_gradient(
+                90.,
+                linear_color_stop(rgb(0x123f34), 0.),
+                linear_color_stop(rgb(0x17211e), 1.),
+            ))
+            .border_l_2()
+            .border_color(rgb(ACCENT))
+        })
+        .hover(|row| row.bg(rgb(0x17211e)))
+        .on_click(move |_, _, cx| {
+            if kernel
+                .execute(KernelCommand::SetGraphSelection(
+                    GraphSelectionCommand::AtlasEntity(stable_id),
+                ))
+                .is_ok()
+            {
+                if let Some(graph) = graph.borrow().as_ref() {
+                    let _ = graph.sync_kernel_state();
+                }
+                cx.refresh_windows();
+            }
+        })
         .child(
             div()
                 .w_2()

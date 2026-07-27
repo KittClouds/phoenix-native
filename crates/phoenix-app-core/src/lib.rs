@@ -2,31 +2,39 @@
 
 mod atlas;
 mod entity_tags;
+mod graph_selection;
 mod graph_view;
 mod metrics;
+mod protocol;
 mod scene_publication;
+mod scene_rebuild;
 mod state;
 
 pub use atlas::{AtlasEntity, AtlasRegistry, NerEntityBatch};
 pub use metrics::KernelMetrics;
+pub use phoenix_scene_compiler::{
+    NativeSceneCompileReceipt, NativeSceneCompilerError, NATIVE_SCENE_COMPILER_CONTRACT,
+};
 pub use phoenix_scene_publisher::{
     NativeScenePublication, SceneEdgeProduct, SceneNodeProduct, ScenePublicationKind,
     ScenePublicationReceipt, SCENE_PUBLISHER_CONTRACT,
 };
 pub use phoenix_workspace::{EntitySourceMask, NerEntityRecord};
+pub use protocol::*;
+pub use scene_rebuild::NativeScenePublishCommand;
 use state::*;
 
 use phoenix_scene_contract::{
-    DocumentId, GraphGeneration, GraphViewState, HighlightContractError, HighlightPalette,
-    Manifold, ResidentScene, RuntimeCapabilities, SceneContractError, StyleState,
+    DocumentId, GraphAction, GraphGeneration, GraphViewState, HighlightContractError,
+    HighlightPalette, Manifold, ResidentScene, RuntimeCapabilities, SceneContractError, StyleState,
     VerifiedDocumentAnchors,
 };
 use phoenix_scene_product_index::{PhoenixSceneProductIndexV1, ProductIndexError};
 use phoenix_scene_publisher::{ScenePublicationError, ScenePublicationStore};
 use phoenix_workspace::{
-    open_document, ContentHash, DocumentLease, DocumentLeaseToken, DocumentRevision,
-    EntityRegistry, EntityTag, EntityTagResult, EntryId, EntryKind, NerPublicationResult,
-    WorkspaceDocument, WorkspaceError, ROOT_ID,
+    load_highlight_palette_or_default, open_document, ContentHash, DocumentLease,
+    DocumentLeaseToken, DocumentRevision, EntityRegistry, EntryId, EntryKind, WorkspaceDocument,
+    WorkspaceError, ROOT_ID,
 };
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -55,107 +63,11 @@ pub struct KernelSnapshot {
     pub scene_publication: Option<ScenePublicationReceipt>,
     pub document_anchors: Option<Arc<VerifiedDocumentAnchors>>,
     pub graph_view: GraphViewState,
+    pub graph_selection: GraphSelectionState,
     pub style: StyleState,
     pub highlight_palette: Arc<HighlightPalette>,
     pub capabilities: Arc<RuntimeCapabilities>,
     pub shutting_down: bool,
-}
-
-#[derive(Debug)]
-pub enum KernelCommand {
-    SelectEntry(EntryId),
-    CreateEntry {
-        kind: EntryKind,
-        name: String,
-    },
-    RenameEntry {
-        id: EntryId,
-        name: String,
-    },
-    DeleteEntry(EntryId),
-    SaveDocument {
-        lease: DocumentLeaseToken,
-        content: Arc<str>,
-    },
-    TagSelection(Box<EntityTagCommand>),
-    PublishNerEntities(NerEntityBatch),
-    PublishNativeScene(Box<NativeScenePublication>),
-    PublishDocumentAnchors(Arc<VerifiedDocumentAnchors>),
-    SetManifold(Manifold),
-    SetGraphView(Box<GraphViewState>),
-    SetStyle(StyleState),
-}
-
-#[derive(Clone, Debug)]
-pub struct EntityTagCommand {
-    pub lease: DocumentLeaseToken,
-    pub content: Arc<str>,
-    pub tag: EntityTag,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum KernelOutcome {
-    StateChanged,
-    EntryCreated(EntryId),
-    EntriesDeleted(usize),
-    DocumentSaved(DocumentRevision),
-    EntityTagged(EntityTagResult),
-    NerEntitiesPublished(NerPublicationResult),
-    SceneGenerationPublished(ScenePublicationReceipt),
-    DocumentAnchorsPublished(usize),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CommandReceipt {
-    pub sequence: u64,
-    pub kernel_revision: u64,
-    pub outcome: KernelOutcome,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct KernelEvent {
-    pub sequence: u64,
-    pub kernel_revision: u64,
-    pub kind: KernelEventKind,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum KernelEventKind {
-    ActiveDocumentChanged(Option<DocumentId>),
-    WorkspaceCommitted {
-        workspace_revision: u64,
-    },
-    DocumentCommitted {
-        document: DocumentId,
-        revision: DocumentRevision,
-        content_hash: ContentHash,
-        scene_publication: Option<ScenePublicationReceipt>,
-    },
-    SceneGenerationPublished {
-        receipt: ScenePublicationReceipt,
-    },
-    DocumentAnchorsChanged {
-        document: DocumentId,
-        count: usize,
-    },
-    EntityRegistryCommitted {
-        document: DocumentId,
-        entity_id: u64,
-        registry_revision: u64,
-        scene_publication: Option<ScenePublicationReceipt>,
-    },
-    AtlasRegistryCommitted {
-        ner_revision: u64,
-        registry_revision: u64,
-        canonical_entities: usize,
-        scene_publication: Option<ScenePublicationReceipt>,
-    },
-    ManifoldChanged(Manifold),
-    GraphViewChanged(GraphViewState),
-    StyleChanged {
-        revision: u64,
-    },
-    ShuttingDown,
 }
 
 #[derive(Debug, Error)]
@@ -189,8 +101,12 @@ pub enum KernelError {
     ProductIndexWithoutScene,
     #[error("native scene publication is unavailable in fixture/recovery mode")]
     ProductionPublisherUnavailable,
+    #[error("native scene rebuild requires an active document lease")]
+    ActiveSceneDocumentUnavailable,
     #[error("backend scene publication must carry full graph authority")]
     BackendPublicationMustBeFull,
+    #[error("compiled scene publication metadata does not match its archive generation")]
+    CompiledPublicationMismatch,
     #[error(
         "scene publication registry revision {publication} does not match current revision {current}"
     )]
@@ -203,14 +119,22 @@ pub enum KernelError {
     InvalidAtlasEntityIdentity,
     #[error("filtered graph view requires a verified scene product index")]
     ProductIndexRequiredForFilteredView,
+    #[error("graph view must retain at least one visible review and relation family")]
+    InvalidGraphView,
     #[error("graph view authority does not match the resident scene authority")]
     StaleGraphViewAuthority,
+    #[error("Atlas entity {0} has no verified node mapping in the resident scene")]
+    AtlasEntityNotMapped(u64),
+    #[error("graph node {0} is absent from the resident scene product index")]
+    GraphNodeNotFound(u64),
     #[error(transparent)]
     SceneContract(#[from] SceneContractError),
     #[error(transparent)]
     ProductIndex(#[from] ProductIndexError),
     #[error(transparent)]
     ScenePublication(#[from] ScenePublicationError),
+    #[error(transparent)]
+    SceneCompiler(#[from] NativeSceneCompilerError),
     #[error(transparent)]
     Highlight(#[from] HighlightContractError),
     #[error(transparent)]
@@ -232,6 +156,7 @@ struct KernelState {
     scene_publication: Option<ScenePublicationReceipt>,
     document_anchors: Option<Arc<VerifiedDocumentAnchors>>,
     graph_view: GraphViewState,
+    graph_selection: GraphSelectionState,
     style: StyleState,
     highlight_palette: Arc<HighlightPalette>,
     capabilities: Arc<RuntimeCapabilities>,
@@ -308,7 +233,7 @@ impl PhoenixKernel {
             .map(Arc::new);
         let entity_registry = Arc::new(EntityRegistry::load_or_empty(&workspace_path)?);
         let atlas_registry = Arc::new(AtlasRegistry::from_registry(&entity_registry));
-        let highlight_palette = Arc::new(HighlightPalette::default());
+        let highlight_palette = Arc::new(load_highlight_palette_or_default(&workspace_path)?);
         let mut scene_publication = None;
         if let Some(publisher) = publisher.as_ref() {
             let published = scene_publication::initial_production_scene(
@@ -340,6 +265,7 @@ impl PhoenixKernel {
             scene_publication,
             document_anchors,
             graph_view,
+            graph_selection: GraphSelectionState::default(),
             style: StyleState::default(),
             highlight_palette,
             capabilities: Arc::new(RuntimeCapabilities::default()),
@@ -386,6 +312,7 @@ impl PhoenixKernel {
             scene_publication: state.scene_publication,
             document_anchors: state.document_anchors.as_ref().map(Arc::clone),
             graph_view: state.graph_view,
+            graph_selection: state.graph_selection,
             style: state.style,
             highlight_palette: Arc::clone(&state.highlight_palette),
             capabilities: Arc::clone(&state.capabilities),
@@ -590,7 +517,19 @@ fn apply_command(
             graph_view::set_manifold(shared, sequence, manifold)
         }
         KernelCommand::SetGraphView(view) => graph_view::set_graph_view(shared, sequence, *view),
+        KernelCommand::DispatchGraphAction(action) => {
+            graph_view::dispatch_graph_action(shared, sequence, action)
+        }
+        KernelCommand::RequestGraphProvenance => {
+            graph_view::request_graph_provenance(shared, sequence)
+        }
         KernelCommand::SetStyle(style) => graph_view::set_style(shared, sequence, style),
+        KernelCommand::SetHighlightPalette(palette) => {
+            graph_view::set_highlight_palette(shared, sequence, *palette)
+        }
+        KernelCommand::SetGraphSelection(selection) => {
+            graph_selection::set_selection(shared, sequence, selection)
+        }
     }
 }
 

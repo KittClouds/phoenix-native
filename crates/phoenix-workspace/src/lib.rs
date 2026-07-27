@@ -2,6 +2,7 @@
 
 mod documents;
 mod entities;
+mod palette;
 
 pub use documents::{
     commit_document, open_document, ContentHash, DocumentLease, DocumentLeaseToken,
@@ -11,6 +12,7 @@ pub use entities::{
     EntityRegistry, EntitySourceMask, EntityTag, EntityTagResult, ManualEntityMention,
     NerEntityRecord, NerPublicationResult, RegistryEntity, MAX_ENTITIES,
 };
+pub use palette::{load_highlight_palette_or_default, save_highlight_palette_atomic};
 
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};

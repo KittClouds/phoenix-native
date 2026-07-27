@@ -1,0 +1,15 @@
+[package]
+name = "phoenix-release-lock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+bytemuck.workspace = true
+hashbrown.workspace = true
+phoenix-scene-archive = { path = "../../crates/phoenix-scene-archive" }
+phoenix-scene-product-index = { path = "../../crates/phoenix-scene-product-index" }
+serde.workspace = true
+serde_json.workspace = true
