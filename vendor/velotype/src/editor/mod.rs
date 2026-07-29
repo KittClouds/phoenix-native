@@ -49,7 +49,7 @@ mod workspace;
 
 use self::status_bar::StatusBarState;
 use self::workspace::WorkspaceState;
-pub use semantic_highlights::SemanticHighlightError;
+pub use semantic_highlights::{SemanticHighlightError, SemanticHighlightProjectionReceipt};
 
 /// Link navigation request deferred until a `Window` is available.
 #[derive(Clone, Debug, PartialEq, Eq)]

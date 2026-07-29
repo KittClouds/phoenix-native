@@ -20,6 +20,8 @@ fn main() {
             registry_revision: registry.revision(),
             document: &document,
             registry: &registry,
+            verified_anchors: None,
+            nli: None,
             palette: HighlightPalette::default(),
         })
         .unwrap_or_else(|error| panic!("compile benchmark fixture: {error}"));

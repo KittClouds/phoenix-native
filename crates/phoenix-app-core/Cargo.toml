@@ -8,13 +8,18 @@ publish = false
 
 [dependencies]
 blake3.workspace = true
+bytemuck.workspace = true
 hashbrown.workspace = true
+memmap2.workspace = true
 phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
+phoenix-graph-generation = { path = "../phoenix-graph-generation" }
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
 phoenix-scene-compiler = { path = "../phoenix-scene-compiler" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }
 phoenix-scene-publisher = { path = "../phoenix-scene-publisher" }
 phoenix-workspace = { path = "../phoenix-workspace" }
+postcard.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

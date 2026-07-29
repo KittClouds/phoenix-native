@@ -11,7 +11,9 @@ impl Editor {
         let track_height = viewport_height.max(20.0);
         let content_height = viewport_height + max_scroll_y;
         let thumb_height = if max_scroll_y > 0.5 {
-            (track_height * (viewport_height / content_height)).clamp(28.0, track_height)
+            let minimum_thumb_height = 28.0_f32.min(track_height);
+            (track_height * (viewport_height / content_height))
+                .clamp(minimum_thumb_height, track_height)
         } else {
             track_height
         };
@@ -360,8 +362,14 @@ impl Editor {
     pub(super) fn viewport_size_changed(previous: Size<Pixels>, current: Size<Pixels>) -> bool {
         const EPSILON: f32 = 0.5;
 
-        (f32::from(previous.width) - f32::from(current.width)).abs() > EPSILON
+        Self::viewport_width_changed(previous, current)
             || (f32::from(previous.height) - f32::from(current.height)).abs() > EPSILON
+    }
+
+    pub(super) fn viewport_width_changed(previous: Size<Pixels>, current: Size<Pixels>) -> bool {
+        const EPSILON: f32 = 0.5;
+
+        (f32::from(previous.width) - f32::from(current.width)).abs() > EPSILON
     }
 
     pub(crate) fn show_info_dialog(&mut self, kind: InfoDialogKind, cx: &mut Context<Self>) {

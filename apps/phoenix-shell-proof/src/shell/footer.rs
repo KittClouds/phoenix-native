@@ -135,6 +135,36 @@ impl PhoenixShell {
                         this.toggle_drawer(cx);
                     })),
             )
+            .child(
+                Button::new("footer-atlas-full-page")
+                    .label(if self.drawer_layout.is_full_page() {
+                        "RESTORE"
+                    } else {
+                        "FULL"
+                    })
+                    .small()
+                    .rounded(px(14.))
+                    .border_1()
+                    .border_color(rgb(if self.drawer_layout.is_full_page() {
+                        ACCENT
+                    } else {
+                        BORDER_BRIGHT
+                    }))
+                    .bg(rgb(if self.drawer_layout.is_full_page() {
+                        0x173b32
+                    } else {
+                        0x202423
+                    }))
+                    .text_color(rgb(if self.drawer_layout.is_full_page() {
+                        ACCENT
+                    } else {
+                        TEXT_MUTED
+                    }))
+                    .disabled(!graph_available)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_drawer_full_page(cx);
+                    })),
+            )
             .when_some(alert, |footer, alert| {
                 footer.child(
                     div()

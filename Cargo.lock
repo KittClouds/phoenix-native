@@ -5411,16 +5411,32 @@ name = "phoenix-app-core"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "bytemuck",
  "hashbrown 0.15.5",
+ "memmap2",
  "phoenix-analysis-contract",
+ "phoenix-graph-generation",
  "phoenix-scene-archive",
  "phoenix-scene-compiler",
  "phoenix-scene-contract",
  "phoenix-scene-product-index",
  "phoenix-scene-publisher",
  "phoenix-workspace",
+ "postcard",
+ "serde",
  "thiserror 2.0.19",
  "tracing",
+]
+
+[[package]]
+name = "phoenix-graph-generation"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytemuck",
+ "memmap2",
+ "phoenix-analysis-contract",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -5432,7 +5448,6 @@ dependencies = [
  "hashbrown 0.15.5",
  "memmap2",
  "phoenix-scene-archive",
- "phoenix-scene-compiler",
  "phoenix-scene-contract",
  "phoenix-scene-product-index",
  "phoenix-scene-publisher",
@@ -5473,6 +5488,8 @@ dependencies = [
  "glam",
  "hashbrown 0.15.5",
  "memchr",
+ "phoenix-analysis-contract",
+ "phoenix-graph-generation",
  "phoenix-scene-archive",
  "phoenix-scene-contract",
  "phoenix-scene-product-index",
@@ -5525,6 +5542,7 @@ name = "phoenix-shell"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel 2.5.0",
  "gpui",
  "gpui-animated-gradient-text",
  "gpui-component",

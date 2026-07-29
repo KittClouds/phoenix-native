@@ -139,6 +139,16 @@ impl ReviewMask {
     }
 }
 
+/// A generation-local review classification update for one existing edge.
+///
+/// This changes only the renderer's product mask. It cannot add an edge or
+/// promote candidate topology.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GraphReviewOverride {
+    pub edge_id: u64,
+    pub review_mask: u32,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[repr(u8)]
 #[serde(rename_all = "snake_case")]

@@ -138,6 +138,8 @@ const fn rgb(value: u32) -> [f32; 4] {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AnchorSource {
     ResidentGraph,
+    VerifiedAnalysis,
+    CanonicalRegistry,
     ManualRegistry,
     VerificationFixture,
 }

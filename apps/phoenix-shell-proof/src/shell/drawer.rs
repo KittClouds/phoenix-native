@@ -5,18 +5,17 @@ use crate::lifecycle;
 use gpui::{div, prelude::*, px, rgb, Context, IntoElement, Window};
 use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::PixelsExt;
-use phoenix_app_core::KernelOutcome;
+use phoenix_app_core::{KernelCommand, KernelError, KernelOutcome};
+use phoenix_scene_contract::Manifold;
 use std::rc::Rc;
 use std::sync::Arc;
 
 pub(super) const DRAWER_INITIAL_HEIGHT: f32 = 420.;
 pub(super) const DRAWER_MIN_HEIGHT: f32 = 280.;
-pub(super) const DRAWER_MAX_HEIGHT: f32 = 720.;
-pub(super) const EDITOR_MIN_HEIGHT: f32 = 260.;
 
-const ATLAS_INITIAL_WIDTH: f32 = 304.;
+const ATLAS_INITIAL_WIDTH: f32 = 336.;
 const ATLAS_MIN_WIDTH: f32 = 236.;
-const ATLAS_MAX_WIDTH: f32 = 460.;
+const ATLAS_MAX_WIDTH: f32 = 520.;
 const GRAPH_MIN_WIDTH: f32 = 360.;
 pub(super) const ACCENT: u32 = 0x57e2bb;
 pub(super) const ACCENT_DIM: u32 = 0x173b32;
@@ -65,6 +64,7 @@ fn atlas_split_id(left_open: bool, right_open: bool) -> &'static str {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct DrawerLayout {
     open: bool,
+    full_page: bool,
     height: f32,
     atlas_width: f32,
 }
@@ -73,6 +73,7 @@ impl DrawerLayout {
     pub(super) const fn new(open: bool) -> Self {
         Self {
             open,
+            full_page: false,
             height: DRAWER_INITIAL_HEIGHT,
             atlas_width: ATLAS_INITIAL_WIDTH,
         }
@@ -86,12 +87,18 @@ impl DrawerLayout {
         self.height
     }
 
+    pub(super) const fn is_full_page(self) -> bool {
+        self.full_page
+    }
+
     pub(super) const fn atlas_width(self) -> f32 {
         self.atlas_width
     }
 
     pub(super) fn set_height(&mut self, height: f32) {
-        self.height = height.clamp(DRAWER_MIN_HEIGHT, DRAWER_MAX_HEIGHT);
+        if height.is_finite() {
+            self.height = height.max(DRAWER_MIN_HEIGHT);
+        }
     }
 
     pub(super) fn set_atlas_width(&mut self, width: f32) {
@@ -100,11 +107,24 @@ impl DrawerLayout {
 
     fn toggle(&mut self) {
         self.open = !self.open;
+        if !self.open {
+            self.full_page = false;
+        }
+    }
+
+    fn toggle_full_page(&mut self) {
+        self.open = true;
+        self.full_page = !self.full_page;
     }
 }
 
 impl PhoenixShell {
-    pub(super) fn select_drawer_tab(&mut self, tab: DrawerTab, cx: &mut Context<Self>) {
+    pub(super) fn select_drawer_tab(
+        &mut self,
+        tab: DrawerTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !tab.is_active_product() || self.drawer_tab == tab {
             return;
         }
@@ -124,6 +144,9 @@ impl PhoenixShell {
             DrawerTab::AtlasControl => "ATLAS CONTROL / NATIVE AUTHORITY".into(),
             _ => unreachable!("inactive tabs cannot be selected"),
         };
+        if tab == DrawerTab::AtlasControl {
+            self.focus_atlas_control(window);
+        }
         cx.notify();
     }
 
@@ -147,6 +170,16 @@ impl PhoenixShell {
         cx.notify();
     }
 
+    pub(super) fn toggle_drawer_full_page(&mut self, cx: &mut Context<Self>) {
+        self.drawer_layout.toggle_full_page();
+        self.status = if self.drawer_layout.is_full_page() {
+            "ATLAS / FULL PAGE / RESIDENT GRAPH READY".into()
+        } else {
+            "ATLAS / DRAWER / RESIDENT GRAPH READY".into()
+        };
+        cx.notify();
+    }
+
     pub(super) fn entity_count(&self) -> usize {
         self.kernel_snapshot()
             .map(|snapshot| snapshot.atlas_registry.entities.len())
@@ -162,28 +195,42 @@ impl PhoenixShell {
             return;
         }
         self.graph_rebuild_pending = true;
-        self.status = "GRAPH REBUILD / COMPILING VERIFIED ACTIVE DOCUMENT".into();
+        self.status = "PIPELINE / ANALYZING VERIFIED ACTIVE DOCUMENT".into();
         cx.notify();
         let kernel = Arc::clone(&self.kernel);
         let background = cx.background_executor().clone();
         cx.spawn_in(window, async move |shell, async_cx| {
             let result = background
-                .spawn(async move { kernel.rebuild_active_scene() })
+                .spawn(async move { kernel.run_active_document_pipeline() })
                 .await;
             if let Err(error) = shell.update(async_cx, |this, cx| {
                 this.graph_rebuild_pending = false;
                 match result {
                     Ok(command) => match command.outcome {
                         KernelOutcome::GraphRebuilt(receipt) => {
+                            let caps = this
+                                .kernel
+                                .execute(KernelCommand::SetManifold(Manifold::Caps));
+                            if let Err(error) = caps {
+                                lifecycle::mark_proof_failed();
+                                this.status = format!(
+                                    "PIPELINE PUBLISHED / G{} / CAPS BLOCKED / {error}",
+                                    receipt.publication.generation_id
+                                )
+                                .into();
+                                cx.notify();
+                                return;
+                            }
                             let sync = this
                                 .graph
                                 .borrow()
                                 .as_ref()
                                 .map(|graph| graph.sync_kernel_state());
+                            this.apply_kernel_highlights(cx);
                             match sync {
                                 Some(Ok(())) => {
                                     this.status = format!(
-                                        "GRAPH REBUILT / G{} / {}N / {}E / {} US",
+                                        "PIPELINE LIVE / G{} / CAPS / {}N / {}E / {} US",
                                         receipt.publication.generation_id,
                                         receipt.publication.node_count,
                                         receipt.publication.edge_count,
@@ -194,14 +241,14 @@ impl PhoenixShell {
                                 Some(Err(error)) => {
                                     lifecycle::mark_proof_failed();
                                     this.status = format!(
-                                        "GRAPH BLOCKED / G{} PUBLISHED / PRESENTATION {error:#}",
+                                        "PIPELINE BLOCKED / G{} PUBLISHED / PRESENTATION {error:#}",
                                         receipt.publication.generation_id
                                     )
                                     .into();
                                 }
                                 None => {
                                     this.status = format!(
-                                        "GRAPH BLOCKED / G{} PUBLISHED / HOST UNAVAILABLE",
+                                        "PIPELINE BLOCKED / G{} PUBLISHED / HOST UNAVAILABLE",
                                         receipt.publication.generation_id
                                     )
                                     .into();
@@ -210,13 +257,13 @@ impl PhoenixShell {
                         }
                         _ => {
                             lifecycle::mark_proof_failed();
-                            this.status =
-                                "GRAPH BLOCKED / REBUILD RECEIPT CONTRACT MISMATCH".into();
+                            this.status = "PIPELINE BLOCKED / RECEIPT CONTRACT MISMATCH".into();
                         }
                     },
-                    Err(error) => {
-                        this.status = format!("GRAPH BLOCKED / REBUILD / {error}").into();
+                    Err(KernelError::AnalysisProducerCancelled) => {
+                        this.status = "PIPELINE CANCELLED / PREVIOUS GENERATION PRESERVED".into();
                     }
+                    Err(error) => this.status = format!("PIPELINE BLOCKED / {error}").into(),
                 }
                 cx.notify();
             }) {
@@ -227,10 +274,15 @@ impl PhoenixShell {
         .detach();
     }
 
-    pub(super) fn render_drawer_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_drawer_surface(
+        &self,
+        tabs_in_app_header: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let body = match self.drawer_tab {
             DrawerTab::Graph => self.render_graph_drawer(cx),
-            DrawerTab::AtlasControl => self.render_atlas_control(cx).into_any_element(),
+            DrawerTab::AtlasControl => self.render_atlas_control(window, cx).into_any_element(),
             _ => scene_error_panel(
                 "PHX_DORMANT_SURFACE",
                 "This surface is not active",
@@ -244,10 +296,10 @@ impl PhoenixShell {
             .min_h_0()
             .flex()
             .flex_col()
-            .border_t_1()
+            .when(!tabs_in_app_header, |surface| surface.border_t_1())
             .border_color(rgb(BORDER_BRIGHT))
             .bg(rgb(SURFACE))
-            .child(self.render_drawer_tabs(cx))
+            .child(self.render_drawer_tabs(tabs_in_app_header, cx))
             .child(body)
     }
 
@@ -324,9 +376,9 @@ impl PhoenixShell {
             .into_any_element()
     }
 
-    fn render_drawer_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_drawer_tabs(&self, in_app_header: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let mut tabs = div()
-            .h(px(42.))
+            .h(px(if in_app_header { 44. } else { 42. }))
             .flex_shrink_0()
             .flex()
             .items_center()
@@ -334,7 +386,7 @@ impl PhoenixShell {
             .px_3()
             .border_b_1()
             .border_color(rgb(BORDER))
-            .bg(rgb(0x171918));
+            .bg(rgb(if in_app_header { SURFACE } else { 0x171918 }));
         for tab in DrawerTab::ALL {
             let selected = self.drawer_tab == tab;
             let enabled = tab.is_active_product();
@@ -355,8 +407,8 @@ impl PhoenixShell {
                     .when(enabled, |item| {
                         item.cursor_pointer()
                             .hover(|hover| hover.bg(rgb(0x202624)).text_color(rgb(TEXT)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.select_drawer_tab(tab, cx);
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.select_drawer_tab(tab, window, cx);
                             }))
                     })
                     .when(!enabled, |item| item.opacity(0.42))
@@ -435,6 +487,21 @@ mod tests {
         layout.set_atlas_width(f32::MAX);
         assert_eq!(layout.height(), DRAWER_MIN_HEIGHT);
         assert_eq!(layout.atlas_width(), ATLAS_MAX_WIDTH);
+        layout.set_height(1_440.);
+        assert_eq!(layout.height(), 1_440.);
+        layout.set_height(f32::NAN);
+        assert_eq!(layout.height(), 1_440.);
+    }
+
+    #[test]
+    fn full_page_is_explicit_and_closing_clears_it() {
+        let mut layout = DrawerLayout::new(false);
+        layout.toggle_full_page();
+        assert!(layout.is_open());
+        assert!(layout.is_full_page());
+        layout.toggle();
+        assert!(!layout.is_open());
+        assert!(!layout.is_full_page());
     }
 
     #[test]

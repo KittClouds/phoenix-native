@@ -3,20 +3,36 @@
 mod analysis;
 mod atlas;
 mod atlas_control;
+mod atlas_review;
+mod atlas_run;
 mod entity_tags;
 mod graph_selection;
 mod graph_view;
 mod metrics;
 mod protocol;
+mod release_lock;
 mod scene_publication;
 mod scene_rebuild;
 mod state;
 
-pub use analysis::{AnalysisPublicationReceipt, LegacyAnalysisAdapterConfig, NliPublication};
+pub use analysis::{
+    AnalysisPublicationReceipt, AnalysisRuntimeInfo, LegacyAnalysisAdapterConfig, NliPublication,
+};
 pub use atlas::{AtlasEntity, AtlasRegistry, NerEntityBatch};
 pub use atlas_control::{
-    AtlasBuildState, AtlasControlSnapshot, AtlasPrimaryAction, AtlasStage, AtlasStageState,
-    AtlasStageSummary, ATLAS_CONTROL_CONTRACT,
+    AtlasAnalysisSummary, AtlasBuildState, AtlasControlSnapshot, AtlasDecisionApplicability,
+    AtlasPrimaryAction, AtlasReviewCandidateState, AtlasReviewCandidateSummary,
+    AtlasReviewSnapshot, AtlasStage, AtlasStageState, AtlasStageSummary, ATLAS_CONTROL_CONTRACT,
+};
+pub use atlas_review::{
+    AtlasCandidateId, AtlasDecisionAction, AtlasDecisionAuthority, AtlasDecisionCommand,
+    AtlasDecisionReceiptV1, AtlasDecisionStatus, ATLAS_DECISION_RECEIPT_CONTRACT,
+};
+pub use atlas_run::{
+    AtlasAuthoritySnapshotV1, AtlasCapabilityCount, AtlasCapabilityState, AtlasDecisionCounts,
+    AtlasGraphReviewCounts, AtlasModelIdentity, AtlasProducerIdentities, AtlasQueueSnapshot,
+    AtlasResourceCounts, AtlasReuseSnapshot, AtlasRunReceiptV1, AtlasSemanticCounts, AtlasSpanKind,
+    AtlasSpanReceipt, AtlasTimingSnapshot, AtlasWorkDisposition, ATLAS_RUN_RECEIPT_CONTRACT,
 };
 pub use metrics::KernelMetrics;
 pub use phoenix_scene_compiler::{
@@ -28,10 +44,18 @@ pub use phoenix_scene_publisher::{
 };
 pub use phoenix_workspace::{EntitySourceMask, NerEntityRecord};
 pub use protocol::*;
+pub use release_lock::{
+    PhoenixReleaseManifestV1, ReleaseCohortAuthorityV1, ReleaseCohortCountsV1,
+    ReleaseCohortDigestsV1, ReleaseGateTargetsV1, ReleaseLockError, RELEASE_MANIFEST_CONTRACT,
+};
 pub use scene_rebuild::NativeScenePublishCommand;
 use state::*;
 
-use phoenix_analysis_contract::{AnalysisContractError, PhoenixNliArtifactV1};
+use phoenix_analysis_contract::{
+    AnalysisContractError, PhoenixDocumentAnalysisV1, PhoenixNliArtifactV1,
+    PhoenixProducerCoordinatorV1, PhoenixStructuralSubstrateV1,
+};
+use phoenix_graph_generation::{GraphGenerationError, VerifiedGraphGeneration};
 use phoenix_scene_contract::{
     DocumentId, GraphAction, GraphGeneration, GraphViewState, HighlightContractError,
     HighlightPalette, Manifold, ResidentScene, RuntimeCapabilities, SceneContractError, StyleState,
@@ -66,7 +90,11 @@ pub struct KernelSnapshot {
     pub active_document_lease: Option<Arc<DocumentLease>>,
     pub entity_registry: Arc<EntityRegistry>,
     pub atlas_registry: Arc<AtlasRegistry>,
+    pub document_analysis: Option<Arc<PhoenixDocumentAnalysisV1>>,
+    pub structural_analysis: Option<Arc<PhoenixStructuralSubstrateV1>>,
     pub nli_analysis: Option<Arc<PhoenixNliArtifactV1>>,
+    pub producer_coordinator: Option<Arc<PhoenixProducerCoordinatorV1>>,
+    pub graph_generation: Option<Arc<VerifiedGraphGeneration>>,
     pub analysis_publication: Option<AnalysisPublicationReceipt>,
     pub resident_scene: Option<Arc<ResidentScene>>,
     pub scene_product_index: Option<Arc<PhoenixSceneProductIndexV1>>,
@@ -74,6 +102,7 @@ pub struct KernelSnapshot {
     pub document_anchors: Option<Arc<VerifiedDocumentAnchors>>,
     pub graph_view: GraphViewState,
     pub graph_selection: GraphSelectionState,
+    pub graph_review_overlay: GraphReviewOverlay,
     pub style: StyleState,
     pub highlight_palette: Arc<HighlightPalette>,
     pub capabilities: Arc<RuntimeCapabilities>,
@@ -147,8 +176,18 @@ pub enum KernelError {
     AnalysisProducerUnavailable(&'static str),
     #[error("legacy Rust analysis adapter failed: {0}")]
     AnalysisProducerFailed(String),
+    #[error("semantic producer coordinator was cancelled")]
+    AnalysisProducerCancelled,
+    #[error("no Atlas pipeline run is active")]
+    AtlasRunNotActive,
+    #[error(transparent)]
+    AtlasRunReceipt(#[from] atlas_run::AtlasRunReceiptError),
+    #[error(transparent)]
+    AtlasReview(#[from] atlas_review::AtlasReviewError),
     #[error(transparent)]
     AnalysisContract(#[from] AnalysisContractError),
+    #[error(transparent)]
+    GraphGeneration(#[from] GraphGenerationError),
     #[error("graph node {0} is absent from the resident scene product index")]
     GraphNodeNotFound(u64),
     #[error(transparent)]
@@ -175,7 +214,11 @@ struct KernelState {
     active_document_lease: Option<Arc<DocumentLease>>,
     entity_registry: Arc<EntityRegistry>,
     atlas_registry: Arc<AtlasRegistry>,
+    document_analysis: Option<Arc<PhoenixDocumentAnalysisV1>>,
+    structural_analysis: Option<Arc<PhoenixStructuralSubstrateV1>>,
     nli_analysis: Option<Arc<PhoenixNliArtifactV1>>,
+    producer_coordinator: Option<Arc<PhoenixProducerCoordinatorV1>>,
+    graph_generation: Option<Arc<VerifiedGraphGeneration>>,
     analysis_publication: Option<AnalysisPublicationReceipt>,
     resident_scene: Option<Arc<ResidentScene>>,
     scene_product_index: Option<Arc<PhoenixSceneProductIndexV1>>,
@@ -183,6 +226,7 @@ struct KernelState {
     document_anchors: Option<Arc<VerifiedDocumentAnchors>>,
     graph_view: GraphViewState,
     graph_selection: GraphSelectionState,
+    graph_review_overlay: GraphReviewOverlay,
     style: StyleState,
     highlight_palette: Arc<HighlightPalette>,
     capabilities: Arc<RuntimeCapabilities>,
@@ -195,6 +239,8 @@ struct KernelShared {
     workspace_path: PathBuf,
     publisher: Option<Arc<ScenePublicationStore>>,
     graph_build: Mutex<atlas_control::GraphBuildRuntime>,
+    atlas_review: Mutex<atlas_review::AtlasReviewLedger>,
+    producer_cancel: AtomicBool,
     metrics: KernelMetricAtoms,
 }
 
@@ -263,7 +309,22 @@ impl PhoenixKernel {
             return Err(KernelError::ProductIndexWithoutScene);
         }
         let workspace = Arc::new(WorkspaceDocument::load_or_seed(&workspace_path)?);
-        let active_entry = workspace.first_note().unwrap_or(ROOT_ID);
+        let published_document = publisher
+            .as_ref()
+            .and_then(|publisher| publisher.current_receipt().ok().flatten())
+            .filter(|receipt| receipt.kind == ScenePublicationKind::Full)
+            .and_then(|receipt| receipt.document_id)
+            .map(EntryId)
+            .filter(|id| {
+                workspace
+                    .entry(*id)
+                    .is_some_and(|entry| entry.kind == EntryKind::Note)
+            });
+        let active_entry = workspace
+            .active_entry()
+            .or(published_document)
+            .or_else(|| workspace.first_note())
+            .unwrap_or(ROOT_ID);
         let active_document = active_document(&workspace, active_entry);
         let active_document_lease = active_document
             .map(|_| open_document(&workspace_path, &workspace, active_entry))
@@ -277,6 +338,7 @@ impl PhoenixKernel {
             active_document_lease.as_deref(),
             entity_registry.revision(),
         )?;
+        let atlas_review = atlas_review::AtlasReviewLedger::open(&workspace_path)?;
         let mut scene_publication = None;
         if let Some(publisher) = publisher.as_ref() {
             let published = scene_publication::initial_production_scene(
@@ -288,14 +350,26 @@ impl PhoenixKernel {
             initial_scene = Some(published.scene);
             initial_product_index = Some(published.product_index);
         }
+        let restored_atlas_run = atlas_run::restore_matching(
+            &workspace_path,
+            scene_publication,
+            active_document_lease.as_deref(),
+        )?;
         let graph_view = initial_scene
             .as_ref()
             .map(|scene| scene.graph_view_state(initial_product_index.as_deref()))
             .transpose()?
             .unwrap_or_default();
-        let document_anchors =
-            entity_tags::registry_anchors(&entity_registry, active_document_lease.as_deref())?;
-        let state = KernelState {
+        let document_anchors = match (restored_analysis.as_ref(), active_document_lease.as_deref())
+        {
+            (Some(restored), Some(lease)) => Some(Arc::new(analysis::verified_analysis_anchors(
+                &restored.analysis.ner,
+                lease,
+                &entity_registry,
+            )?)),
+            _ => entity_tags::registry_anchors(&entity_registry, active_document_lease.as_deref())?,
+        };
+        let mut state = KernelState {
             revision: 1,
             workspace,
             active_entry,
@@ -303,9 +377,21 @@ impl PhoenixKernel {
             active_document_lease,
             entity_registry,
             atlas_registry,
+            document_analysis: restored_analysis
+                .as_ref()
+                .map(|restored| Arc::clone(&restored.analysis)),
+            structural_analysis: restored_analysis
+                .as_ref()
+                .map(|restored| Arc::clone(&restored.structural)),
             nli_analysis: restored_analysis
                 .as_ref()
                 .map(|restored| Arc::clone(&restored.nli)),
+            producer_coordinator: restored_analysis
+                .as_ref()
+                .map(|restored| Arc::clone(&restored.coordinator)),
+            graph_generation: restored_analysis
+                .as_ref()
+                .map(|restored| Arc::clone(&restored.graph_generation)),
             analysis_publication: restored_analysis.map(|restored| restored.receipt),
             resident_scene: initial_scene,
             scene_product_index: initial_product_index,
@@ -313,17 +399,23 @@ impl PhoenixKernel {
             document_anchors,
             graph_view,
             graph_selection: GraphSelectionState::default(),
+            graph_review_overlay: GraphReviewOverlay::default(),
             style: StyleState::default(),
             highlight_palette,
             capabilities: Arc::new(RuntimeCapabilities::default()),
             shutting_down: false,
         };
+        atlas_review::refresh_review_overlay(&mut state, &atlas_review)?;
         let shared = Arc::new(KernelShared {
             state: RwLock::new(state),
             events: Mutex::new(VecDeque::with_capacity(32)),
             workspace_path,
             publisher,
-            graph_build: Mutex::new(atlas_control::GraphBuildRuntime::default()),
+            graph_build: Mutex::new(atlas_control::GraphBuildRuntime::restored(
+                restored_atlas_run,
+            )),
+            atlas_review: Mutex::new(atlas_review),
+            producer_cancel: AtomicBool::new(false),
             metrics: KernelMetricAtoms::default(),
         });
         let (sender, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
@@ -355,7 +447,11 @@ impl PhoenixKernel {
             active_document_lease: state.active_document_lease.as_ref().map(Arc::clone),
             entity_registry: Arc::clone(&state.entity_registry),
             atlas_registry: Arc::clone(&state.atlas_registry),
+            document_analysis: state.document_analysis.as_ref().map(Arc::clone),
+            structural_analysis: state.structural_analysis.as_ref().map(Arc::clone),
             nli_analysis: state.nli_analysis.as_ref().map(Arc::clone),
+            producer_coordinator: state.producer_coordinator.as_ref().map(Arc::clone),
+            graph_generation: state.graph_generation.as_ref().map(Arc::clone),
             analysis_publication: state.analysis_publication,
             resident_scene: state.resident_scene.as_ref().map(Arc::clone),
             scene_product_index: state.scene_product_index.as_ref().map(Arc::clone),
@@ -363,6 +459,7 @@ impl PhoenixKernel {
             document_anchors: state.document_anchors.as_ref().map(Arc::clone),
             graph_view: state.graph_view,
             graph_selection: state.graph_selection,
+            graph_review_overlay: state.graph_review_overlay.clone(),
             style: state.style,
             highlight_palette: Arc::clone(&state.highlight_palette),
             capabilities: Arc::clone(&state.capabilities),
@@ -445,7 +542,12 @@ impl PhoenixKernel {
             .events
             .lock()
             .map_err(|_| KernelError::Poisoned("event drain"))?;
-        Ok(events.drain(..).collect())
+        let drained = events.drain(..).collect();
+        self.shared
+            .metrics
+            .events_pending
+            .store(0, Ordering::Relaxed);
+        Ok(drained)
     }
 
     pub fn workspace_path(&self) -> &Path {
@@ -456,7 +558,18 @@ impl PhoenixKernel {
         self.shared.metrics.snapshot()
     }
 
+    pub fn atlas_decision_receipts(&self) -> Result<Vec<AtlasDecisionReceiptV1>, KernelError> {
+        Ok(self
+            .shared
+            .atlas_review
+            .lock()
+            .map_err(|_| KernelError::Poisoned("Atlas review ledger"))?
+            .receipts()
+            .to_vec())
+    }
+
     pub fn shutdown(&self) -> Result<(), KernelError> {
+        self.shared.producer_cancel.store(true, Ordering::Release);
         if self.shutdown_started.swap(true, Ordering::AcqRel) {
             return self.join_worker();
         }
@@ -468,6 +581,10 @@ impl PhoenixKernel {
             .recv_timeout(COMMAND_TIMEOUT)
             .map_err(|_| KernelError::CommandTimedOut(0))??;
         self.join_worker()
+    }
+
+    pub fn cancel_active_producers(&self) {
+        self.shared.producer_cancel.store(true, Ordering::Release);
     }
 
     fn join_worker(&self) -> Result<(), KernelError> {
@@ -558,7 +675,14 @@ fn apply_command(
             atlas::publish_ner_batch(shared, sequence, batch)
         }
         KernelCommand::PublishNliArtifact(publication) => {
-            analysis::publish_nli_artifact(shared, sequence, publication)
+            analysis::publish_nli_artifact(shared, sequence, *publication)
+        }
+        KernelCommand::CancelAtlasRun => atlas_control::cancel_graph_build(shared, sequence),
+        KernelCommand::ReviewAtlasCandidate(command) => {
+            atlas_review::review_candidate(shared, sequence, *command)
+        }
+        KernelCommand::PublishReviewedDecisions => {
+            atlas_review::publish_reviewed_decisions(shared, sequence)
         }
         KernelCommand::PublishNativeScene(publication) => {
             scene_publication::publish_full_scene(shared, sequence, *publication)
@@ -583,6 +707,9 @@ fn apply_command(
         KernelCommand::SetGraphSelection(selection) => {
             graph_selection::set_selection(shared, sequence, selection)
         }
+        KernelCommand::SelectAtlasCandidate(candidate_id) => {
+            graph_selection::select_candidate(shared, sequence, candidate_id)
+        }
     }
 }
 
@@ -591,7 +718,13 @@ fn select_entry(
     sequence: u64,
     id: EntryId,
 ) -> Result<CommandReceipt, KernelError> {
-    let workspace = Arc::clone(&read_state(shared)?.workspace);
+    let (workspace, entity_registry) = {
+        let state = read_state(shared)?;
+        (
+            Arc::clone(&state.workspace),
+            Arc::clone(&state.entity_registry),
+        )
+    };
     let kind = workspace
         .entry(id)
         .ok_or(WorkspaceError::MissingEntry(id))?
@@ -605,9 +738,25 @@ fn select_entry(
     } else {
         None
     };
+    let mut remembered_workspace = (*workspace).clone();
+    remembered_workspace.remember_active_entry(id)?;
+    remembered_workspace.save_atomic(&shared.workspace_path)?;
+    let remembered_workspace = Arc::new(remembered_workspace);
+    let restored_analysis = analysis::restore_active_analysis(
+        &shared.workspace_path,
+        active_document_lease.as_deref(),
+        entity_registry.revision(),
+    )?;
+    let document_anchors = match (restored_analysis.as_ref(), active_document_lease.as_deref()) {
+        (Some(restored), Some(lease)) => Some(Arc::new(analysis::verified_analysis_anchors(
+            &restored.analysis.ner,
+            lease,
+            &entity_registry,
+        )?)),
+        _ => entity_tags::registry_anchors(&entity_registry, active_document_lease.as_deref())?,
+    };
     let mut state = write_state(shared)?;
-    let document_anchors =
-        entity_tags::registry_anchors(&state.entity_registry, active_document_lease.as_deref())?;
+    state.workspace = remembered_workspace;
     state.active_entry = id;
     state.active_document = if kind == EntryKind::Note {
         Some(DocumentId(id.0))
@@ -616,8 +765,22 @@ fn select_entry(
     };
     state.active_document_lease = active_document_lease;
     state.document_anchors = document_anchors;
-    state.nli_analysis = None;
-    state.analysis_publication = None;
+    state.document_analysis = restored_analysis
+        .as_ref()
+        .map(|restored| Arc::clone(&restored.analysis));
+    state.structural_analysis = restored_analysis
+        .as_ref()
+        .map(|restored| Arc::clone(&restored.structural));
+    state.nli_analysis = restored_analysis
+        .as_ref()
+        .map(|restored| Arc::clone(&restored.nli));
+    state.producer_coordinator = restored_analysis
+        .as_ref()
+        .map(|restored| Arc::clone(&restored.coordinator));
+    state.graph_generation = restored_analysis
+        .as_ref()
+        .map(|restored| Arc::clone(&restored.graph_generation));
+    state.analysis_publication = restored_analysis.map(|restored| restored.receipt);
     state.revision = checked_revision(state.revision)?;
     let revision = state.revision;
     let document = state.active_document;
@@ -756,6 +919,15 @@ fn push_event(shared: &KernelShared, event: KernelEvent) -> Result<(), KernelErr
         return Err(KernelError::EventQueueFull);
     }
     events.push_back(event);
+    let pending = u64::try_from(events.len()).unwrap_or(u64::MAX);
+    shared
+        .metrics
+        .events_pending
+        .store(pending, Ordering::Relaxed);
+    shared
+        .metrics
+        .event_queue_high_water
+        .fetch_max(pending, Ordering::Relaxed);
     shared
         .metrics
         .events_published

@@ -572,9 +572,22 @@ impl Editor {
         }
     }
 
-    fn sync_scroll_viewport(&mut self, viewport_size: Size<Pixels>, cx: &mut Context<Self>) {
+    pub(super) fn sync_scroll_viewport(
+        &mut self,
+        viewport_size: Size<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         match self.last_scroll_viewport_size {
             Some(previous) if Self::viewport_size_changed(previous, viewport_size) => {
+                if Self::viewport_width_changed(previous, viewport_size) {
+                    // Row strides include wrapped text height, so they are valid
+                    // only for the width at which GPUI measured them. A collapsed
+                    // embedded host can briefly report a near-zero width; keeping
+                    // those strides after the drawer restores makes the first rows
+                    // consume the entire viewport until scrolling remeasures them.
+                    self.row_stride_cache.clear();
+                    self.prev_render_window = None;
+                }
                 self.last_scroll_viewport_size = Some(viewport_size);
                 self.request_active_block_scroll_into_view(cx);
             }

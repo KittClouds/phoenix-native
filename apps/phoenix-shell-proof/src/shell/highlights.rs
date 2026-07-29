@@ -1,19 +1,11 @@
 use super::PhoenixShell;
 use gpui::Context;
-use phoenix_app_core::{KernelCommand, KernelOutcome};
-use phoenix_scene_contract::{
-    AnchorCandidate, AnchorSource, DocumentId, EntityFamily, HighlightMode, VerifiedDocumentAnchors,
-};
-use std::sync::Arc;
+use phoenix_app_core::KernelCommand;
+use phoenix_scene_contract::HighlightMode;
 use velotype::{SemanticHighlight, SemanticHighlightMode};
-
-const PROOF_DOCUMENT: &str = "# Phoenix Native\n\nKernel-owned lease save proof \u{2014} Cut 5.";
 
 impl PhoenixShell {
     pub(super) fn initialize_highlights(&mut self, cx: &mut Context<Self>) {
-        if let Err(error) = self.publish_proof_highlights() {
-            self.status = format!("HIGHLIGHTS BLOCKED / {error}").into();
-        }
         self.apply_kernel_highlights(cx);
     }
 
@@ -64,6 +56,11 @@ impl PhoenixShell {
                 .update(cx, |editor, cx| editor.clear_semantic_highlights(cx));
             return;
         };
+        let Some(lease) = snapshot.active_document_lease else {
+            self.status = "HIGHLIGHTS BLOCKED / DOCUMENT LEASE UNAVAILABLE".into();
+            cx.notify();
+            return;
+        };
         let palette = *snapshot.highlight_palette;
         let spans = anchors
             .anchors()
@@ -81,76 +78,48 @@ impl PhoenixShell {
             .editor
             .read_with(cx, |editor, _cx| editor.document_revision());
         let result = self.editor.update(cx, |editor, cx| {
-            editor.set_semantic_highlights(
-                snapshot.style.revision,
+            editor.project_semantic_highlights_from_source(
+                snapshot.revision,
                 editor_revision,
+                &lease.content,
                 to_velotype_mode(snapshot.style.highlight_mode),
                 spans,
                 cx,
             )
         });
-        if let Err(error) = result {
-            self.status = format!("HIGHLIGHTS BLOCKED / {error}").into();
+        match result {
+            Ok(receipt) => {
+                eprintln!(
+                    "PHOENIX_HIGHLIGHTS_ACTIVE document={} document_revision={} source={:?} \
+                     requested={} applied={} unmapped={} first_unmapped={:?}",
+                    anchors.document().0,
+                    anchors.document_revision(),
+                    anchors.source(),
+                    receipt.requested,
+                    receipt.applied,
+                    receipt.unmapped,
+                    receipt.first_unmapped
+                );
+                if receipt.unmapped > 0 {
+                    self.status = format!(
+                        "HIGHLIGHTS / {} ACTIVE / {} SOURCE-ONLY SPANS OMITTED",
+                        receipt.applied, receipt.unmapped
+                    )
+                    .into();
+                }
+            }
+            Err(error) => {
+                eprintln!(
+                    "PHOENIX_HIGHLIGHTS_BLOCKED document={} document_revision={} source={:?} \
+                     anchors={} error={error}",
+                    anchors.document().0,
+                    anchors.document_revision(),
+                    anchors.source(),
+                    anchors.anchors().len()
+                );
+                self.status = format!("HIGHLIGHTS BLOCKED / {error}").into();
+            }
         }
-    }
-
-    fn publish_proof_highlights(&self) -> Result<(), String> {
-        if self
-            .kernel
-            .snapshot()
-            .map_err(|error| error.to_string())?
-            .document_anchors
-            .is_some()
-        {
-            return Ok(());
-        }
-        let Some(lease) = self.editor_lease.as_ref() else {
-            return Ok(());
-        };
-        if lease.content.as_ref() != PROOF_DOCUMENT {
-            return Ok(());
-        }
-        let candidates = [
-            ("Phoenix Native", EntityFamily::Organization, 1u64),
-            ("Kernel-owned", EntityFamily::Concept, 2),
-            ("lease save proof", EntityFamily::Event, 3),
-            ("Cut 5", EntityFamily::Structure, 4),
-        ]
-        .into_iter()
-        .map(|(surface, family, node_id)| {
-            let start = PROOF_DOCUMENT
-                .find(surface)
-                .ok_or_else(|| format!("missing proof surface {surface}"))?;
-            Ok(AnchorCandidate {
-                start: u32::try_from(start).map_err(|_| "proof start overflow".to_string())?,
-                end: u32::try_from(start + surface.len())
-                    .map_err(|_| "proof end overflow".to_string())?,
-                node_id,
-                entity_slot: u32::try_from(node_id)
-                    .map_err(|_| "proof entity slot overflow".to_string())?,
-                family,
-                surface: surface.into(),
-            })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-        let verified = VerifiedDocumentAnchors::verify(
-            DocumentId(lease.entry_id.0),
-            lease.revision.0,
-            lease.content_hash.0,
-            None,
-            AnchorSource::VerificationFixture,
-            &lease.content,
-            candidates,
-        )
-        .map_err(|error| error.to_string())?;
-        let receipt = self
-            .kernel
-            .execute(KernelCommand::PublishDocumentAnchors(Arc::new(verified)))
-            .map_err(|error| error.to_string())?;
-        if !matches!(receipt.outcome, KernelOutcome::DocumentAnchorsPublished(4)) {
-            return Err("unexpected anchor publication receipt".into());
-        }
-        Ok(())
     }
 }
 

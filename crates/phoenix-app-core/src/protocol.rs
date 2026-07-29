@@ -1,10 +1,11 @@
 use crate::{
-    AnalysisPublicationReceipt, NativeSceneCompileReceipt, NativeScenePublishCommand,
-    NerEntityBatch, NliPublication, ScenePublicationReceipt,
+    AnalysisPublicationReceipt, AtlasCandidateId, AtlasDecisionCommand, AtlasDecisionReceiptV1,
+    AtlasDecisionStatus, NativeSceneCompileReceipt, NativeScenePublishCommand, NerEntityBatch,
+    NliPublication, ScenePublicationReceipt,
 };
 use phoenix_scene_contract::{
-    DocumentId, GraphAction, GraphViewState, HighlightPalette, Manifold, SceneSource, StyleState,
-    VerifiedDocumentAnchors,
+    DocumentId, GraphAction, GraphReviewOverride, GraphViewState, HighlightPalette, Manifold,
+    SceneSource, StyleState, VerifiedDocumentAnchors,
 };
 use phoenix_workspace::{
     ContentHash, DocumentLeaseToken, DocumentRevision, EntityTag, EntityTagResult, EntryId,
@@ -30,7 +31,10 @@ pub enum KernelCommand {
     },
     TagSelection(Box<EntityTagCommand>),
     PublishNerEntities(NerEntityBatch),
-    PublishNliArtifact(NliPublication),
+    PublishNliArtifact(Box<NliPublication>),
+    CancelAtlasRun,
+    ReviewAtlasCandidate(Box<AtlasDecisionCommand>),
+    PublishReviewedDecisions,
     PublishNativeScene(Box<NativeScenePublishCommand>),
     PublishDocumentAnchors(Arc<VerifiedDocumentAnchors>),
     SetManifold(Manifold),
@@ -40,6 +44,7 @@ pub enum KernelCommand {
     SetStyle(StyleState),
     SetHighlightPalette(Box<HighlightPalette>),
     SetGraphSelection(GraphSelectionCommand),
+    SelectAtlasCandidate(AtlasCandidateId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,6 +57,7 @@ pub enum GraphSelectionCommand {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum GraphSelectionOrigin {
     Atlas,
+    AtlasCandidate,
     Renderer,
     #[default]
     None,
@@ -61,8 +67,28 @@ pub enum GraphSelectionOrigin {
 pub struct GraphSelectionState {
     pub revision: u64,
     pub node_id: Option<u64>,
+    pub secondary_node_id: Option<u64>,
     pub entity_id: Option<u64>,
+    pub candidate_id: Option<AtlasCandidateId>,
+    pub evidence: Option<EditorEvidenceSelection>,
     pub origin: GraphSelectionOrigin,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EditorEvidenceSelection {
+    pub document_id: u64,
+    pub document_revision: u64,
+    pub content_hash: [u8; 32],
+    pub start: u32,
+    pub end: u32,
+    pub evidence_hash: [u8; 32],
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct GraphReviewOverlay {
+    pub revision: u64,
+    pub generation_id: Option<u64>,
+    pub entries: Arc<[GraphReviewOverride]>,
 }
 
 #[derive(Clone, Debug)]
@@ -74,8 +100,16 @@ pub struct EntityTagCommand {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GraphRebuildReceipt {
+    pub run_id: u64,
     pub compile: NativeSceneCompileReceipt,
     pub publication: ScenePublicationReceipt,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AtlasDecisionCommandReceipt {
+    pub receipt_id: [u8; 32],
+    pub candidate_id: [u8; 32],
+    pub status: Option<AtlasDecisionStatus>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,6 +132,7 @@ pub enum KernelOutcome {
     EntityTagged(EntityTagResult),
     NerEntitiesPublished(NerPublicationResult),
     NliCandidatesPublished(AnalysisPublicationReceipt),
+    AtlasCandidateReviewed(AtlasDecisionCommandReceipt),
     GraphRebuilt(GraphRebuildReceipt),
     SceneGenerationPublished(ScenePublicationReceipt),
     GraphActionQueued(GraphAction),
@@ -155,6 +190,10 @@ pub enum KernelEventKind {
     },
     NliCandidatesCommitted {
         receipt: AnalysisPublicationReceipt,
+    },
+    AtlasRunCancellationRequested,
+    AtlasCandidateReviewed {
+        receipt: AtlasDecisionReceiptV1,
     },
     ManifoldChanged(Manifold),
     GraphViewChanged(GraphViewState),

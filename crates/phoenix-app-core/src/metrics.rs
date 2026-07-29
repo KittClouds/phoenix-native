@@ -9,6 +9,8 @@ pub struct KernelMetrics {
     pub last_sequence: u64,
     pub commands_pending: u64,
     pub command_queue_high_water: u64,
+    pub events_pending: u64,
+    pub event_queue_high_water: u64,
     pub worker_exited: bool,
 }
 
@@ -21,6 +23,8 @@ pub(super) struct KernelMetricAtoms {
     pub(super) last_sequence: AtomicU64,
     pub(super) commands_pending: AtomicU64,
     pub(super) command_queue_high_water: AtomicU64,
+    pub(super) events_pending: AtomicU64,
+    pub(super) event_queue_high_water: AtomicU64,
     pub(super) worker_exited: AtomicBool,
 }
 
@@ -34,6 +38,8 @@ impl KernelMetricAtoms {
             last_sequence: self.last_sequence.load(Ordering::Relaxed),
             commands_pending: self.commands_pending.load(Ordering::Relaxed),
             command_queue_high_water: self.command_queue_high_water.load(Ordering::Relaxed),
+            events_pending: self.events_pending.load(Ordering::Relaxed),
+            event_queue_high_water: self.event_queue_high_water.load(Ordering::Relaxed),
             worker_exited: self.worker_exited.load(Ordering::Acquire),
         }
     }

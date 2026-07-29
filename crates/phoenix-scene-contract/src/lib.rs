@@ -26,8 +26,8 @@ pub use highlights::{
     HIGHLIGHT_CONTRACT, MAX_DOCUMENT_ANCHORS,
 };
 pub use view::{
-    FamilyMask, GraphAction, GraphLens, GraphScope, GraphSurface, GraphViewState, RelationFamily,
-    RelationMask, ReviewMask, SceneAuthority, ScopeMask,
+    FamilyMask, GraphAction, GraphLens, GraphReviewOverride, GraphScope, GraphSurface,
+    GraphViewState, RelationFamily, RelationMask, ReviewMask, SceneAuthority, ScopeMask,
 };
 
 pub const SCENE_CONTRACT: &str = "phoenix.native.resident-scene/v1";

@@ -54,6 +54,12 @@ struct Ready {
     generation: GraphGeneration,
 }
 
+struct GraphRuntimeSignals {
+    ready_sender: SyncSender<std::result::Result<Ready, String>>,
+    proxy: EventLoopProxy<GraphWake>,
+    ui_notifications: async_channel::Sender<()>,
+}
+
 pub struct GraphWindow {
     parent: ParentWindowHandle,
     hwnd: isize,
@@ -69,7 +75,11 @@ pub struct GraphWindow {
 }
 
 impl GraphWindow {
-    pub fn start(parent: ParentWindowHandle, kernel: Arc<PhoenixKernel>) -> Result<Self> {
+    pub fn start(
+        parent: ParentWindowHandle,
+        kernel: Arc<PhoenixKernel>,
+        ui_notifications: async_channel::Sender<()>,
+    ) -> Result<Self> {
         parent.prepare_for_child_hosting()?;
         let (sender, receiver) = mpsc::sync_channel(COMMAND_CAPACITY);
         let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
@@ -88,6 +98,7 @@ impl GraphWindow {
                     thread_viewport,
                     thread_queue_metrics,
                     ready_sender,
+                    ui_notifications,
                 )
             })
             .context("spawn embedded graph event loop")?;
@@ -195,6 +206,7 @@ fn run_graph_window(
     viewport: Arc<ViewportMailbox>,
     queue_metrics: Arc<GraphQueueMetrics>,
     ready_sender: SyncSender<std::result::Result<Ready, String>>,
+    ui_notifications: async_channel::Sender<()>,
 ) -> Result<()> {
     let mut builder = EventLoop::<GraphWake>::with_user_event();
     builder.with_any_thread(true);
@@ -207,8 +219,11 @@ fn run_graph_window(
         receiver,
         viewport,
         queue_metrics,
-        ready_sender,
-        proxy,
+        GraphRuntimeSignals {
+            ready_sender,
+            proxy,
+            ui_notifications,
+        },
     );
     event_loop
         .run_app(&mut app)
@@ -222,6 +237,7 @@ struct EmbeddedGraphApp {
     viewport: Arc<ViewportMailbox>,
     queue_metrics: Arc<GraphQueueMetrics>,
     ready_sender: Option<SyncSender<std::result::Result<Ready, String>>>,
+    ui_notifications: async_channel::Sender<()>,
     proxy: EventLoopProxy<GraphWake>,
     window: Option<Arc<Window>>,
     renderer: Option<GraphRenderer>,
@@ -234,6 +250,7 @@ struct EmbeddedGraphApp {
     loaded_manifold: Manifold,
     loaded_graph_view: GraphViewState,
     loaded_selection_revision: u64,
+    loaded_review_overlay_revision: u64,
     pending_switch: Option<PendingManifoldSwitch>,
     switch_cpu_samples: FixedSamples,
     switch_present_samples: FixedSamples,
@@ -251,8 +268,7 @@ impl EmbeddedGraphApp {
         receiver: Receiver<GraphWindowCommand>,
         viewport: Arc<ViewportMailbox>,
         queue_metrics: Arc<GraphQueueMetrics>,
-        ready_sender: SyncSender<std::result::Result<Ready, String>>,
-        proxy: EventLoopProxy<GraphWake>,
+        signals: GraphRuntimeSignals,
     ) -> Self {
         Self {
             parent,
@@ -260,8 +276,9 @@ impl EmbeddedGraphApp {
             receiver,
             viewport,
             queue_metrics,
-            ready_sender: Some(ready_sender),
-            proxy,
+            ready_sender: Some(signals.ready_sender),
+            ui_notifications: signals.ui_notifications,
+            proxy: signals.proxy,
             window: None,
             renderer: None,
             logical_pointer: (0.0, 0.0),
@@ -273,6 +290,7 @@ impl EmbeddedGraphApp {
             loaded_manifold: Manifold::Hybrid,
             loaded_graph_view: GraphViewState::default(),
             loaded_selection_revision: 0,
+            loaded_review_overlay_revision: 0,
             pending_switch: None,
             switch_cpu_samples: FixedSamples::new(),
             switch_present_samples: FixedSamples::new(),
@@ -360,14 +378,24 @@ impl EmbeddedGraphApp {
                     .set_product_index(index)
                     .context("install pre-Cut-5 product index without labels")?;
             }
+            renderer
+                .apply_review_overrides(index, &kernel_snapshot.graph_review_overlay.entries)
+                .context("install initial decision-ledger review overlay")?;
         }
         renderer
             .set_graph_view(kernel_snapshot.graph_view)
             .context("install initial native graph view")?;
         renderer
-            .set_external_selection(
+            .set_external_selection_pair(
                 kernel_snapshot.graph_selection.node_id.map(NodeId),
-                kernel_snapshot.graph_selection.origin == GraphSelectionOrigin::Atlas,
+                kernel_snapshot
+                    .graph_selection
+                    .secondary_node_id
+                    .map(NodeId),
+                matches!(
+                    kernel_snapshot.graph_selection.origin,
+                    GraphSelectionOrigin::Atlas | GraphSelectionOrigin::AtlasCandidate
+                ),
             )
             .context("install initial graph selection")?;
         let projected_generation = renderer
@@ -385,6 +413,7 @@ impl EmbeddedGraphApp {
         self.loaded_manifold = kernel_snapshot.graph_view.manifold;
         self.loaded_graph_view = kernel_snapshot.graph_view;
         self.loaded_selection_revision = kernel_snapshot.graph_selection.revision;
+        self.loaded_review_overlay_revision = kernel_snapshot.graph_review_overlay.revision;
         self.max_hot_page_bytes = active.hot_pages.byte_len;
         self.renderer = Some(renderer);
         self.window = Some(Arc::clone(&window));
@@ -674,9 +703,18 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
                                     .execute(KernelCommand::SetGraphSelection(command))
                                 {
                                     tracing::error!(%error, "renderer selection was rejected");
+                                } else {
+                                    let _ = self.ui_notifications.try_send(());
                                 }
                             }
-                            GraphEvent::HoverChanged(_) | GraphEvent::CameraChanged(_) => {}
+                            GraphEvent::HoverChanged(node) => {
+                                lifecycle::hover_pick_event();
+                                tracing::trace!(
+                                    node_id = node.map(|node| node.0),
+                                    "renderer hover changed"
+                                );
+                            }
+                            GraphEvent::CameraChanged(_) => {}
                         }
                     }
                     match renderer.render() {

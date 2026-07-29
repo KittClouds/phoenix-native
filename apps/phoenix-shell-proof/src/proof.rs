@@ -540,6 +540,9 @@ fn enforce_host(proof: Option<&EmbeddedHostProof>, failures: &mut Vec<String>) {
     if proof.gpu_after.lens_uniform_writes < 2 {
         failures.push("renderer did not publish a native graph-view uniform".into());
     }
+    if !proof.pointer_hover {
+        failures.push("real pointer movement did not resolve a GPU hover pick".into());
+    }
     if proof.manifold_switches != 200 {
         failures.push(format!(
             "manifold soak completed {} switches, expected 200",

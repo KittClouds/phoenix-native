@@ -1,4 +1,7 @@
-use crate::{PhoenixDocumentAnalysisV1, PhoenixNliArtifactV1, ANALYSIS_FORMAT_VERSION};
+use crate::{
+    PhoenixDocumentAnalysisV1, PhoenixNliArtifactV1, PhoenixProducerCoordinatorV1,
+    PhoenixStructuralSubstrateV1, ANALYSIS_FORMAT_VERSION,
+};
 use memmap2::Mmap;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fs::{File, OpenOptions};
@@ -46,6 +49,18 @@ pub struct VerifiedNliArtifact {
     nli: Arc<PhoenixNliArtifactV1>,
 }
 
+pub struct VerifiedStructuralArtifact {
+    mmap: Arc<Mmap>,
+    artifact_hash: [u8; 32],
+    structural: Arc<PhoenixStructuralSubstrateV1>,
+}
+
+pub struct VerifiedProducerCoordinator {
+    mmap: Arc<Mmap>,
+    artifact_hash: [u8; 32],
+    coordinator: Arc<PhoenixProducerCoordinatorV1>,
+}
+
 impl VerifiedAnalysisArtifact {
     pub fn artifact_hash(&self) -> [u8; 32] {
         self.artifact_hash
@@ -67,6 +82,34 @@ impl VerifiedNliArtifact {
 
     pub fn nli(&self) -> &Arc<PhoenixNliArtifactV1> {
         &self.nli
+    }
+
+    pub fn mapped_bytes(&self) -> usize {
+        self.mmap.len()
+    }
+}
+
+impl VerifiedStructuralArtifact {
+    pub fn artifact_hash(&self) -> [u8; 32] {
+        self.artifact_hash
+    }
+
+    pub fn structural(&self) -> &Arc<PhoenixStructuralSubstrateV1> {
+        &self.structural
+    }
+
+    pub fn mapped_bytes(&self) -> usize {
+        self.mmap.len()
+    }
+}
+
+impl VerifiedProducerCoordinator {
+    pub fn artifact_hash(&self) -> [u8; 32] {
+        self.artifact_hash
+    }
+
+    pub fn coordinator(&self) -> &Arc<PhoenixProducerCoordinatorV1> {
+        &self.coordinator
     }
 
     pub fn mapped_bytes(&self) -> usize {
@@ -113,6 +156,48 @@ pub fn open_nli_artifact(path: &Path) -> Result<VerifiedNliArtifact, AnalysisCon
         mmap,
         artifact_hash,
         nli: Arc::new(nli),
+    })
+}
+
+pub fn write_structural_artifact_new(
+    path: &Path,
+    structural: &PhoenixStructuralSubstrateV1,
+) -> Result<[u8; 32], AnalysisContractError> {
+    structural
+        .validate()
+        .map_err(AnalysisContractError::Contract)?;
+    write_message_new(path, structural)
+}
+
+pub fn open_structural_artifact(
+    path: &Path,
+) -> Result<VerifiedStructuralArtifact, AnalysisContractError> {
+    let (mmap, artifact_hash, structural) = open_message::<PhoenixStructuralSubstrateV1>(path)?;
+    structural
+        .validate()
+        .map_err(AnalysisContractError::Contract)?;
+    Ok(VerifiedStructuralArtifact {
+        mmap,
+        artifact_hash,
+        structural: Arc::new(structural),
+    })
+}
+
+pub fn write_producer_coordinator_new(
+    path: &Path,
+    coordinator: &PhoenixProducerCoordinatorV1,
+) -> Result<[u8; 32], AnalysisContractError> {
+    write_message_new(path, coordinator)
+}
+
+pub fn open_producer_coordinator(
+    path: &Path,
+) -> Result<VerifiedProducerCoordinator, AnalysisContractError> {
+    let (mmap, artifact_hash, coordinator) = open_message::<PhoenixProducerCoordinatorV1>(path)?;
+    Ok(VerifiedProducerCoordinator {
+        mmap,
+        artifact_hash,
+        coordinator: Arc::new(coordinator),
     })
 }
 

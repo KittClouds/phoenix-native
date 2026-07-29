@@ -1,13 +1,19 @@
 //! Sealed process boundary between the legacy analysis producer and Phoenix Native.
 
 mod codec;
+mod coordinator;
+mod structural;
 mod types;
 
 pub use codec::{
-    open_analysis_artifact, open_message, open_nli_artifact, write_analysis_artifact_new,
-    write_message_new, write_nli_artifact_new, AnalysisContractError, VerifiedAnalysisArtifact,
-    VerifiedNliArtifact, ANALYSIS_ARTIFACT_EXTENSION,
+    open_analysis_artifact, open_message, open_nli_artifact, open_producer_coordinator,
+    open_structural_artifact, write_analysis_artifact_new, write_message_new,
+    write_nli_artifact_new, write_producer_coordinator_new, write_structural_artifact_new,
+    AnalysisContractError, VerifiedAnalysisArtifact, VerifiedNliArtifact,
+    VerifiedProducerCoordinator, VerifiedStructuralArtifact, ANALYSIS_ARTIFACT_EXTENSION,
 };
+pub use coordinator::*;
+pub use structural::*;
 pub use types::*;
 
 pub const ANALYSIS_CONTRACT: &str = "phoenix.native.document-analysis/v1";

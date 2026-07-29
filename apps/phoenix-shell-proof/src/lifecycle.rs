@@ -22,6 +22,7 @@ counter!(DEVICE_LIVE);
 counter!(VISIBILITY_TRANSITIONS);
 counter!(FOCUS_EVENTS);
 counter!(POINTER_EVENTS);
+counter!(HOVER_PICK_EVENTS);
 counter!(WHEEL_EVENTS);
 counter!(RESIZE_EVENTS);
 counter!(DPI_EVENTS);
@@ -47,6 +48,7 @@ pub struct LifecycleSnapshot {
     pub visibility_transitions: u64,
     pub focus_events: u64,
     pub pointer_events: u64,
+    pub hover_pick_events: u64,
     pub wheel_events: u64,
     pub resize_events: u64,
     pub dpi_events: u64,
@@ -71,6 +73,7 @@ pub fn snapshot() -> LifecycleSnapshot {
         visibility_transitions: VISIBILITY_TRANSITIONS.load(Ordering::Relaxed),
         focus_events: FOCUS_EVENTS.load(Ordering::Relaxed),
         pointer_events: POINTER_EVENTS.load(Ordering::Relaxed),
+        hover_pick_events: HOVER_PICK_EVENTS.load(Ordering::Relaxed),
         wheel_events: WHEEL_EVENTS.load(Ordering::Relaxed),
         resize_events: RESIZE_EVENTS.load(Ordering::Relaxed),
         dpi_events: DPI_EVENTS.load(Ordering::Relaxed),
@@ -111,6 +114,10 @@ pub fn focus_event() {
 
 pub fn pointer_event() {
     POINTER_EVENTS.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn hover_pick_event() {
+    HOVER_PICK_EVENTS.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn wheel_event() {

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
     AnyWindowHandle, AppContext, ClickEvent, Context, Entity, IntoElement, KeyDownEvent, Keystroke,
-    ParentElement, Render, TestAppContext, VisualTestContext, div,
+    ParentElement, Render, TestAppContext, VisualTestContext, div, px, size,
 };
 
 use super::{Editor, EditorEvent, ViewMode};
@@ -153,10 +153,15 @@ async fn embedded_document_replacement_keeps_host_authority_and_clears_dirty_sta
     let editor = cx.new(|cx| Editor::embedded_from_markdown(cx, "first".into()));
     editor.update(cx, |editor, cx| {
         editor.mark_dirty(cx);
+        let first_id = editor.document.visible_blocks()[0].entity.entity_id();
+        editor.row_stride_cache.insert(first_id, 9_999.0);
+        editor.prev_render_window = Some((0, 1));
         editor.replace_embedded_document("# Second\n\nResident editor.".into(), cx);
         assert!(editor.is_embedded());
         assert!(!editor.is_dirty());
         assert!(editor.file_path.is_none());
+        assert!(editor.row_stride_cache.is_empty());
+        assert_eq!(editor.prev_render_window, None);
         assert_eq!(
             editor.host_document_text(cx),
             "# Second\n\nResident editor."
@@ -219,6 +224,14 @@ fn scrollbar_offset_mapping_clamps_to_track_bounds() {
         ),
         geometry.max_scroll_y
     );
+}
+
+#[test]
+fn scrollbar_geometry_accepts_a_fully_collapsed_host_viewport() {
+    let geometry = Editor::scrollbar_geometry(0.0, 450.0, 0.0);
+    assert_eq!(geometry.track_height, 20.0);
+    assert_eq!(geometry.thumb_height, geometry.track_height);
+    assert_eq!(geometry.thumb_top, 0.0);
 }
 
 /// Equal-height rows as per-row footprints, the input `rendered_window` takes.
@@ -322,6 +335,79 @@ fn rendered_window_all_estimated_windows_near_top() {
     assert!(window.run_end < strides.len());
     // A viewport-plus-band worth of rows, not the whole document.
     assert!(window.run_end >= 20);
+}
+
+#[gpui::test]
+async fn viewport_width_change_invalidates_wrapped_row_measurements(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let editor = cx.new(|cx| Editor::embedded_from_markdown(cx, "alpha\n\nbeta".into()));
+
+    editor.update(cx, |editor, cx| {
+        let first_id = editor.document.visible_blocks()[0].entity.entity_id();
+        editor.row_stride_cache.insert(first_id, 12_000.0);
+        editor.prev_render_window = Some((0, 1));
+        editor.last_scroll_viewport_size = Some(size(px(1.0), px(700.0)));
+
+        editor.sync_scroll_viewport(size(px(640.0), px(700.0)), cx);
+
+        assert!(editor.row_stride_cache.is_empty());
+        assert_eq!(editor.prev_render_window, None);
+        assert!(editor.pending_scroll_active_block_into_view);
+    });
+}
+
+#[gpui::test]
+async fn viewport_height_change_keeps_width_valid_row_measurements(cx: &mut TestAppContext) {
+    init_editor_test_app(cx);
+    let editor = cx.new(|cx| Editor::embedded_from_markdown(cx, "alpha\n\nbeta".into()));
+
+    editor.update(cx, |editor, cx| {
+        let first_id = editor.document.visible_blocks()[0].entity.entity_id();
+        editor.row_stride_cache.insert(first_id, 64.0);
+        editor.prev_render_window = Some((0, 1));
+        editor.last_scroll_viewport_size = Some(size(px(640.0), px(1.0)));
+
+        editor.sync_scroll_viewport(size(px(640.0), px(700.0)), cx);
+
+        assert_eq!(editor.row_stride_cache.get(&first_id), Some(&64.0));
+        assert_eq!(editor.prev_render_window, Some((0, 1)));
+    });
+}
+
+#[gpui::test]
+async fn embedded_long_document_realizes_the_initial_viewport_without_scroll(
+    cx: &mut TestAppContext,
+) {
+    init_editor_test_app(cx);
+    let mut markdown = String::from("Chapter 1: Quicksave\n\n```\nInitial fixture line.\n```\n\n");
+    for index in 0..1_000 {
+        use std::fmt::Write as _;
+        writeln!(
+            markdown,
+            "Paragraph {index}: this deliberately wide block wraps across multiple visual lines \
+             so cold-start row measurements have to converge without scroll priming.\n"
+        )
+        .expect("write fixture paragraph");
+    }
+
+    let (editor, cx) =
+        cx.add_window_view(move |_window, cx| Editor::embedded_from_markdown(cx, markdown));
+    redraw(cx);
+    redraw(cx);
+
+    editor.read_with(cx, |editor, cx| {
+        let realized = editor
+            .document
+            .visible_blocks()
+            .iter()
+            .take(32)
+            .filter(|visible| visible.entity.read(cx).last_bounds.is_some())
+            .count();
+        assert!(
+            realized >= 10,
+            "cold start realized only {realized} of the first 32 rows"
+        );
+    });
 }
 
 #[test]

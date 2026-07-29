@@ -65,6 +65,8 @@ pub struct WorkspaceDocument {
     format: String,
     revision: u64,
     next_id: u64,
+    #[serde(default)]
+    active_entry: Option<EntryId>,
     entries: Vec<WorkspaceEntry>,
 }
 
@@ -172,6 +174,7 @@ impl WorkspaceDocument {
             format: FORMAT.into(),
             revision: 1,
             next_id: 6,
+            active_entry: Some(EntryId(3)),
             entries: vec![
                 WorkspaceEntry {
                     id: ROOT_ID,
@@ -266,6 +269,18 @@ impl WorkspaceDocument {
 
     pub fn entry(&self, id: EntryId) -> Option<&WorkspaceEntry> {
         self.entries.iter().find(|entry| entry.id == id)
+    }
+
+    pub fn active_entry(&self) -> Option<EntryId> {
+        self.active_entry
+    }
+
+    pub fn remember_active_entry(&mut self, id: EntryId) -> Result<(), WorkspaceError> {
+        if self.entry(id).is_none() {
+            return Err(WorkspaceError::MissingEntry(id));
+        }
+        self.active_entry = Some(id);
+        Ok(())
     }
 
     pub fn counts(&self) -> WorkspaceCounts {
@@ -387,6 +402,12 @@ impl WorkspaceDocument {
             );
         }
         self.entries.retain(|entry| !removed.contains(&entry.id));
+        if self
+            .active_entry
+            .is_some_and(|active| removed.contains(&active))
+        {
+            self.active_entry = None;
+        }
         self.bump_revision()?;
         Ok(removed.len())
     }
@@ -465,6 +486,14 @@ impl WorkspaceDocument {
         if self.next_id <= max_id {
             return Err(WorkspaceError::InvalidManifest(
                 "next_id does not exceed every stored ID".into(),
+            ));
+        }
+        if self
+            .active_entry
+            .is_some_and(|active| !by_id.contains_key(&active))
+        {
+            return Err(WorkspaceError::InvalidManifest(
+                "active entry does not exist".into(),
             ));
         }
         Ok(())
@@ -671,11 +700,14 @@ mod tests {
         let folder = workspace.create(ROOT_ID, EntryKind::Folder, "Drafts")?;
         let note = workspace.create(folder, EntryKind::Note, "Chapter 01")?;
         workspace.rename(note, "Chapter 1")?;
+        workspace.remember_active_entry(note)?;
         workspace.save_atomic(&path)?;
 
         let mut reopened = WorkspaceDocument::load(&path)?;
+        assert_eq!(reopened.active_entry(), Some(note));
         assert_eq!(reopened.path_for(note)?, "Phoenix / Drafts / Chapter 1");
         assert_eq!(reopened.delete(folder)?, 2);
+        assert_eq!(reopened.active_entry(), None);
         reopened.save_atomic(&path)?;
 
         let final_state = WorkspaceDocument::load(&path)?;

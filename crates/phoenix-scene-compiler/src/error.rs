@@ -8,6 +8,12 @@ pub enum NativeSceneCompilerError {
     RegistryRevisionMismatch { provided: u64, canonical: u64 },
     #[error("active document has no verified entity mentions")]
     NoVerifiedMentions,
+    #[error("verified document anchors do not match compiler authority")]
+    AnchorAuthorityMismatch,
+    #[error("NLI candidate artifact does not match compiler authority")]
+    NliAuthorityMismatch,
+    #[error("packed graph generation does not match compiler authority")]
+    GraphGenerationAuthorityMismatch,
     #[error("verified mention {start}..{end} no longer matches the active document")]
     StaleMention { start: u32, end: u32 },
     #[error("document contains {actual} bytes; scene references support at most {maximum}")]

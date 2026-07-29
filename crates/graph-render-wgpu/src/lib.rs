@@ -26,7 +26,7 @@ pub use camera::{Camera, CameraSnapshot};
 pub use error::RenderError;
 pub use gpu_scene::{
     GpuAllocationStats, GpuSceneMetrics, InteractionAllocationStats, PositionSwitchMetrics,
-    ProductInstallMetrics, SnapshotMetrics,
+    ProductInstallMetrics, ReviewOverlayMetrics, SnapshotMetrics,
 };
 pub use interaction::{logical_to_physical, GraphEvent, GraphInput, PointerButton};
 pub use lens::{EdgeProductGpu, GraphLensUniform, NodeProductGpu};

@@ -15,6 +15,7 @@ impl EmbeddedGraphApp {
         if self.loaded_generation == Some(scene.generation())
             && self.loaded_graph_view == snapshot.graph_view
             && self.loaded_selection_revision == snapshot.graph_selection.revision
+            && self.loaded_review_overlay_revision == snapshot.graph_review_overlay.revision
         {
             return Ok(());
         }
@@ -44,6 +45,11 @@ impl EmbeddedGraphApp {
             renderer
                 .set_graph_view(snapshot.graph_view)
                 .context("install resident graph view")?;
+            if let Some(index) = snapshot.scene_product_index.as_ref() {
+                renderer
+                    .apply_review_overrides(index, &snapshot.graph_review_overlay.entries)
+                    .context("install replacement decision-ledger review overlay")?;
+            }
             self.loaded_generation = Some(scene.generation());
             self.loaded_manifold = snapshot.graph_view.manifold;
             self.loaded_graph_view = snapshot.graph_view;
@@ -56,6 +62,9 @@ impl EmbeddedGraphApp {
                     anyhow!("[PHX_PRODUCT_INDEX_MISSING] graph view names a missing index")
                 })?;
                 install_product_index(renderer, &scene, index)?;
+                renderer
+                    .apply_review_overrides(index, &snapshot.graph_review_overlay.entries)
+                    .context("rebind decision-ledger review overlay")?;
             }
             if self.loaded_manifold != snapshot.graph_view.manifold {
                 let active = scene
@@ -96,11 +105,31 @@ impl EmbeddedGraphApp {
                 .context("update graph lens uniform")?;
             self.loaded_graph_view = snapshot.graph_view;
         }
+        if self.loaded_review_overlay_revision != snapshot.graph_review_overlay.revision {
+            let index = snapshot.scene_product_index.as_ref().ok_or_else(|| {
+                anyhow!("[PHX_PRODUCT_INDEX_MISSING] review overlay names a missing index")
+            })?;
+            if snapshot.graph_review_overlay.generation_id != Some(scene.generation().0) {
+                return Err(anyhow!(
+                    "[PHX_REVIEW_OVERLAY_STALE] overlay generation {:?} does not match resident {}",
+                    snapshot.graph_review_overlay.generation_id,
+                    scene.generation().0
+                ));
+            }
+            renderer
+                .apply_review_overrides(index, &snapshot.graph_review_overlay.entries)
+                .context("update decision-ledger review overlay")?;
+            self.loaded_review_overlay_revision = snapshot.graph_review_overlay.revision;
+        }
         if self.loaded_selection_revision != snapshot.graph_selection.revision {
             renderer
-                .set_external_selection(
+                .set_external_selection_pair(
                     snapshot.graph_selection.node_id.map(NodeId),
-                    snapshot.graph_selection.origin == GraphSelectionOrigin::Atlas,
+                    snapshot.graph_selection.secondary_node_id.map(NodeId),
+                    matches!(
+                        snapshot.graph_selection.origin,
+                        GraphSelectionOrigin::Atlas | GraphSelectionOrigin::AtlasCandidate
+                    ),
                 )
                 .context("synchronize kernel graph selection")?;
             self.loaded_selection_revision = snapshot.graph_selection.revision;

@@ -11,8 +11,9 @@ mod view;
 use crate::graph_window::{GraphWindow, ViewportGeometry};
 use crate::lifecycle;
 use crate::proof;
-use gpui::{AppContext as _, Context, Entity, SharedString, Timer, Window};
+use gpui::{AppContext as _, Context, Entity, FocusHandle, SharedString, Timer, Window};
 use gpui_component::input::{InputEvent, InputState};
+use gpui_component::resizable::ResizableState;
 use hashbrown::HashSet;
 use phoenix_app_core::GraphProvenanceReceipt;
 use phoenix_app_core::{KernelCommand, KernelOutcome, KernelSnapshot, PhoenixKernel};
@@ -76,7 +77,11 @@ pub struct PhoenixShell {
     left_sidebar_width: f32,
     right_sidebar_width: f32,
     drawer_layout: drawer::DrawerLayout,
+    drawer_resize_state: Entity<ResizableState>,
     drawer_tab: drawer::DrawerTab,
+    atlas_control_section: atlas_control::AtlasControlSection,
+    atlas_control_focus: FocusHandle,
+    atlas_selected_candidate: Option<phoenix_app_core::AtlasCandidateId>,
     document_metrics: footer::DocumentMetrics,
     status: SharedString,
 }
@@ -110,6 +115,7 @@ impl PhoenixShell {
         let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Name this item..."));
         let atlas_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search canonical entities..."));
+        let atlas_control_focus = atlas_control::focus_handle(cx);
         cx.subscribe(
             &atlas_search,
             |_shell: &mut Self, _, event: &InputEvent, cx| {
@@ -154,7 +160,11 @@ impl PhoenixShell {
             left_sidebar_width: LEFT_SIDEBAR_INITIAL_WIDTH,
             right_sidebar_width: RIGHT_SIDEBAR_INITIAL_WIDTH,
             drawer_layout: drawer::DrawerLayout::new(proof_mode || soak_mode || design_preview),
+            drawer_resize_state: cx.new(|_| ResizableState::default()),
             drawer_tab: drawer::DrawerTab::Graph,
+            atlas_control_section: atlas_control::AtlasControlSection::Overview,
+            atlas_control_focus,
+            atlas_selected_candidate: None,
             document_metrics,
             status,
         };
@@ -187,11 +197,27 @@ impl PhoenixShell {
         cx: &mut Context<Self>,
     ) {
         let kernel = Arc::clone(&self.kernel);
+        let (ui_sender, ui_receiver) = async_channel::bounded(1);
+        cx.spawn(async move |shell, async_cx| {
+            while ui_receiver.recv().await.is_ok() {
+                if shell
+                    .update(async_cx, |_this, cx| {
+                        cx.notify();
+                        cx.refresh_windows();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
         let background = cx.background_executor().clone();
         cx.spawn_in(window, async move |shell, async_cx| {
             let result = background
                 .spawn(async move {
-                    GraphWindow::start(parent, kernel).map_err(|error| format!("{error:#}"))
+                    GraphWindow::start(parent, kernel, ui_sender)
+                        .map_err(|error| format!("{error:#}"))
                 })
                 .await;
             if let Err(error) = shell.update(async_cx, |this, cx| {

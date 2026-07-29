@@ -1,7 +1,7 @@
 use super::*;
 use phoenix_analysis_contract::{
-    AnalysisEntity, AnalysisEntityKind, AnalysisModelIdentity, AnalysisStageReceipt,
-    DocumentAnalysisBinding, PhoenixNerArtifactV1,
+    AnalysisEntity, AnalysisEntityKind, AnalysisMention, AnalysisModelIdentity,
+    AnalysisStageReceipt, DocumentAnalysisBinding, PhoenixNerArtifactV1,
 };
 use phoenix_scene_archive::{
     ArchiveManifold, EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PageKey, PageKind,
@@ -229,9 +229,10 @@ fn commands_are_sequenced_and_workspace_reopens() -> Result<(), Box<dyn std::err
         id,
         name: "Resident note".into(),
     })?;
+    kernel.execute(KernelCommand::SelectEntry(id))?;
     assert!(renamed.sequence > created.sequence);
     let metrics = kernel.metrics();
-    assert_eq!(metrics.commands_submitted, 2);
+    assert_eq!(metrics.commands_submitted, 3);
     assert_eq!(metrics.commands_pending, 0);
     assert_eq!(metrics.command_queue_high_water, 1);
     kernel.shutdown()?;
@@ -246,6 +247,7 @@ fn commands_are_sequenced_and_workspace_reopens() -> Result<(), Box<dyn std::err
             .map(|entry| entry.name.as_str()),
         Some("Resident note")
     );
+    assert_eq!(reopened.snapshot()?.active_entry, id);
     reopened.shutdown()?;
     let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);
@@ -327,6 +329,14 @@ fn manual_entity_tag_is_verified_reused_and_restart_durable(
             .map(|anchors| anchors.anchors().len()),
         Some(1)
     );
+    assert_eq!(
+        snapshot
+            .document_anchors
+            .as_ref()
+            .and_then(|anchors| anchors.anchors().first())
+            .map(|anchor| anchor.entity_slot),
+        Some(0)
+    );
     let lease = snapshot
         .active_document_lease
         .ok_or("tagged document lease missing")?;
@@ -362,6 +372,111 @@ fn manual_entity_tag_is_verified_reused_and_restart_durable(
         Some(1)
     );
     reopened.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn verified_analysis_highlights_exact_mentions_with_manual_precedence(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start(path.clone(), None)?;
+    let initial = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("initial document lease missing")?;
+    let tagged = kernel.execute(KernelCommand::TagSelection(Box::new(EntityTagCommand {
+        lease: initial.token(),
+        content: Arc::from("Ryan entered New Rome."),
+        tag: EntityTag {
+            kind: EntityKind::Npc,
+            custom_kind: None,
+            start: 0,
+            end: 4,
+            surface: "Ryan".into(),
+        },
+    })))?;
+    let manual_id = match tagged.outcome {
+        KernelOutcome::EntityTagged(result) => result.entity_id,
+        other => return Err(format!("unexpected tag outcome: {other:?}").into()),
+    };
+    let records = vec![
+        NerEntityRecord {
+            stable_id: 20,
+            label: "Ryan".into(),
+            kind: EntityKind::Character,
+            custom_kind: None,
+            mention_count: 1,
+        },
+        NerEntityRecord {
+            stable_id: 30,
+            label: "New Rome".into(),
+            kind: EntityKind::Location,
+            custom_kind: None,
+            mention_count: 1,
+        },
+        NerEntityRecord {
+            stable_id: 40,
+            label: "entered".into(),
+            kind: EntityKind::Custom,
+            custom_kind: Some("ACTION".into()),
+            mention_count: 1,
+        },
+    ];
+    let mut batch = test_ner_batch(&kernel, 1, records)?;
+    let artifact = Arc::make_mut(&mut batch.artifact);
+    artifact.mentions = vec![
+        AnalysisMention {
+            mention_id: 1,
+            entity_id: 20,
+            start: 0,
+            end: 4,
+            sentence_index: 0,
+            confidence: 0.98,
+            accepted: true,
+        },
+        AnalysisMention {
+            mention_id: 2,
+            entity_id: 30,
+            start: 13,
+            end: 21,
+            sentence_index: 0,
+            confidence: 0.97,
+            accepted: true,
+        },
+        AnalysisMention {
+            mention_id: 3,
+            entity_id: 40,
+            start: 5,
+            end: 12,
+            sentence_index: 0,
+            confidence: 0.87,
+            accepted: false,
+        },
+    ];
+    artifact.receipt.mention_count = 3;
+    let artifact = Arc::clone(&batch.artifact);
+    kernel.execute(KernelCommand::PublishNerEntities(batch))?;
+    let snapshot = kernel.snapshot()?;
+    let lease = snapshot
+        .active_document_lease
+        .as_deref()
+        .ok_or("active document lease missing")?;
+    let anchors =
+        super::analysis::verified_analysis_anchors(&artifact, lease, &snapshot.entity_registry)?;
+    assert_eq!(anchors.source(), AnchorSource::CanonicalRegistry);
+    assert_eq!(anchors.anchors().len(), 3);
+    assert_eq!(anchors.anchors()[0].node_id, manual_id);
+    assert_eq!(anchors.anchors()[0].family, EntityFamily::Character);
+    assert_eq!(anchors.anchors()[1].node_id, 40);
+    assert_eq!(anchors.anchors()[1].family, EntityFamily::Other);
+    assert_eq!(anchors.anchors()[2].node_id, 30);
+    assert_eq!(anchors.anchors()[2].family, EntityFamily::Location);
+    assert!(anchors.anchors()[0].entity_slot < 4);
+    assert!(anchors.anchors()[1].entity_slot < 4);
+    assert!(anchors.anchors()[2].entity_slot < 4);
+    kernel.shutdown()?;
     let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);
     Ok(())
@@ -552,6 +667,31 @@ fn production_publication_is_atomic_monotonic_and_restart_durable(
     )?))?;
     assert_eq!(kernel.snapshot()?.scene_publication, Some(full_receipt));
     assert_eq!(kernel.events_after(0)?.len(), 3);
+
+    let empty_note = match kernel
+        .execute(KernelCommand::CreateEntry {
+            kind: EntryKind::Note,
+            name: "Empty note".into(),
+        })?
+        .outcome
+    {
+        KernelOutcome::EntryCreated(id) => id,
+        other => return Err(format!("unexpected create outcome: {other:?}").into()),
+    };
+    kernel.execute(KernelCommand::SelectEntry(empty_note))?;
+    let empty_note_snapshot = kernel.snapshot()?;
+    assert_eq!(
+        empty_note_snapshot.scene_publication,
+        Some(full_receipt),
+        "changing the active note must not discard the resident graph generation"
+    );
+    assert_eq!(
+        empty_note_snapshot
+            .resident_scene
+            .as_ref()
+            .map(|scene| scene.generation().0),
+        Some(full_receipt.generation_id)
+    );
     kernel.shutdown()?;
     drop(kernel);
 
@@ -671,8 +811,8 @@ fn atlas_control_guides_one_valid_action_through_publication(
     let path = path();
     let kernel = PhoenixKernel::start_production(path.clone())?;
     let waiting = kernel.atlas_control_snapshot()?;
-    assert_eq!(waiting.build_state, AtlasBuildState::WaitingForEntities);
-    assert_eq!(waiting.primary_action, AtlasPrimaryAction::TagEntities);
+    assert_eq!(waiting.build_state, AtlasBuildState::Ready);
+    assert_eq!(waiting.primary_action, AtlasPrimaryAction::RunPipeline);
 
     let lease = kernel
         .snapshot()?
@@ -691,25 +831,200 @@ fn atlas_control_guides_one_valid_action_through_publication(
     })))?;
     let ready = kernel.atlas_control_snapshot()?;
     assert_eq!(ready.build_state, AtlasBuildState::Ready);
-    assert_eq!(ready.primary_action, AtlasPrimaryAction::BuildGraph);
-    assert_eq!(ready.verified_mentions, 1);
+    assert_eq!(ready.primary_action, AtlasPrimaryAction::RunPipeline);
+    assert_eq!(ready.resident_anchor_count, 1);
 
     kernel.rebuild_active_scene()?;
     let published = kernel.atlas_control_snapshot()?;
     assert_eq!(published.build_state, AtlasBuildState::Published);
-    assert_eq!(published.primary_action, AtlasPrimaryAction::OpenGraph);
+    assert_eq!(published.primary_action, AtlasPrimaryAction::RunPipeline);
     assert_eq!(
         published.generation_id,
         published
-            .last_build
-            .map(|receipt| receipt.publication.generation_id)
+            .last_run
+            .as_ref()
+            .map(|receipt| receipt.authority.published_generation)
     );
     assert!(published.node_count > 0);
-    assert!(published.accepted_rows > 0);
-    assert_eq!(published.proposed_rows, 0);
+    assert!(published.graph_reviews.accepted_edges > 0);
+    assert_eq!(published.graph_reviews.proposed_edges, 0);
+    assert_eq!(
+        published.decisions.accepted.state,
+        AtlasCapabilityState::Unsupported
+    );
+    let run = published.last_run.as_ref().ok_or("durable run missing")?;
+    run.validate()?;
+    assert_eq!(run.resources.documents, 1);
+    assert_eq!(
+        run.resources.canonical_entities,
+        published.canonical_entities
+    );
+    assert_eq!(run.resources.graph_nodes, published.node_count);
+    assert_eq!(run.resources.graph_edges, published.edge_count);
+    assert_eq!(
+        run.resources.analysis_mentions.state,
+        AtlasCapabilityState::Unsupported
+    );
+    assert_eq!(
+        run.resources.analysis_mentions.count, None,
+        "an unsupported analysis producer must not be rendered as zero output"
+    );
+    assert_eq!(
+        run.graph_reviews.accepted_edges,
+        published.graph_reviews.accepted_edges
+    );
+    assert_eq!(run.graph_reviews.proposed_edges, 0);
+    assert_eq!(run.authority.previous_generation, Some(2));
+    assert!(published.last_run_hash.is_some());
+    assert!(!published.last_run_restored);
 
     kernel.shutdown()?;
     let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn native_release_manifest_freezes_exact_authority_and_fails_closed_on_corruption(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start_production(path.clone())?;
+    let lease = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("initial lease missing")?;
+    let content: Arc<str> = Arc::from("Ryan entered New Rome.");
+    kernel.execute(KernelCommand::TagSelection(Box::new(EntityTagCommand {
+        lease: lease.token(),
+        content: Arc::clone(&content),
+        tag: EntityTag {
+            kind: EntityKind::Character,
+            custom_kind: None,
+            start: 0,
+            end: 4,
+            surface: "Ryan".into(),
+        },
+    })))?;
+    let lease = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("tagged lease missing")?;
+    kernel.execute(KernelCommand::TagSelection(Box::new(EntityTagCommand {
+        lease: lease.token(),
+        content,
+        tag: EntityTag {
+            kind: EntityKind::Location,
+            custom_kind: None,
+            start: 13,
+            end: 21,
+            surface: "New Rome".into(),
+        },
+    })))?;
+    kernel.rebuild_active_scene()?;
+
+    assert!(matches!(
+        kernel.release_manifest(),
+        Err(ReleaseLockError::Missing("packed graph generation"))
+    ));
+    let snapshot = kernel.snapshot()?;
+    let lease = snapshot
+        .active_document_lease
+        .as_deref()
+        .ok_or("release lease missing")?;
+    let control = kernel.atlas_control_snapshot()?;
+    let run = control.last_run.ok_or("release run missing")?;
+    let scene = snapshot.resident_scene.as_deref().ok_or("scene missing")?;
+    let digest = ReleaseCohortDigestsV1 {
+        document_structure: [1; 32],
+        entity_mentions_evidence: [2; 32],
+        accepted_topology: [3; 32],
+        candidate_semantics: [4; 32],
+        durable_decisions: [5; 32],
+        producer_capabilities: [6; 32],
+        shared_scene_pages: [7; 32],
+        manifold_positions: [[8; 32]; 5],
+        manifold_guides: [[9; 32]; 5],
+        manifold_paths: [[10; 32]; 5],
+        product_families_reviews_scopes: [11; 32],
+        product_labels: [12; 32],
+        entity_node_mappings: [13; 32],
+        inspector_provenance: [14; 32],
+    };
+    let manifest = PhoenixReleaseManifestV1 {
+        contract: RELEASE_MANIFEST_CONTRACT.to_owned(),
+        authority: ReleaseCohortAuthorityV1 {
+            document_id: lease.entry_id.0,
+            document_revision: lease.revision.0,
+            document_hash: lease.content_hash.0,
+            document_bytes: lease.content.len() as u64,
+            registry_revision: run.authority.registry_revision,
+            analysis_generation: run.authority.analysis_generation.unwrap_or_default(),
+            graph_generation_hash: [15; 32],
+            scene_generation: scene.generation().0,
+            archive_cohort_hash: run.authority.archive_cohort_hash,
+            product_index_hash: run.authority.product_index_hash,
+            runtime_binary_hash: [16; 32],
+            atlas_run_hash: [17; 32],
+            decision_ledger_hash: [18; 32],
+        },
+        counts: ReleaseCohortCountsV1 {
+            chunks: 1,
+            sentences: 1,
+            spans: 1,
+            canonical_entities: run.resources.canonical_entities,
+            mentions: 2,
+            evidence: 2,
+            accepted_edges: run.graph_reviews.accepted_edges,
+            candidate_edges: run.graph_reviews.proposed_edges,
+            adjudications: 0,
+            durable_decisions: 0,
+            scene_nodes: run.resources.graph_nodes,
+            scene_edges: run.resources.graph_edges,
+            entity_node_mappings: run.resources.canonical_entities,
+            receipt_backed_promotions: 0,
+            unreceipted_promotions: 0,
+        },
+        digests: digest,
+        run,
+        gates: ReleaseGateTargetsV1::default(),
+        json_graph_freight: 0,
+        fallback_count: 0,
+        resident_generation_count: 1,
+    };
+    manifest.validate()?;
+    assert_eq!(manifest.contract, RELEASE_MANIFEST_CONTRACT);
+    assert_eq!(manifest.counts.unreceipted_promotions, 0);
+    assert_eq!(manifest.json_graph_freight, 0);
+    assert_eq!(manifest.fallback_count, 0);
+    assert!(manifest.exact_semantic_mismatches(&manifest).is_empty());
+    let mut drifted = manifest.clone();
+    drifted.digests.manifold_positions[2] = [0xAA; 32];
+    assert_eq!(
+        manifest.exact_semantic_mismatches(&drifted),
+        vec!["semantic products"]
+    );
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let manifest_path = parent.join("exact-cohort.phxrl");
+    manifest.write_new(&manifest_path)?;
+    assert_eq!(PhoenixReleaseManifestV1::open(&manifest_path)?, manifest);
+
+    let mut corrupted = std::fs::read(&manifest_path)?;
+    let last = corrupted.last_mut().ok_or("manifest is empty")?;
+    *last ^= 0x80;
+    let corrupt_path = parent.join("corrupt-cohort.phxrl");
+    std::fs::write(&corrupt_path, corrupted)?;
+    assert!(matches!(
+        PhoenixReleaseManifestV1::open(&corrupt_path),
+        Err(ReleaseLockError::HashMismatch)
+    ));
+    let oversized_path = parent.join("oversized-cohort.phxrl");
+    std::fs::File::create(&oversized_path)?.set_len(2 * 1024 * 1024 + 65)?;
+    assert!(matches!(
+        PhoenixReleaseManifestV1::open(&oversized_path),
+        Err(ReleaseLockError::Oversized(_))
+    ));
+
+    kernel.shutdown()?;
     let _ = std::fs::remove_dir_all(parent);
     Ok(())
 }
@@ -752,11 +1067,61 @@ fn explicit_publication_root_remains_a_writable_production_authority(
             .map(|receipt| receipt.generation_id),
         Some(generation)
     );
+    let restored = reopened.atlas_control_snapshot()?;
+    assert_eq!(restored.build_state, AtlasBuildState::Published);
+    assert!(restored.last_run_restored);
     assert_eq!(
-        reopened.atlas_control_snapshot()?.build_state,
-        AtlasBuildState::VerificationRequired
+        restored
+            .last_run
+            .as_ref()
+            .map(|receipt| receipt.authority.published_generation),
+        Some(generation)
     );
     reopened.shutdown()?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn stale_durable_run_never_claims_a_changed_document() -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start_production(path.clone())?;
+    let lease = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("initial lease missing")?;
+    kernel.execute(KernelCommand::TagSelection(Box::new(EntityTagCommand {
+        lease: lease.token(),
+        content: Arc::from("Ryan entered New Rome."),
+        tag: EntityTag {
+            kind: EntityKind::Character,
+            custom_kind: None,
+            start: 0,
+            end: 4,
+            surface: "Ryan".into(),
+        },
+    })))?;
+    kernel.rebuild_active_scene()?;
+    let built_lease = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("built lease missing")?;
+    kernel.execute(KernelCommand::SaveDocument {
+        lease: built_lease.token(),
+        content: Arc::from("Ryan entered New Rome, then left."),
+    })?;
+    kernel.shutdown()?;
+    drop(kernel);
+
+    let reopened = PhoenixKernel::start_production(path.clone())?;
+    let control = reopened.atlas_control_snapshot()?;
+    assert_ne!(control.build_state, AtlasBuildState::Published);
+    assert!(
+        control.last_run.is_none(),
+        "a source-mismatched durable receipt must not enter restored UI state"
+    );
+    reopened.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);
     Ok(())
 }
@@ -772,14 +1137,12 @@ fn native_rebuild_without_verified_mentions_preserves_current_generation(
         .ok_or("initial publication missing")?;
     assert!(matches!(
         kernel.rebuild_active_scene(),
-        Err(KernelError::SceneCompiler(
-            NativeSceneCompilerError::NoVerifiedMentions
-        ))
+        Err(KernelError::DocumentAnchorsNotActive)
     ));
     assert_eq!(kernel.snapshot()?.scene_publication, Some(initial));
     let control = kernel.atlas_control_snapshot()?;
     assert_eq!(control.build_state, AtlasBuildState::Failed);
-    assert_eq!(control.primary_action, AtlasPrimaryAction::TagEntities);
+    assert_eq!(control.primary_action, AtlasPrimaryAction::RunPipeline);
     assert!(control.last_error.is_some());
     kernel.shutdown()?;
     drop(kernel);
@@ -855,6 +1218,20 @@ fn shutdown_is_idempotent_and_worker_exits() -> Result<(), Box<dyn std::error::E
         kernel.execute(KernelCommand::SetManifold(Manifold::Transit)),
         Err(KernelError::ShuttingDown)
     ));
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn semantic_producer_cancellation_is_explicit_and_bounded() -> Result<(), Box<dyn std::error::Error>>
+{
+    let path = path();
+    let kernel = PhoenixKernel::start(path.clone(), None)?;
+    assert!(!kernel.shared.producer_cancel.load(Ordering::Acquire));
+    kernel.cancel_active_producers();
+    assert!(kernel.shared.producer_cancel.load(Ordering::Acquire));
+    kernel.shutdown()?;
     let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);
     Ok(())

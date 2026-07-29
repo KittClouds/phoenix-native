@@ -25,6 +25,62 @@ pub(super) struct NormalizedCrossBlockSelection {
 }
 
 impl Editor {
+    /// Focus an exact UTF-8 source range supplied by an authoritative host.
+    ///
+    /// The editor resolves source bytes through its existing rendered-block
+    /// mappings. It does not search visible text, so repeated labels cannot
+    /// redirect evidence focus to the wrong occurrence.
+    pub fn focus_source_range(
+        &mut self,
+        source_range: Range<usize>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.view_mode != ViewMode::Rendered || source_range.is_empty() {
+            return false;
+        }
+        let source = self.host_document_text(cx);
+        if source_range.end > source.len()
+            || !source.is_char_boundary(source_range.start)
+            || !source.is_char_boundary(source_range.end)
+        {
+            return false;
+        }
+        let mappings = self.build_source_target_mappings(cx);
+        let Some(start) = self.endpoint_for_source_offset(source_range.start, &mappings, cx) else {
+            return false;
+        };
+        let Some(end) = self.endpoint_for_source_offset(source_range.end, &mappings, cx) else {
+            return false;
+        };
+        if start == end {
+            return false;
+        }
+
+        self.end_block_pointer_selection_sessions(cx);
+        self.dismiss_contextual_overlays(cx);
+        self.clear_table_axis_preview(cx);
+        self.clear_table_axis_selection(cx);
+        for visible in self.document.visible_blocks().to_vec() {
+            visible.entity.update(cx, |block, cx| {
+                let cursor = block.cursor_offset();
+                let collapsed = cursor..cursor;
+                if block.selected_range != collapsed {
+                    block.selected_range = collapsed;
+                    cx.notify();
+                }
+            });
+        }
+        self.cross_block_drag = None;
+        self.cross_block_selection = Some(CrossBlockSelection {
+            anchor: start,
+            focus: end,
+        });
+        self.sync_cross_block_selection_visuals(cx);
+        self.focus_block(start.entity_id);
+        self.on_selection_changed(cx);
+        true
+    }
+
     fn clear_cross_block_selection_visuals(&mut self, cx: &mut Context<Self>) -> bool {
         let mut changed = false;
         for visible in self.document.visible_blocks().to_vec() {
@@ -951,6 +1007,35 @@ mod tests {
             },
         });
         editor.sync_cross_block_selection_visuals(cx);
+    }
+
+    #[gpui::test]
+    async fn host_focuses_exact_same_block_source_range(cx: &mut TestAppContext) {
+        init_editor_test_app(cx);
+        let editor =
+            cx.new(|cx| Editor::embedded_from_markdown(cx, "Alpha beta.\n\nGamma.".into()));
+
+        editor.update(cx, |editor, cx| {
+            assert!(editor.focus_source_range(6..10, cx));
+            assert_eq!(
+                editor
+                    .cross_block_source_selection_snapshot(cx)
+                    .map(|snapshot| snapshot.range),
+                Some(6..10)
+            );
+        });
+    }
+
+    #[gpui::test]
+    async fn host_rejects_non_utf8_and_oversized_source_ranges(cx: &mut TestAppContext) {
+        init_editor_test_app(cx);
+        let editor = cx.new(|cx| Editor::embedded_from_markdown(cx, "évidence".into()));
+
+        editor.update(cx, |editor, cx| {
+            assert!(!editor.focus_source_range(1..3, cx));
+            assert!(!editor.focus_source_range(0..99, cx));
+            assert!(editor.cross_block_selection.is_none());
+        });
     }
 
     fn assign_visible_block_bounds(editor: &mut Editor, cx: &mut Context<Editor>) {

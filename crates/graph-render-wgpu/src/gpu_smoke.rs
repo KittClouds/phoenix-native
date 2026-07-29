@@ -9,7 +9,7 @@ use graph_model::{
     EdgeId, EdgeVisual, GraphDiff, GraphRevision, GraphSnapshot, NodeId, NodeVisual,
 };
 use phoenix_scene_archive::LabelPriorityRecord;
-use phoenix_scene_contract::{GraphGeneration, GraphViewState};
+use phoenix_scene_contract::{GraphGeneration, GraphReviewOverride, GraphViewState};
 use phoenix_scene_product_index::{
     EdgeProductRecord, NodeProductRecord, PhoenixSceneProductIndexBuilderV1,
     PhoenixSceneProductIndexV1, ProductIndexBinding, ReviewState,
@@ -94,6 +94,29 @@ fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
         after_product.edge_buffer_generation
     );
     assert_eq!(scene.bound_product_hash(), Some(index.header().index_hash));
+    let review_allocations = scene.allocation_stats();
+    let overlay = scene
+        .apply_review_overrides(
+            &index,
+            &[GraphReviewOverride {
+                edge_id: 1,
+                review_mask: ReviewState::Proposed as u32,
+            }],
+            &queue,
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(overlay.edge_records, 1);
+    assert_eq!(overlay.buffer_ranges_updated, 1);
+    let cleared = scene
+        .apply_review_overrides(&index, &[], &queue)
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(cleared.edge_records, 0);
+    assert_eq!(cleared.buffer_ranges_updated, 1);
+    assert_eq!(
+        review_allocations,
+        scene.allocation_stats(),
+        "ledger masks must update the resident product buffer in place"
+    );
     encode_nonempty_label_overlay(&device, &queue, &scene, Arc::clone(&index));
     let mut diff = GraphDiff::new(GraphRevision(2));
     let mut updated = node(2);

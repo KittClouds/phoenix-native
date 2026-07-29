@@ -4,7 +4,6 @@ use phoenix_scene_archive::{
     ArchiveManifold, EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PositionRecord,
     TopologyRecord,
 };
-use phoenix_scene_compiler::project_node_positions;
 use phoenix_scene_contract::{
     EntityKind, FamilyMask, RelationFamily, ReviewMask, ScopeMask, CAPS_WORLD_SCALE,
     CHUNK_NODE_KIND, DOCUMENT_NODE_KIND, EPISODE_NODE_KIND,
@@ -20,9 +19,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 const MATERIALIZED_CONTRACT: &str = "PhoenixAngularMaterializedSceneV1";
+const MATERIALIZED_BUNDLE_CONTRACT: &str = "phoenix.native.materialized-scene-bundle/v2";
 const NO_REFERENCE: u32 = u32::MAX;
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MaterializedScene {
     format: String,
@@ -34,7 +34,7 @@ struct MaterializedScene {
     edges: Vec<LegacyEdge>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct Cohort {
     note_id: String,
@@ -43,7 +43,7 @@ struct Cohort {
     authority_hash: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LegacyNode {
     id: String,
@@ -59,7 +59,7 @@ struct LegacyNode {
     review: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LegacyEdge {
     id: String,
@@ -89,22 +89,84 @@ pub(crate) struct PublishReceipt {
     publication_root: String,
 }
 
-pub(crate) fn publish(scene_path: &Path, root: &Path) -> Result<PublishReceipt> {
-    let bytes =
-        fs::read(scene_path).with_context(|| format!("read scene {}", scene_path.display()))?;
-    let scene: MaterializedScene = serde_json::from_slice(&bytes)?;
-    validate_scene(&scene)?;
+struct MaterializedSceneBundle {
+    scenes: [MaterializedScene; 5],
+}
+
+impl MaterializedSceneBundle {
+    fn load(root: &Path) -> Result<Self> {
+        if !root.is_dir() {
+            bail!(
+                "PHOENIX_MATERIALIZED_BUNDLE_REQUIRED: {} is not a five-manifold directory",
+                root.display()
+            );
+        }
+        let mut scenes = Vec::with_capacity(ArchiveManifold::ALL.len());
+        for manifold in ArchiveManifold::ALL {
+            let path = root.join(format!("{}.json", manifold_key(manifold)));
+            let bytes = fs::read(&path).with_context(|| {
+                format!(
+                    "PHOENIX_MATERIALIZED_PAGE_MISSING: read {} page {}",
+                    manifold_key(manifold),
+                    path.display()
+                )
+            })?;
+            let scene = serde_json::from_slice(&bytes).with_context(|| {
+                format!(
+                    "PHOENIX_MATERIALIZED_PAGE_INVALID: decode {}",
+                    path.display()
+                )
+            })?;
+            scenes.push(scene);
+        }
+        let scenes: [MaterializedScene; 5] = scenes
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("materialized manifold inventory is not exactly five"))?;
+        let bundle = Self { scenes };
+        bundle.validate()?;
+        Ok(bundle)
+    }
+
+    fn validate(&self) -> Result<()> {
+        for (manifold, scene) in ArchiveManifold::ALL.into_iter().zip(&self.scenes) {
+            validate_scene(manifold, scene)?;
+        }
+        let canonical = self.canonical();
+        for (manifold, scene) in ArchiveManifold::ALL.into_iter().zip(&self.scenes) {
+            if scene.cohort != canonical.cohort {
+                bail!(
+                    "PHOENIX_MATERIALIZED_COHORT_MISMATCH: {} does not match the shared cohort",
+                    manifold_key(manifold)
+                );
+            }
+            validate_shared_graph(canonical, scene, manifold)?;
+        }
+        Ok(())
+    }
+
+    fn canonical(&self) -> &MaterializedScene {
+        &self.scenes[ArchiveManifold::Caps as usize]
+    }
+
+    fn scene(&self, manifold: ArchiveManifold) -> &MaterializedScene {
+        &self.scenes[manifold as usize]
+    }
+}
+
+pub(crate) fn publish(bundle_root: &Path, root: &Path) -> Result<PublishReceipt> {
+    let bundle = MaterializedSceneBundle::load(bundle_root)?;
+    let scene = bundle.canonical();
     let store = ScenePublicationStore::at_root(root);
     let generation_id = store.next_generation()?;
-    let publication = compile(&scene, generation_id)?;
+    let publication = compile(&bundle, generation_id)?;
     let entity_mapping_count = publication.entity_mappings.len();
     let published = store.publish(publication)?;
     Ok(PublishReceipt {
-        contract: "phoenix.native.legacy-materialized-bridge/v1",
-        note_id: scene.cohort.note_id,
-        note_sha256: scene.cohort.note_sha256,
-        snapshot_id: scene.cohort.snapshot_id,
-        authority_hash: scene.cohort.authority_hash,
+        contract: MATERIALIZED_BUNDLE_CONTRACT,
+        note_id: scene.cohort.note_id.clone(),
+        note_sha256: scene.cohort.note_sha256.clone(),
+        snapshot_id: scene.cohort.snapshot_id.clone(),
+        authority_hash: scene.cohort.authority_hash.clone(),
         generation_id,
         node_count: scene.nodes.len(),
         edge_count: scene.edges.len(),
@@ -115,13 +177,26 @@ pub(crate) fn publish(scene_path: &Path, root: &Path) -> Result<PublishReceipt> 
     })
 }
 
-fn validate_scene(scene: &MaterializedScene) -> Result<()> {
+fn validate_scene(manifold: ArchiveManifold, scene: &MaterializedScene) -> Result<()> {
     if scene.format != MATERIALIZED_CONTRACT {
-        bail!("unsupported materialized scene format {}", scene.format);
+        bail!(
+            "PHOENIX_MATERIALIZED_FORMAT_UNSUPPORTED: {} uses {}",
+            manifold_key(manifold),
+            scene.format
+        );
     }
-    if scene.key != "caps" || scene.source_mode != "embeddings" || scene.manifold_mode != "lorentz"
+    if scene.key != manifold_key(manifold)
+        || scene.source_mode != "embeddings"
+        || scene.manifold_mode != manifold_mode(manifold)
     {
-        bail!("materialized bridge requires the verified Caps embeddings page");
+        bail!(
+            "PHOENIX_MATERIALIZED_PAGE_IDENTITY_MISMATCH: expected {}/{}/embeddings, got {}/{}/{}",
+            manifold_key(manifold),
+            manifold_mode(manifold),
+            scene.key,
+            scene.manifold_mode,
+            scene.source_mode
+        );
     }
     if scene.cohort.note_id.is_empty()
         || scene.cohort.note_sha256.len() != 64
@@ -131,12 +206,28 @@ fn validate_scene(scene: &MaterializedScene) -> Result<()> {
         bail!("materialized scene cohort identity is incomplete");
     }
     if scene.nodes.is_empty() || scene.edges.is_empty() {
-        bail!("materialized scene has no graph geometry");
+        bail!(
+            "PHOENIX_MATERIALIZED_PAGE_EMPTY: {} has {} nodes and {} edges",
+            manifold_key(manifold),
+            scene.nodes.len(),
+            scene.edges.len()
+        );
+    }
+    if scene
+        .nodes
+        .iter()
+        .any(|node| node.position.iter().any(|value| !value.is_finite()))
+    {
+        bail!(
+            "PHOENIX_MATERIALIZED_POSITION_INVALID: {} contains a non-finite position",
+            manifold_key(manifold)
+        );
     }
     Ok(())
 }
 
-fn compile(scene: &MaterializedScene, generation_id: u64) -> Result<NativeScenePublication> {
+fn compile(bundle: &MaterializedSceneBundle, generation_id: u64) -> Result<NativeScenePublication> {
+    let scene = bundle.canonical();
     let mut node_ids = HashMap::with_capacity(scene.nodes.len());
     let mut node_slots = HashMap::with_capacity(scene.nodes.len());
     let mut stable_nodes = HashMap::<u64, &str>::with_capacity(scene.nodes.len());
@@ -200,19 +291,12 @@ fn compile(scene: &MaterializedScene, generation_id: u64) -> Result<NativeSceneP
                 node_id: id,
             });
         }
-        let projected = project_node_positions(
-            id,
-            ordinal,
-            scene.nodes.len(),
-            family.trailing_zeros().min(u32::from(u16::MAX)) as u16,
-            degree,
-        );
-        for (page, position) in positions.iter_mut().zip(projected) {
-            page.push(position);
+        for (manifold, page) in ArchiveManifold::ALL.into_iter().zip(&mut positions) {
+            let position = bundle.scene(manifold).nodes[ordinal].position;
+            page.push(PositionRecord {
+                position: position.map(|value| value * manifold_world_scale(manifold)),
+            });
         }
-        positions[ArchiveManifold::Caps as usize][ordinal] = PositionRecord {
-            position: node.position.map(|value| value * CAPS_WORLD_SCALE),
-        };
     }
 
     let mut edge_ids = HashSet::with_capacity(scene.edges.len());
@@ -269,6 +353,98 @@ fn compile(scene: &MaterializedScene, generation_id: u64) -> Result<NativeSceneP
         entity_mappings: mappings,
         references: Vec::new(),
     })
+}
+
+fn validate_shared_graph(
+    canonical: &MaterializedScene,
+    scene: &MaterializedScene,
+    manifold: ArchiveManifold,
+) -> Result<()> {
+    if scene.nodes.len() != canonical.nodes.len() || scene.edges.len() != canonical.edges.len() {
+        bail!(
+            "PHOENIX_MATERIALIZED_GRAPH_INVENTORY_MISMATCH: {} has {}/{} nodes/edges; expected {}/{}",
+            manifold_key(manifold),
+            scene.nodes.len(),
+            scene.edges.len(),
+            canonical.nodes.len(),
+            canonical.edges.len()
+        );
+    }
+    for (ordinal, (expected, actual)) in canonical.nodes.iter().zip(&scene.nodes).enumerate() {
+        if !same_node_product(expected, actual) {
+            bail!(
+                "PHOENIX_MATERIALIZED_NODE_MISMATCH: {} node slot {} is {:?}; expected {:?}",
+                manifold_key(manifold),
+                ordinal,
+                actual.id,
+                expected.id
+            );
+        }
+    }
+    for (ordinal, (expected, actual)) in canonical.edges.iter().zip(&scene.edges).enumerate() {
+        if !same_edge_product(expected, actual) {
+            bail!(
+                "PHOENIX_MATERIALIZED_EDGE_MISMATCH: {} edge slot {} is {:?}; expected {:?}",
+                manifold_key(manifold),
+                ordinal,
+                actual.id,
+                expected.id
+            );
+        }
+    }
+    Ok(())
+}
+
+fn same_node_product(left: &LegacyNode, right: &LegacyNode) -> bool {
+    left.id == right.id
+        && left.label == right.label
+        && left.kind == right.kind
+        && left.total_mentions == right.total_mentions
+        && left.color_hsl == right.color_hsl
+        && left.source_id == right.source_id
+        && left.family == right.family
+        && left.style_key == right.style_key
+        && left.review == right.review
+}
+
+fn same_edge_product(left: &LegacyEdge, right: &LegacyEdge) -> bool {
+    left.id == right.id
+        && left.source_id == right.source_id
+        && left.target_id == right.target_id
+        && left.edge_type == right.edge_type
+        && left.confidence.to_bits() == right.confidence.to_bits()
+        && left.family == right.family
+        && left.review == right.review
+}
+
+const fn manifold_key(manifold: ArchiveManifold) -> &'static str {
+    match manifold {
+        ArchiveManifold::Hybrid => "hybrid",
+        ArchiveManifold::Hopf => "hopf",
+        ArchiveManifold::Caps => "caps",
+        ArchiveManifold::Transit => "transit",
+        ArchiveManifold::Siegel => "siegel",
+    }
+}
+
+const fn manifold_mode(manifold: ArchiveManifold) -> &'static str {
+    match manifold {
+        ArchiveManifold::Hybrid => "hybrid",
+        ArchiveManifold::Hopf => "hopf",
+        ArchiveManifold::Caps => "lorentz",
+        ArchiveManifold::Transit => "product",
+        ArchiveManifold::Siegel => "siegel",
+    }
+}
+
+const fn manifold_world_scale(manifold: ArchiveManifold) -> f32 {
+    match manifold {
+        ArchiveManifold::Caps => CAPS_WORLD_SCALE,
+        ArchiveManifold::Hybrid
+        | ArchiveManifold::Hopf
+        | ArchiveManifold::Transit
+        | ArchiveManifold::Siegel => 1.0,
+    }
 }
 
 fn stable_id(domain: &[u8], value: &str) -> u64 {
@@ -418,10 +594,64 @@ mod tests {
     }
 
     #[test]
-    fn materialized_scene_compiles_one_shared_identity_set() {
-        let scene = MaterializedScene {
+    fn complete_bundle_copies_all_five_position_pages_without_projection() {
+        let bundle = bundle();
+        bundle.validate().expect("complete bundle");
+        let publication = compile(&bundle, 7).expect("compile");
+        assert_eq!(publication.identities.len(), 2);
+        assert_eq!(publication.edges.len(), 1);
+        assert_eq!(publication.entity_mappings.len(), 1);
+        assert!(publication
+            .positions
+            .iter()
+            .all(|page| page.len() == publication.identities.len()));
+        for manifold in ArchiveManifold::ALL {
+            let source = bundle.scene(manifold).nodes[0].position;
+            let expected = source.map(|value| value * manifold_world_scale(manifold));
+            assert_eq!(
+                publication.positions[manifold as usize][0].position,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn incomplete_manifold_bundle_fails_closed() {
+        let mut bundle = bundle();
+        bundle.scenes[ArchiveManifold::Transit as usize]
+            .nodes
+            .clear();
+        let error = bundle
+            .validate()
+            .expect_err("empty Transit page must be rejected");
+        assert!(error
+            .to_string()
+            .contains("PHOENIX_MATERIALIZED_PAGE_EMPTY"));
+    }
+
+    #[test]
+    fn cross_manifold_identity_drift_fails_closed() {
+        let mut bundle = bundle();
+        bundle.scenes[ArchiveManifold::Hopf as usize].nodes[0].id = "wrong-node".into();
+        let error = bundle
+            .validate()
+            .expect_err("node identity drift must be rejected");
+        assert!(error
+            .to_string()
+            .contains("PHOENIX_MATERIALIZED_NODE_MISMATCH"));
+    }
+
+    fn bundle() -> MaterializedSceneBundle {
+        MaterializedSceneBundle {
+            scenes: ArchiveManifold::ALL.map(scene),
+        }
+    }
+
+    fn scene(manifold: ArchiveManifold) -> MaterializedScene {
+        let offset = manifold as u8 as f32 + 1.0;
+        MaterializedScene {
             format: MATERIALIZED_CONTRACT.into(),
-            key: "caps".into(),
+            key: manifold_key(manifold).into(),
             cohort: Cohort {
                 note_id: "note-a".into(),
                 note_sha256: "00".repeat(32),
@@ -429,14 +659,14 @@ mod tests {
                 authority_hash: "authority-a".into(),
             },
             source_mode: "embeddings".into(),
-            manifold_mode: "lorentz".into(),
+            manifold_mode: manifold_mode(manifold).into(),
             nodes: vec![
                 LegacyNode {
                     id: "embed:entity:a".into(),
                     label: "A".into(),
                     kind: "entity".into(),
                     total_mentions: 4,
-                    position: [0.2, 0.3, 0.4],
+                    position: [offset, offset + 0.25, offset + 0.5],
                     color_hsl: "160 90% 45%".into(),
                     source_id: Some("entity-a".into()),
                     family: Some("registry".into()),
@@ -448,7 +678,7 @@ mod tests {
                     label: "Chunk 0".into(),
                     kind: "chunk".into(),
                     total_mentions: 1,
-                    position: [-0.2, 0.1, 0.3],
+                    position: [-offset, offset + 0.75, offset],
                     color_hsl: "330 90% 60%".into(),
                     source_id: Some("chunk-0".into()),
                     family: Some("structure".into()),
@@ -465,22 +695,6 @@ mod tests {
                 family: Some("registry".into()),
                 review: Some("accepted".into()),
             }],
-        };
-        let publication = compile(&scene, 7).expect("compile");
-        assert_eq!(publication.identities.len(), 2);
-        assert_eq!(publication.edges.len(), 1);
-        assert_eq!(publication.entity_mappings.len(), 1);
-        assert!(publication
-            .positions
-            .iter()
-            .all(|page| page.len() == publication.identities.len()));
-        assert_eq!(
-            publication.positions[ArchiveManifold::Caps as usize][0].position,
-            [8.0, 12.0, 16.0]
-        );
-        assert_ne!(
-            publication.positions[ArchiveManifold::Hybrid as usize][0],
-            publication.positions[ArchiveManifold::Caps as usize][0]
-        );
+        }
     }
 }

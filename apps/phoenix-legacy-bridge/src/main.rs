@@ -21,7 +21,7 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&receipt)?);
         }
         "publish-materialized" => {
-            let scene = path(&mut arguments, "materialized scene")?;
+            let scene = path(&mut arguments, "materialized scene bundle directory")?;
             let root = path(&mut arguments, "scene publication root")?;
             require_end(arguments)?;
             let receipt = materialized::publish(&scene, &root)?;

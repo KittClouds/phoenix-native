@@ -111,7 +111,7 @@ pub struct NliAdjudication {
     pub needs_human_review: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AnalysisStageReceipt {
     pub chunk_count: u32,
     pub sentence_count: u32,
@@ -232,7 +232,7 @@ impl PhoenixNliArtifactV1 {
     }
 }
 
-fn validate_binding(binding: &DocumentAnalysisBinding) -> Result<(), &'static str> {
+pub(crate) fn validate_binding(binding: &DocumentAnalysisBinding) -> Result<(), &'static str> {
     if binding.source_document_id.is_empty()
         || binding.source_document_id.len() > MAX_ID_BYTES
         || binding.native_document_id == 0

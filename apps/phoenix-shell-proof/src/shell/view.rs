@@ -1,4 +1,4 @@
-use super::drawer::{DRAWER_MAX_HEIGHT, DRAWER_MIN_HEIGHT, EDITOR_MIN_HEIGHT};
+use super::drawer::DRAWER_MIN_HEIGHT;
 use super::{
     EditMode, PhoenixShell, BORDER, CANVAS, DANGER, LEFT_SIDEBAR_MAX_WIDTH, LEFT_SIDEBAR_MIN_WIDTH,
     RIGHT_SIDEBAR_MAX_WIDTH, RIGHT_SIDEBAR_MIN_WIDTH, SURFACE, TEXT, TEXT_MUTED,
@@ -433,20 +433,24 @@ impl PhoenixShell {
 impl Render for PhoenixShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.schedule_proof(window, cx);
-        let center = if self.drawer_layout.is_open() {
+        let center = if self.drawer_layout.is_full_page() {
+            self.render_drawer_surface(true, window, cx)
+                .into_any_element()
+        } else if self.drawer_layout.is_open() {
             let shell = cx.entity().clone();
             let drawer_height = self.drawer_layout.height();
             v_resizable("editor-drawer-split")
+                .with_state(&self.drawer_resize_state)
                 .child(
                     resizable_panel()
-                        .size_range(px(EDITOR_MIN_HEIGHT)..gpui::Pixels::MAX)
+                        .size_range(px(0.)..gpui::Pixels::MAX)
                         .child(self.render_editor_surface()),
                 )
                 .child(
                     resizable_panel()
                         .size(px(drawer_height))
-                        .size_range(px(DRAWER_MIN_HEIGHT)..px(DRAWER_MAX_HEIGHT))
-                        .child(self.render_drawer_surface(cx)),
+                        .size_range(px(DRAWER_MIN_HEIGHT)..gpui::Pixels::MAX)
+                        .child(self.render_drawer_surface(false, window, cx)),
                 )
                 .on_resize(move |state, _, cx| {
                     let height = state.read(cx).sizes().get(1).map(|height| height.as_f32());

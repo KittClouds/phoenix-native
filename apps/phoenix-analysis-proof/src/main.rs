@@ -1,6 +1,9 @@
 use anyhow::{bail, Context, Result};
 use phoenix_analysis_contract::{open_analysis_artifact, open_nli_artifact};
-use phoenix_app_core::{KernelCommand, LegacyAnalysisAdapterConfig, PhoenixKernel};
+use phoenix_app_core::{
+    AtlasCapabilityCount, AtlasCapabilityState, AtlasRunReceiptV1, KernelCommand,
+    LegacyAnalysisAdapterConfig, PhoenixKernel,
+};
 use phoenix_workspace::ContentHash;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,6 +25,14 @@ fn main() -> Result<()> {
             Path::new(&args[2]),
             &args[3].to_string_lossy(),
         ),
+        Some("run-pipeline") if args.len() == 7 => run_pipeline(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            args[3].to_string_lossy().into_owned(),
+            PathBuf::from(&args[4]),
+            PathBuf::from(&args[5]),
+            PathBuf::from(&args[6]),
+        ),
         Some("compare-semantics") if args.len() == 5 => compare_semantics(
             Path::new(&args[1]),
             Path::new(&args[2]),
@@ -32,10 +43,72 @@ fn main() -> Result<()> {
             "usage: phoenix-analysis-proof seed-and-publish <workspace> <publication-root> \
              <document> <source-document-id> <bridge> <ner-model-root> <nli-model-root>\n\
              or: phoenix-analysis-proof verify <workspace> <publication-root> <blake3>\n\
+             or: phoenix-analysis-proof run-pipeline <workspace> <publication-root> \
+             <source-document-id> <bridge> <ner-model-root> <nli-model-root>\n\
              or: phoenix-analysis-proof compare-semantics \
              <analysis-a> <nli-a> <analysis-b> <nli-b>"
         ),
     }
+}
+
+fn run_pipeline(
+    workspace_path: &Path,
+    publication_root: &Path,
+    source_document_id: String,
+    bridge: PathBuf,
+    ner_model_root: PathBuf,
+    nli_model_root: PathBuf,
+) -> Result<()> {
+    let kernel = PhoenixKernel::start_production_at_root(
+        workspace_path.to_path_buf(),
+        publication_root.to_path_buf(),
+    )?;
+    let config = LegacyAnalysisAdapterConfig {
+        executable: bridge,
+        ner_model_root,
+        nli_model_root,
+        source_document_id: Some(source_document_id),
+        max_nli_candidates: 65_536,
+    };
+    let command = kernel.run_active_document_pipeline_with(&config)?;
+    let snapshot = kernel.snapshot()?;
+    let lease = snapshot
+        .active_document_lease
+        .context("pipeline active document is unavailable")?;
+    let analysis = snapshot
+        .analysis_publication
+        .context("pipeline analysis receipt is unavailable")?;
+    let graph = match command.outcome {
+        phoenix_app_core::KernelOutcome::GraphRebuilt(receipt) => receipt,
+        other => bail!("pipeline returned the wrong outcome: {other:?}"),
+    };
+    print_receipt("pipeline", lease.content_hash, &analysis);
+    println!("scene_generation={}", graph.publication.generation_id);
+    println!("scene_nodes={}", graph.publication.node_count);
+    println!("scene_edges={}", graph.publication.edge_count);
+    println!(
+        "scene_archive={}",
+        hex(&graph.publication.archive_cohort_hash)
+    );
+    println!(
+        "scene_product_index={}",
+        hex(&graph.publication.product_index_hash)
+    );
+    println!("scene_compile_micros={}", graph.compile.compile_micros);
+    let control = kernel.atlas_control_snapshot()?;
+    let atlas_run = control
+        .last_run
+        .context("pipeline Atlas run receipt is unavailable")?;
+    let atlas_run_hash = control
+        .last_run_hash
+        .context("pipeline Atlas run receipt hash is unavailable")?;
+    if control.last_run_restored {
+        bail!("new pipeline receipt was incorrectly marked as restored");
+    }
+    println!("pipeline_atlas_receipt_hash={}", hex(&atlas_run_hash));
+    print_atlas_run("pipeline", &atlas_run);
+    kernel.shutdown()?;
+    Ok(())
 }
 
 fn seed_and_publish(
@@ -119,8 +192,167 @@ fn verify(workspace_path: &Path, publication_root: &Path, expected_hash: &str) -
     }
     print_receipt("reopened", lease.content_hash, &receipt);
     print_binding(&nli.binding);
+    let control = kernel.atlas_control_snapshot()?;
+    let atlas_run = control
+        .last_run
+        .context("fresh process did not restore matching Atlas run authority")?;
+    let atlas_run_hash = control
+        .last_run_hash
+        .context("fresh process did not restore the Atlas run receipt hash")?;
+    if !control.last_run_restored {
+        bail!("fresh-process Atlas run receipt was not marked as restored");
+    }
+    if atlas_run.authority.content_hash != lease.content_hash.0 {
+        bail!("fresh-process Atlas run receipt does not match the active document");
+    }
+    println!("reopened_atlas_receipt_hash={}", hex(&atlas_run_hash));
+    print_atlas_run("reopened", &atlas_run);
     kernel.shutdown()?;
     Ok(())
+}
+
+fn print_atlas_run(side: &str, receipt: &AtlasRunReceiptV1) {
+    let resources = receipt.resources;
+    println!("{side}_atlas_run_id={}", receipt.run_id);
+    println!("{side}_atlas_document_id={}", receipt.authority.document_id);
+    println!(
+        "{side}_atlas_document_revision={}",
+        receipt.authority.document_revision
+    );
+    println!(
+        "{side}_atlas_document_hash={}",
+        hex(&receipt.authority.content_hash)
+    );
+    println!(
+        "{side}_atlas_registry_revision={}",
+        receipt.authority.registry_revision
+    );
+    println!(
+        "{side}_atlas_previous_generation={}",
+        receipt
+            .authority
+            .previous_generation
+            .map_or_else(|| "none".to_owned(), |generation| generation.to_string())
+    );
+    println!(
+        "{side}_atlas_published_generation={}",
+        receipt.authority.published_generation
+    );
+    println!(
+        "{side}_atlas_analysis_entities={}",
+        capability(resources.analysis_entities)
+    );
+    println!(
+        "{side}_atlas_analysis_chunks={}",
+        capability(resources.analysis_chunks)
+    );
+    println!("{side}_atlas_scene_chunks={}", resources.scene_chunks);
+    println!("{side}_atlas_sentences={}", capability(resources.sentences));
+    println!(
+        "{side}_atlas_canonical_entities={}",
+        resources.canonical_entities
+    );
+    println!(
+        "{side}_atlas_analysis_mentions={}",
+        capability(resources.analysis_mentions)
+    );
+    println!(
+        "{side}_atlas_resident_anchors={}",
+        resources.resident_verified_anchors
+    );
+    println!(
+        "{side}_atlas_nli_candidates={}",
+        capability(resources.nli_candidates)
+    );
+    println!(
+        "{side}_atlas_nli_adjudications={}",
+        capability(resources.nli_adjudications)
+    );
+    println!(
+        "{side}_atlas_promotions={}",
+        capability(receipt.semantics.promotions)
+    );
+    println!("{side}_atlas_graph_nodes={}", resources.graph_nodes);
+    println!("{side}_atlas_graph_edges={}", resources.graph_edges);
+    println!(
+        "{side}_atlas_graph_accepted_edges={}",
+        receipt.graph_reviews.accepted_edges
+    );
+    println!(
+        "{side}_atlas_graph_proposed_edges={}",
+        receipt.graph_reviews.proposed_edges
+    );
+    println!(
+        "{side}_atlas_decisions_accepted={}",
+        capability(receipt.decisions.accepted)
+    );
+    println!("{side}_atlas_total_micros={}", receipt.timings.total_micros);
+    println!(
+        "{side}_atlas_analysis_total_micros={}",
+        capability(receipt.timings.analysis_total_micros)
+    );
+    println!(
+        "{side}_atlas_chunker_micros={}",
+        capability(receipt.timings.chunker_micros)
+    );
+    println!(
+        "{side}_atlas_dynamic_ner_micros={}",
+        capability(receipt.timings.dynamic_ner_micros)
+    );
+    println!(
+        "{side}_atlas_nli_load_micros={}",
+        capability(receipt.timings.nli_load_micros)
+    );
+    println!(
+        "{side}_atlas_nli_adjudication_micros={}",
+        capability(receipt.timings.nli_adjudication_micros)
+    );
+    println!(
+        "{side}_atlas_compiler_micros={}",
+        receipt.timings.compiler_micros
+    );
+    println!(
+        "{side}_atlas_publisher_micros={}",
+        receipt.timings.publisher_micros
+    );
+    println!(
+        "{side}_atlas_command_high_water={}->{} / {}",
+        receipt.queues.command_high_water_before,
+        receipt.queues.command_high_water_after,
+        receipt.queues.command_capacity
+    );
+    println!(
+        "{side}_atlas_event_high_water={}->{} / {}",
+        receipt.queues.event_high_water_before,
+        receipt.queues.event_high_water_after,
+        receipt.queues.event_capacity
+    );
+    println!(
+        "{side}_atlas_reuse={:?}/{:?}/{:?}/{:?}",
+        receipt.reuse.source,
+        receipt.reuse.analysis,
+        receipt.reuse.compiler,
+        receipt.reuse.publisher
+    );
+    for span in &receipt.spans {
+        println!(
+            "{side}_atlas_span={:?}:{}:parent={}:{}us",
+            span.kind,
+            span.span_id,
+            span.parent_span_id
+                .map_or_else(|| "none".to_owned(), |parent| parent.to_string()),
+            span.elapsed_micros
+        );
+    }
+}
+
+fn capability(value: AtlasCapabilityCount) -> String {
+    match (value.state, value.count) {
+        (AtlasCapabilityState::Produced, Some(count)) => count.to_string(),
+        (AtlasCapabilityState::Unsupported, None) => "unsupported".to_owned(),
+        (AtlasCapabilityState::NotRun, None) => "not_run".to_owned(),
+        _ => "invalid".to_owned(),
+    }
 }
 
 fn compare_semantics(

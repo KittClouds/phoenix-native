@@ -9,8 +9,8 @@ mod scene_build;
 mod tests;
 
 pub use compile::{
-    compile_active_document, CompiledNativeScene, NativeSceneCompileReceipt,
-    NativeSceneCompilerInput,
+    compile_active_document, compile_graph_generation, proposed_nli_edge_id, CompiledNativeScene,
+    NativeSceneCompileReceipt, NativeSceneCompilerInput,
 };
 pub use error::NativeSceneCompilerError;
 pub use layout::project_node_positions;

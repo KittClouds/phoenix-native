@@ -10,7 +10,7 @@ mod shell;
 
 use gpui::{px, size, App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions};
 use gpui_component::Root;
-use phoenix_app_core::PhoenixKernel;
+use phoenix_app_core::{PhoenixKernel, PhoenixReleaseManifestV1};
 use phoenix_scene_archive::PhoenixSceneArchiveV1;
 use phoenix_scene_contract::{ResidentScene, ResidentSceneLoadError, SceneSource};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
@@ -26,6 +26,9 @@ fn main() {
     configure_gpui_child_window_hosting();
     initialize_tracing();
     let arguments = std::env::args_os().collect::<Vec<_>>();
+    if let Err(error) = configure_analysis_runtime(&arguments) {
+        fail_start("PHOENIX_ANALYSIS_RUNTIME_ARGUMENT_FAILED", error);
+    }
     let proof_mode = arguments.iter().any(|argument| argument == "--proof");
     let soak_mode = arguments.iter().any(|argument| argument == "--soak");
     let design_preview = arguments
@@ -54,6 +57,27 @@ fn main() {
         Ok(path) => path,
         Err(error) => fail_start("PHOENIX_SCENE_PUBLICATION_ROOT_ARGUMENT_FAILED", error),
     };
+    let workspace_override = match path_argument(&arguments, "--workspace") {
+        Ok(path) => path,
+        Err(error) => fail_start("PHOENIX_WORKSPACE_ARGUMENT_FAILED", error),
+    };
+    let freeze_release_manifest = match path_argument(&arguments, "--freeze-release-manifest") {
+        Ok(path) => path,
+        Err(error) => fail_start("PHOENIX_RELEASE_MANIFEST_ARGUMENT_FAILED", error),
+    };
+    let verify_release_manifest = match path_argument(&arguments, "--verify-release-manifest") {
+        Ok(path) => path,
+        Err(error) => fail_start("PHOENIX_RELEASE_MANIFEST_ARGUMENT_FAILED", error),
+    };
+    if freeze_release_manifest.is_some() && verify_release_manifest.is_some() {
+        fail_start(
+            "PHOENIX_RELEASE_MANIFEST_MODE_CONFLICT",
+            "freeze and verify release-manifest modes are mutually exclusive",
+        );
+    }
+    if let Err(error) = validate_preview_authority(design_preview, publication_root.as_deref()) {
+        fail_start("PHOENIX_SCENE_AUTHORITY_MODE_CONFLICT", error);
+    }
     if publication_root.is_some() && (archive_path.is_some() || product_index_path.is_some()) {
         fail_start(
             "PHOENIX_SCENE_AUTHORITY_CONFLICT",
@@ -74,6 +98,8 @@ fn main() {
     }
     let workspace_path = if isolated_mode {
         proof_workspace_path()
+    } else if let Some(path) = workspace_override {
+        path
     } else {
         match default_workspace_path() {
             Ok(path) => path,
@@ -159,6 +185,13 @@ fn main() {
     if let Err(error) = validate_required_full_scene(&kernel, require_full_scene) {
         fail_start("PHOENIX_FULL_SCENE_REQUIRED", error);
     }
+    if let Err(error) = apply_release_manifest_mode(
+        &kernel,
+        freeze_release_manifest.as_deref(),
+        verify_release_manifest.as_deref(),
+    ) {
+        fail_start("PHOENIX_RELEASE_MANIFEST_FAILED", error);
+    }
     report_active_publication(&kernel, publication_receipt);
     let app_kernel = Arc::clone(&kernel);
     Application::new()
@@ -178,6 +211,7 @@ fn main() {
                     ..Default::default()
                 },
                 move |window, cx| {
+                    window.set_window_title("Phoenix Native");
                     let kernel = Arc::clone(&app_kernel);
                     let scene_error = scene_error.clone();
                     let shell = cx.new(|cx| {
@@ -215,6 +249,53 @@ fn main() {
     if lifecycle::proof_failed() {
         std::process::exit(1);
     }
+}
+
+fn apply_release_manifest_mode(
+    kernel: &PhoenixKernel,
+    freeze_path: Option<&std::path::Path>,
+    verify_path: Option<&std::path::Path>,
+) -> Result<(), String> {
+    if freeze_path.is_none() && verify_path.is_none() {
+        return Ok(());
+    }
+    let current = kernel
+        .release_manifest()
+        .map_err(|error| format!("current authority is not releasable: {error}"))?;
+    if let Some(path) = verify_path {
+        let frozen = PhoenixReleaseManifestV1::open(path)
+            .map_err(|error| format!("open frozen manifest {}: {error}", path.display()))?;
+        let mismatches = frozen.exact_semantic_mismatches(&current);
+        if !mismatches.is_empty() {
+            return Err(format!(
+                "exact cohort drift at {}: {}",
+                path.display(),
+                mismatches.join(", ")
+            ));
+        }
+        println!(
+            "PHOENIX_RELEASE_MANIFEST_VERIFIED path={} document={} revision={} generation={} semantic_digest={}",
+            path.display(),
+            current.authority.document_id,
+            current.authority.document_revision,
+            current.authority.scene_generation,
+            hex_hash(current.digests.shared_scene_pages),
+        );
+    }
+    if let Some(path) = freeze_path {
+        let payload_hash = current
+            .write_new(path)
+            .map_err(|error| format!("freeze manifest {}: {error}", path.display()))?;
+        println!(
+            "PHOENIX_RELEASE_MANIFEST_FROZEN path={} document={} revision={} generation={} payload_hash={}",
+            path.display(),
+            current.authority.document_id,
+            current.authority.document_revision,
+            current.authority.scene_generation,
+            hex_hash(payload_hash),
+        );
+    }
+    Ok(())
 }
 
 fn load_resident_scene(
@@ -343,6 +424,42 @@ fn scene_publication_root_argument(
     path_argument(arguments, "--scene-publication-root")
 }
 
+fn configure_analysis_runtime(arguments: &[OsString]) -> Result<(), &'static str> {
+    let bridge = path_argument(arguments, "--analysis-bridge")?;
+    let ner = path_argument(arguments, "--ner-model-root")?;
+    let nli = path_argument(arguments, "--nli-model-root")?;
+    match (bridge, ner, nli) {
+        (None, None, None) => {}
+        (Some(bridge), Some(ner), Some(nli)) => {
+            std::env::set_var("PHOENIX_NATIVE_ANALYSIS_BRIDGE", bridge);
+            std::env::set_var("PHOENIX_NATIVE_NER_MODEL_ROOT", ner);
+            std::env::set_var("PHOENIX_NATIVE_NLI_MODEL_ROOT", nli);
+        }
+        _ => {
+            return Err(
+                "--analysis-bridge, --ner-model-root, and --nli-model-root must be supplied together",
+            );
+        }
+    }
+    if let Some(source_document_id) = text_argument(arguments, "--source-document-id")? {
+        std::env::set_var("PHOENIX_NATIVE_SOURCE_DOCUMENT_ID", source_document_id);
+    }
+    Ok(())
+}
+
+fn validate_preview_authority(
+    design_preview: bool,
+    publication_root: Option<&std::path::Path>,
+) -> Result<(), &'static str> {
+    if design_preview && publication_root.is_some() {
+        Err(
+            "--design-preview cannot open a production publication root; use an explicit archive and product index",
+        )
+    } else {
+        Ok(())
+    }
+}
+
 fn path_argument(
     arguments: &[OsString],
     name: &'static str,
@@ -354,15 +471,42 @@ fn path_argument(
                 .next()
                 .map(PathBuf::from)
                 .map(Some)
-                .ok_or("scene artifact argument requires a path");
+                .ok_or("path argument requires a value");
         }
         if let Some(argument) = argument.to_str() {
             let prefix = format!("{name}=");
             if let Some(path) = argument.strip_prefix(&prefix) {
                 if path.is_empty() {
-                    return Err("scene artifact argument requires a path");
+                    return Err("path argument requires a value");
                 }
                 return Ok(Some(PathBuf::from(path)));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn text_argument(
+    arguments: &[OsString],
+    name: &'static str,
+) -> Result<Option<String>, &'static str> {
+    let mut values = arguments.iter().skip(1);
+    while let Some(argument) = values.next() {
+        if argument == name {
+            return values
+                .next()
+                .map(|value| value.to_string_lossy().into_owned())
+                .filter(|value| !value.is_empty())
+                .map(Some)
+                .ok_or("text argument requires a value");
+        }
+        if let Some(argument) = argument.to_str() {
+            let prefix = format!("{name}=");
+            if let Some(value) = argument.strip_prefix(&prefix) {
+                if value.is_empty() {
+                    return Err("text argument requires a value");
+                }
+                return Ok(Some(value.to_owned()));
             }
         }
     }
@@ -376,7 +520,10 @@ fn fail_start(marker: &str, error: impl std::fmt::Display) -> ! {
 
 #[cfg(test)]
 mod tests {
-    use super::{mandatory_runtime_filter, scene_publication_root_argument};
+    use super::{
+        configure_analysis_runtime, mandatory_runtime_filter, scene_publication_root_argument,
+        validate_preview_authority,
+    };
     use std::ffi::OsString;
     use tracing_subscriber::EnvFilter;
 
@@ -403,5 +550,22 @@ mod tests {
             Ok(expected.clone())
         );
         assert_eq!(scene_publication_root_argument(&equals), Ok(expected));
+    }
+
+    #[test]
+    fn design_preview_cannot_masquerade_as_backend_publication() {
+        assert!(validate_preview_authority(true, Some(std::path::Path::new("authority"))).is_err());
+        assert!(validate_preview_authority(true, None).is_ok());
+        assert!(validate_preview_authority(false, Some(std::path::Path::new("authority"))).is_ok());
+    }
+
+    #[test]
+    fn analysis_runtime_arguments_are_all_or_none() {
+        let incomplete = [
+            OsString::from("phoenix-shell"),
+            OsString::from("--analysis-bridge"),
+            OsString::from(r"C:\bin\bridge.exe"),
+        ];
+        assert!(configure_analysis_runtime(&incomplete).is_err());
     }
 }

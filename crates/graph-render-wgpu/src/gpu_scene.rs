@@ -6,14 +6,16 @@ use crate::gpu_scene_support::{
 };
 use crate::interaction_index::InteractionIndex;
 use crate::{EdgeProductGpu, NodeProductGpu, RenderError, SceneChanges, SceneState};
-use graph_model::{GraphDiff, GraphRevision, GraphSnapshot, NodeId};
+use graph_model::{EdgeId, GraphDiff, GraphRevision, GraphSnapshot, NodeId};
 use phoenix_scene_archive::{ManifoldPageSet, PositionRecord};
+use phoenix_scene_contract::GraphReviewOverride;
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
 use std::time::Instant;
 
 pub(crate) const MAX_INTERACTION_NODE_SLOTS: usize = 4096;
 pub(crate) const MAX_INTERACTION_EDGE_SLOTS: usize = 8192;
+pub(crate) const MAX_REVIEW_OVERLAY_EDGES: usize = 65_536;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SnapshotMetrics {
     pub node_count: usize,
@@ -34,6 +36,13 @@ pub struct ProductInstallMetrics {
     pub edge_records: usize,
     pub bytes_uploaded: usize,
     pub bindings_changed: bool,
+    pub elapsed_us: u128,
+}
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReviewOverlayMetrics {
+    pub edge_records: usize,
+    pub buffer_ranges_updated: usize,
+    pub bytes_uploaded: usize,
     pub elapsed_us: u128,
 }
 #[derive(Clone, Copy, Debug, Default)]
@@ -78,6 +87,8 @@ pub struct GpuScene {
     edge_gpu_data: Vec<EdgeGpu>,
     node_product_data: Vec<NodeProductGpu>,
     edge_product_data: Vec<EdgeProductGpu>,
+    review_override_slots: Vec<u32>,
+    review_dirty_slots: Vec<u32>,
     pub node_buffer: ResizableBuffer,
     pub edge_buffer: ResizableBuffer,
     pub node_product_buffer: ResizableBuffer,
@@ -85,6 +96,7 @@ pub struct GpuScene {
     bound_product_hash: Option<[u8; 32]>,
     hover_node: Option<NodeId>,
     selected_node: Option<NodeId>,
+    secondary_selected_node: Option<NodeId>,
     interaction: InteractionIndex,
     interaction_node_slots: Vec<u32>,
     interaction_edge_slots: Vec<u32>,
@@ -100,6 +112,8 @@ impl GpuScene {
             edge_gpu_data: Vec::new(),
             node_product_data: Vec::new(),
             edge_product_data: Vec::new(),
+            review_override_slots: Vec::new(),
+            review_dirty_slots: Vec::new(),
             node_buffer: ResizableBuffer::new::<NodeGpu>(
                 device,
                 "graph node storage",
@@ -127,6 +141,7 @@ impl GpuScene {
             bound_product_hash: None,
             hover_node: None,
             selected_node: None,
+            secondary_selected_node: None,
             interaction: InteractionIndex::default(),
             interaction_node_slots: Vec::new(),
             interaction_edge_slots: Vec::new(),
@@ -153,6 +168,11 @@ impl GpuScene {
     #[must_use]
     pub fn selected_node(&self) -> Option<NodeId> {
         self.selected_node
+    }
+
+    #[must_use]
+    pub fn secondary_selected_node(&self) -> Option<NodeId> {
+        self.secondary_selected_node
     }
 
     pub fn set_snapshot(
@@ -242,6 +262,8 @@ impl GpuScene {
         self.edge_product_data.clear();
         self.edge_product_data
             .extend(index.edges().iter().map(EdgeProductGpu::from));
+        self.review_override_slots.clear();
+        self.review_dirty_slots.clear();
         let node_changed = self
             .node_product_buffer
             .ensure_capacity(device, self.node_product_data.len())?;
@@ -266,6 +288,79 @@ impl GpuScene {
                         .saturating_mul(size_of::<EdgeProductGpu>()),
                 ),
             bindings_changed: node_changed || edge_changed,
+            elapsed_us: started.elapsed().as_micros(),
+        })
+    }
+
+    pub fn apply_review_overrides(
+        &mut self,
+        index: &PhoenixSceneProductIndexV1,
+        overrides: &[GraphReviewOverride],
+        queue: &wgpu::Queue,
+    ) -> Result<ReviewOverlayMetrics, RenderError> {
+        if overrides.len() > MAX_REVIEW_OVERLAY_EDGES {
+            return Err(RenderError::ReviewOverlayOversized {
+                actual: overrides.len(),
+                limit: MAX_REVIEW_OVERLAY_EDGES,
+            });
+        }
+        if self.bound_product_hash != Some(index.header().index_hash) {
+            return Err(RenderError::GraphViewProductIndexMismatch);
+        }
+        let started = Instant::now();
+        self.review_dirty_slots.clear();
+        self.review_dirty_slots
+            .extend_from_slice(&self.review_override_slots);
+        for &slot in &self.review_override_slots {
+            let slot = slot as usize;
+            let product = index
+                .edges()
+                .get(slot)
+                .ok_or(RenderError::ProductIdentityMismatch {
+                    resource: "review overlay edge",
+                    slot,
+                })?;
+            self.edge_product_data[slot].review_mask = product.review_mask;
+        }
+        self.review_override_slots.clear();
+        for override_record in overrides {
+            let slot = self
+                .state
+                .edge_slot(EdgeId(override_record.edge_id))
+                .ok_or(RenderError::EdgeNotFound(EdgeId(override_record.edge_id)))?;
+            let product =
+                index
+                    .edges()
+                    .get(slot as usize)
+                    .ok_or(RenderError::ProductIdentityMismatch {
+                        resource: "review overlay edge",
+                        slot: slot as usize,
+                    })?;
+            if product.edge_id != override_record.edge_id {
+                return Err(RenderError::ProductIdentityMismatch {
+                    resource: "review overlay edge",
+                    slot: slot as usize,
+                });
+            }
+            self.edge_product_data[slot as usize].review_mask = override_record.review_mask;
+            self.review_override_slots.push(slot);
+            self.review_dirty_slots.push(slot);
+        }
+        self.review_dirty_slots.sort_unstable();
+        self.review_dirty_slots.dedup();
+        let ranges = write_dirty_ranges(
+            &self.edge_product_buffer,
+            queue,
+            &self.edge_product_data,
+            &self.review_dirty_slots,
+        );
+        Ok(ReviewOverlayMetrics {
+            edge_records: overrides.len(),
+            buffer_ranges_updated: ranges,
+            bytes_uploaded: self
+                .review_dirty_slots
+                .len()
+                .saturating_mul(size_of::<EdgeProductGpu>()),
             elapsed_us: started.elapsed().as_micros(),
         })
     }
@@ -442,6 +537,7 @@ impl GpuScene {
         &mut self,
         hover: Option<NodeId>,
         selected: Option<NodeId>,
+        secondary_selected: Option<NodeId>,
         queue: &wgpu::Queue,
     ) -> usize {
         self.interaction_node_dirty.clear();
@@ -466,8 +562,13 @@ impl GpuScene {
         self.interaction_edge_slots.clear();
         self.hover_node = hover.filter(|id| self.state.node_slot(*id).is_some());
         self.selected_node = selected.filter(|id| self.state.node_slot(*id).is_some());
+        self.secondary_selected_node =
+            secondary_selected.filter(|id| self.state.node_slot(*id).is_some());
         let hover_slot = self.hover_node.and_then(|id| self.state.node_slot(id));
         let selected_slot = self.selected_node.and_then(|id| self.state.node_slot(id));
+        let secondary_selected_slot = self
+            .secondary_selected_node
+            .and_then(|id| self.state.node_slot(id));
 
         if let Some(slot) = hover_slot {
             mark_node(
@@ -503,7 +604,17 @@ impl GpuScene {
                 );
             }
         }
-        if let (Some(source), Some(target)) = (selected_slot, hover_slot) {
+        if let Some(slot) = secondary_selected_slot {
+            mark_node(
+                &mut self.node_gpu_data,
+                &mut self.interaction_node_slots,
+                &mut self.interaction_node_dirty,
+                slot,
+                SELECTED_FLAG,
+            );
+        }
+        let route_target = secondary_selected_slot.or(hover_slot);
+        if let (Some(source), Some(target)) = (selected_slot, route_target) {
             self.interaction.compute_route(source, target);
             for &slot in self.interaction.route_nodes() {
                 mark_node(
@@ -621,6 +732,9 @@ impl GpuScene {
         self.selected_node = self
             .selected_node
             .filter(|id| self.state.node_slot(*id).is_some());
+        self.secondary_selected_node = self
+            .secondary_selected_node
+            .filter(|id| self.state.node_slot(*id).is_some());
 
         self.node_gpu_data.clear();
         self.node_gpu_data.reserve(self.state.node_capacity_slots());
@@ -630,6 +744,11 @@ impl GpuScene {
                 self.hover_node == Some(node.id),
                 self.selected_node == Some(node.id),
             ));
+            if self.secondary_selected_node == Some(node.id) {
+                if let Some(last) = self.node_gpu_data.last_mut() {
+                    last.kind_flags |= u32::from(SELECTED_FLAG);
+                }
+            }
         }
         self.edge_gpu_data.clear();
         self.edge_gpu_data.reserve(self.state.edge_capacity_slots());
@@ -716,7 +835,8 @@ impl GpuScene {
                 Some(node) => NodeGpu::from_visual(
                     node,
                     self.hover_node == Some(node.id),
-                    self.selected_node == Some(node.id),
+                    self.selected_node == Some(node.id)
+                        || self.secondary_selected_node == Some(node.id),
                 ),
                 None => NodeGpu::TOMBSTONE,
             };

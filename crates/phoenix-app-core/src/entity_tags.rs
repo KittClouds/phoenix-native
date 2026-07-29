@@ -1,4 +1,5 @@
 use super::*;
+use hashbrown::HashMap;
 use phoenix_scene_contract::{AnchorCandidate, AnchorSource};
 use phoenix_workspace::{commit_document, EntityRegistry, EntityTag};
 
@@ -6,20 +7,83 @@ pub(super) fn registry_anchors(
     registry: &EntityRegistry,
     lease: Option<&DocumentLease>,
 ) -> Result<Option<Arc<VerifiedDocumentAnchors>>, KernelError> {
+    registry_anchors_with_base(registry, lease, None)
+}
+
+fn registry_anchors_with_base(
+    registry: &EntityRegistry,
+    lease: Option<&DocumentLease>,
+    base: Option<&VerifiedDocumentAnchors>,
+) -> Result<Option<Arc<VerifiedDocumentAnchors>>, KernelError> {
     let Some(lease) = lease else {
         return Ok(None);
     };
-    let candidates = registry
-        .active_mentions_for(lease)
-        .map(|(mention, entity)| AnchorCandidate {
-            start: mention.start,
-            end: mention.end,
-            node_id: entity.id,
-            entity_slot: entity.id as u32,
-            family: entity.kind.family(),
-            surface: mention.surface.clone(),
+    let entity_slots = registry
+        .entities()
+        .iter()
+        .enumerate()
+        .map(|(slot, entity)| {
+            let slot = u32::try_from(slot).map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
+            Ok((entity.id, (slot, entity.kind.family())))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<HashMap<_, _>, KernelError>>()?;
+    let manual_candidates = registry
+        .active_mentions_for(lease)
+        .map(|(mention, entity)| {
+            Ok(AnchorCandidate {
+                start: mention.start,
+                end: mention.end,
+                node_id: entity.id,
+                entity_slot: entity_slots
+                    .get(&entity.id)
+                    .map(|(slot, _)| *slot)
+                    .ok_or(KernelError::AnalysisAuthorityMismatch)?,
+                family: entity.kind.family(),
+                surface: mention.surface.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, KernelError>>()?;
+    let base = base.filter(|anchors| {
+        anchors.document() == DocumentId(lease.entry_id.0)
+            && anchors.document_revision() == lease.revision.0
+            && anchors.content_hash() == lease.content_hash.0
+    });
+    let capacity = base
+        .map_or(0, |anchors| anchors.anchors().len())
+        .checked_add(manual_candidates.len())
+        .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+    let mut candidates = Vec::with_capacity(capacity);
+    if let Some(base) = base {
+        for anchor in base.anchors() {
+            if manual_candidates
+                .iter()
+                .any(|manual| ranges_overlap(anchor.start, anchor.end, manual.start, manual.end))
+            {
+                continue;
+            }
+            let Some((slot, family)) = entity_slots.get(&anchor.node_id).copied() else {
+                continue;
+            };
+            let start = usize::try_from(anchor.start)
+                .map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
+            let end =
+                usize::try_from(anchor.end).map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
+            let surface = lease
+                .content
+                .get(start..end)
+                .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+            candidates.push(AnchorCandidate {
+                start: anchor.start,
+                end: anchor.end,
+                node_id: anchor.node_id,
+                entity_slot: slot,
+                family,
+                surface: surface.to_owned(),
+            });
+        }
+    }
+    let preserved_base = !candidates.is_empty();
+    candidates.extend(manual_candidates);
     if candidates.is_empty() {
         return Ok(None);
     }
@@ -28,10 +92,18 @@ pub(super) fn registry_anchors(
         lease.revision.0,
         lease.content_hash.0,
         None,
-        AnchorSource::ManualRegistry,
+        if preserved_base {
+            AnchorSource::CanonicalRegistry
+        } else {
+            AnchorSource::ManualRegistry
+        },
         &lease.content,
         candidates,
     )?)))
+}
+
+const fn ranges_overlap(left_start: u32, left_end: u32, right_start: u32, right_end: u32) -> bool {
+    left_start < right_end && right_start < left_end
 }
 
 pub(super) fn save_document(
@@ -109,12 +181,13 @@ pub(super) fn tag_selection(
     content: Arc<str>,
     tag: EntityTag,
 ) -> Result<CommandReceipt, KernelError> {
-    let (workspace, active_lease, mut registry) = {
+    let (workspace, active_lease, mut registry, previous_anchors) = {
         let state = read_state(shared)?;
         (
             Arc::clone(&state.workspace),
             state.active_document_lease.as_ref().map(Arc::clone),
             (*state.entity_registry).clone(),
+            state.document_anchors.as_ref().map(Arc::clone),
         )
     };
     let active_lease = active_lease.ok_or(KernelError::DocumentLeaseNotActive)?;
@@ -162,7 +235,15 @@ pub(super) fn tag_selection(
     }
 
     let registry = Arc::new(registry);
-    let anchors = registry_anchors(&registry, Some(&committed))?;
+    let anchors = registry_anchors_with_base(
+        &registry,
+        Some(&committed),
+        if content_changed {
+            None
+        } else {
+            previous_anchors.as_deref()
+        },
+    )?;
     let atlas = Arc::new(AtlasRegistry::from_registry(&registry));
     let palette = *read_state(shared)?.highlight_palette;
     let published = scene_publication::refresh_registry_scene(shared, &atlas, palette)?;
@@ -203,16 +284,20 @@ fn install_committed_document(
 ) -> Result<(u64, Option<ScenePublicationReceipt>), KernelError> {
     let mut state = write_state(shared)?;
     state.active_document_lease = Some(committed);
+    state.document_analysis = None;
+    state.structural_analysis = None;
+    state.nli_analysis = None;
+    state.producer_coordinator = None;
+    state.graph_generation = None;
+    state.analysis_publication = None;
     if let Some((registry, atlas)) = registry {
         state.atlas_registry = atlas;
         state.entity_registry = registry;
-        state.document_anchors = anchors;
-    } else {
-        state.document_anchors = None;
     }
     let scene_publication = published
         .map(|published| scene_publication::install_published_scene_state(&mut state, published))
         .transpose()?;
+    state.document_anchors = anchors;
     state.revision = checked_revision(state.revision)?;
     Ok((state.revision, scene_publication))
 }

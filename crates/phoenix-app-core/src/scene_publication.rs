@@ -71,10 +71,18 @@ pub(super) fn publish_full_scene(
 ) -> Result<CommandReceipt, KernelError> {
     validate_compiled_metadata(&command)?;
     let compile_receipt = command.compile_receipt;
-    let (publication_receipt, revision) =
-        publish_and_install(shared, command.publication, command.anchors)?;
+    let (publication_receipt, revision) = publish_and_install(
+        shared,
+        command.publication,
+        command.anchors,
+        command.graph_generation,
+    )?;
     let (event, outcome) = if let Some(compile) = compile_receipt {
+        let run_id = command
+            .run_id
+            .ok_or(KernelError::CompiledPublicationMismatch)?;
         let receipt = GraphRebuildReceipt {
+            run_id,
             compile,
             publication: publication_receipt,
         };
@@ -103,12 +111,18 @@ pub(super) fn publish_full_scene(
 
 fn validate_compiled_metadata(command: &NativeScenePublishCommand) -> Result<(), KernelError> {
     let Some(compile) = command.compile_receipt else {
-        if command.anchors.is_some() {
+        if command.anchors.is_some()
+            || command.run_id.is_some()
+            || command.graph_generation.is_some()
+        {
             return Err(KernelError::CompiledPublicationMismatch);
         }
         return Ok(());
     };
     let generation = command.publication.generation_id;
+    if command.run_id.is_none_or(|run_id| run_id == 0) {
+        return Err(KernelError::CompiledPublicationMismatch);
+    }
     let anchors = command
         .anchors
         .as_ref()
@@ -122,6 +136,14 @@ fn validate_compiled_metadata(command: &NativeScenePublishCommand) -> Result<(),
         || anchors.graph_generation() != Some(GraphGeneration(generation))
     {
         return Err(KernelError::CompiledPublicationMismatch);
+    }
+    if let Some(graph_generation) = command.graph_generation.as_ref() {
+        graph_generation.verify_binding(
+            compile.document_id,
+            compile.document_revision,
+            compile.content_hash,
+            compile.registry_revision,
+        )?;
     }
     Ok(())
 }
@@ -152,6 +174,7 @@ fn publish_and_install(
     shared: &KernelShared,
     publication: NativeScenePublication,
     anchors: Option<Arc<VerifiedDocumentAnchors>>,
+    graph_generation: Option<Arc<VerifiedGraphGeneration>>,
 ) -> Result<(ScenePublicationReceipt, u64), KernelError> {
     if publication.kind != ScenePublicationKind::Full {
         return Err(KernelError::BackendPublicationMustBeFull);
@@ -200,6 +223,16 @@ fn publish_and_install(
     }
     let publication_receipt = install_published_scene_state(&mut state, published)?;
     state.document_anchors = anchors;
+    if let Some(graph_generation) = graph_generation {
+        state.graph_generation = Some(graph_generation);
+    }
+    {
+        let ledger = shared
+            .atlas_review
+            .lock()
+            .map_err(|_| KernelError::Poisoned("Atlas review ledger"))?;
+        atlas_review::refresh_review_overlay(&mut state, &ledger)?;
+    }
     state.revision = checked_revision(state.revision)?;
     let revision = state.revision;
     Ok((publication_receipt, revision))

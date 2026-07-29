@@ -14,11 +14,11 @@ pub(crate) use crate::renderer_support::{preferred_present_mode, validate_view_a
 use crate::{
     FrameMetrics, GpuAllocationStats, GpuSceneMetrics, GraphEvent, GraphInput, GraphLensUniform,
     LensUpdateMetrics, PointerButton, PositionSwitchMetrics, ProductInstallMetrics, RenderError,
-    SceneState, SnapshotMetrics,
+    ReviewOverlayMetrics, SceneState, SnapshotMetrics,
 };
 use graph_model::{GraphDiff, GraphRevision, GraphSnapshot};
 use phoenix_scene_archive::{LabelPriorityRecord, ManifoldPageSet, PositionRecord};
-use phoenix_scene_contract::{GraphViewState, Manifold};
+use phoenix_scene_contract::{GraphReviewOverride, GraphViewState, Manifold};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
 use std::sync::Arc;
@@ -545,9 +545,11 @@ impl GraphRenderer {
                 self.camera_changed()
             }
             GraphInput::ClearSelection => {
-                if self.scene.selected_node().is_some() {
+                if self.scene.selected_node().is_some()
+                    || self.scene.secondary_selected_node().is_some()
+                {
                     self.scene
-                        .update_highlights(self.scene.hover_node(), None, &self.queue);
+                        .update_highlights(self.scene.hover_node(), None, None, &self.queue);
                     self.redraw_requested = true;
                     Some(self.events.selection(None)?)
                 } else {
@@ -565,6 +567,7 @@ impl GraphRenderer {
                     self.scene.update_highlights(
                         result.node,
                         self.scene.selected_node(),
+                        self.scene.secondary_selected_node(),
                         &self.queue,
                     );
                     self.events.push_hover(result.node);
@@ -572,8 +575,12 @@ impl GraphRenderer {
                     self.redraw_requested = true;
                 }
                 PickIntent::Select if self.scene.selected_node() != result.node => {
-                    self.scene
-                        .update_highlights(self.scene.hover_node(), result.node, &self.queue);
+                    self.scene.update_highlights(
+                        self.scene.hover_node(),
+                        result.node,
+                        None,
+                        &self.queue,
+                    );
                     if let Err(error) = self.events.push_selection(result.node) {
                         tracing::error!(%error, "selection event rejected");
                     }
@@ -594,7 +601,16 @@ impl GraphRenderer {
         node: Option<graph_model::NodeId>,
         focus: bool,
     ) -> Result<(), RenderError> {
-        if let Some(node) = node {
+        self.set_external_selection_pair(node, None, focus)
+    }
+
+    pub fn set_external_selection_pair(
+        &mut self,
+        primary: Option<graph_model::NodeId>,
+        secondary: Option<graph_model::NodeId>,
+        focus: bool,
+    ) -> Result<(), RenderError> {
+        if let Some(node) = primary {
             let slot = self
                 .scene
                 .state()
@@ -611,8 +627,13 @@ impl GraphRenderer {
                 self.write_camera();
             }
         }
+        if let Some(node) = secondary {
+            if self.scene.state().node_slot(node).is_none() {
+                return Err(RenderError::NodeNotFound(node));
+            }
+        }
         self.scene
-            .update_highlights(self.scene.hover_node(), node, &self.queue);
+            .update_highlights(self.scene.hover_node(), primary, secondary, &self.queue);
         self.labels.mark_dirty();
         self.redraw_requested = true;
         Ok(())
@@ -627,11 +648,27 @@ impl GraphRenderer {
                 return Err(RenderError::NodeNotFound(node));
             }
         }
-        self.scene
-            .update_highlights(node, self.scene.selected_node(), &self.queue);
+        self.scene.update_highlights(
+            node,
+            self.scene.selected_node(),
+            self.scene.secondary_selected_node(),
+            &self.queue,
+        );
         self.labels.mark_dirty();
         self.redraw_requested = true;
         Ok(())
+    }
+
+    pub fn apply_review_overrides(
+        &mut self,
+        index: &PhoenixSceneProductIndexV1,
+        overrides: &[GraphReviewOverride],
+    ) -> Result<ReviewOverlayMetrics, RenderError> {
+        let metrics = self
+            .scene
+            .apply_review_overrides(index, overrides, &self.queue)?;
+        self.redraw_requested = true;
+        Ok(metrics)
     }
 
     #[must_use]

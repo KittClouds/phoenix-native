@@ -13,6 +13,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+const ENTITY_ROW_HEIGHT: f32 = 44.;
+const KIND_TILE_HEIGHT: f32 = 24.;
+const _: () = assert!(ENTITY_ROW_HEIGHT <= 44.);
+const _: () = assert!(KIND_TILE_HEIGHT <= 24.);
+
 impl PhoenixShell {
     pub(super) fn render_atlas_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let snapshot = self.kernel_snapshot();
@@ -78,30 +83,30 @@ impl PhoenixShell {
             .child(atlas_header(&atlas, graph_view, cx))
             .child(
                 div()
-                    .px_3()
-                    .pt_3()
+                    .px_2()
+                    .pt_2()
                     .child(Input::new(&self.atlas_search).small()),
             )
             .child(kind_summary(&atlas, palette))
             .child(
                 div()
-                    .mt_2()
-                    .px_3()
-                    .pb_2()
+                    .mt_1()
+                    .px_2()
+                    .pb_1()
                     .flex()
                     .items_center()
                     .justify_between()
                     .text_xs()
                     .text_color(rgb(TEXT_MUTED))
-                    .child("CANONICAL IDENTITIES")
-                    .child(format!("{} VISIBLE", visible.len())),
+                    .child("IDENTITIES")
+                    .child(format!("{} SHOWN", visible.len())),
             )
             .child(
                 div()
                     .flex_1()
                     .min_h_0()
-                    .px_2()
-                    .pb_2()
+                    .px_1()
+                    .pb_1()
                     .when(visible.is_empty(), |body| {
                         body.flex()
                             .flex_col()
@@ -137,9 +142,9 @@ fn atlas_header(
     cx: &mut Context<PhoenixShell>,
 ) -> impl IntoElement {
     div()
-        .px_3()
-        .pt_3()
-        .pb_3()
+        .px_2()
+        .pt_2()
+        .pb_2()
         .border_b_1()
         .border_color(rgb(BORDER))
         .child(
@@ -156,40 +161,58 @@ fn atlas_header(
                 )
                 .child(
                     div()
+                        .min_w(px(28.))
                         .px_2()
-                        .py_1()
+                        .py(px(2.))
                         .rounded_full()
                         .bg(rgb(ACCENT_DIM))
                         .text_xs()
+                        .text_center()
                         .text_color(rgb(ACCENT))
                         .child(atlas.entities.len().to_string()),
                 ),
         )
         .child(
             div()
-                .mt_2()
+                .mt_1()
                 .w_full()
                 .child(surface_segment(graph_view.surface, cx)),
         )
         .child(
             div()
-                .mt_2()
+                .mt_1()
                 .flex()
                 .items_center()
-                .justify_between()
-                .gap_2()
+                .gap_1()
                 .text_xs()
                 .text_color(rgb(TEXT_MUTED))
-                .child(format!("USER {}", atlas.user_tagged_source_count))
-                .child("·")
-                .child(format!("NER {}", atlas.ner_source_count))
-                .child("·")
-                .child(format!("REV {}", atlas.registry_revision)),
+                .child(authority_stat(
+                    "USER",
+                    atlas.user_tagged_source_count.to_string(),
+                ))
+                .child(authority_stat("NER", atlas.ner_source_count.to_string()))
+                .child(authority_stat("REV", atlas.registry_revision.to_string())),
         )
 }
 
+fn authority_stat(label: &'static str, value: String) -> impl IntoElement {
+    div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .px_1()
+        .py(px(2.))
+        .rounded_sm()
+        .bg(rgb(0x111715))
+        .child(label)
+        .child(div().text_color(rgb(0xb5c2be)).child(value))
+}
+
 fn kind_summary(atlas: &AtlasRegistry, palette: HighlightPalette) -> impl IntoElement {
-    let mut rows = div().mt_3().px_2().grid().grid_cols(2).gap_1();
+    let mut rows = div().mt_2().px_2().grid().grid_cols(3).gap_1();
     for kind in EntityKind::TOOLBAR {
         let count = atlas
             .entities
@@ -201,17 +224,19 @@ fn kind_summary(atlas: &AtlasRegistry, palette: HighlightPalette) -> impl IntoEl
         }
         rows = rows.child(
             div()
-                .h_7()
+                .h(px(KIND_TILE_HEIGHT))
                 .flex()
                 .items_center()
-                .gap_2()
-                .px_2()
+                .gap_1()
+                .px_1()
                 .rounded_md()
-                .bg(rgb(0x151b19))
+                .border_1()
+                .border_color(rgb(0x24302c))
+                .bg(rgb(0x121816))
                 .child(
                     div()
-                        .w_2()
-                        .h_2()
+                        .w(px(6.))
+                        .h(px(6.))
                         .rounded_full()
                         .bg(rgb(family_color(kind, palette))),
                 )
@@ -222,7 +247,7 @@ fn kind_summary(atlas: &AtlasRegistry, palette: HighlightPalette) -> impl IntoEl
                         .truncate()
                         .text_xs()
                         .text_color(rgb(0xaab9b4))
-                        .child(kind.label().to_uppercase()),
+                        .child(compact_kind_label(kind)),
                 )
                 .child(
                     div()
@@ -249,10 +274,14 @@ fn atlas_entity_row(
         .as_ref()
         .map(|kind| kind.to_string())
         .unwrap_or_else(|| entity.kind.label().to_uppercase());
+    let marker_color = if selected {
+        ACCENT
+    } else {
+        family_color(entity.kind, palette)
+    };
     div()
         .id(SharedString::from(format!("atlas-entity-{stable_id}")))
-        .h(px(48.))
-        .mx_1()
+        .h(px(ENTITY_ROW_HEIGHT))
         .px_2()
         .flex()
         .items_center()
@@ -266,8 +295,6 @@ fn atlas_entity_row(
                 linear_color_stop(rgb(0x123f34), 0.),
                 linear_color_stop(rgb(0x17211e), 1.),
             ))
-            .border_l_2()
-            .border_color(rgb(ACCENT))
         })
         .hover(|row| row.bg(rgb(0x17211e)))
         .on_click(move |_, _, cx| {
@@ -285,11 +312,11 @@ fn atlas_entity_row(
         })
         .child(
             div()
-                .w_2()
-                .h_2()
+                .w(px(2.))
+                .h(px(28.))
                 .flex_shrink_0()
                 .rounded_full()
-                .bg(rgb(family_color(entity.kind, palette))),
+                .bg(rgb(marker_color)),
         )
         .child(
             div()
@@ -305,7 +332,7 @@ fn atlas_entity_row(
                 )
                 .child(
                     div()
-                        .mt_1()
+                        .mt(px(2.))
                         .flex()
                         .items_center()
                         .gap_1()
@@ -322,9 +349,14 @@ fn atlas_entity_row(
         )
         .child(
             div()
+                .min_w(px(30.))
+                .px_1()
+                .py(px(2.))
+                .rounded_md()
+                .bg(rgb(0x111715))
                 .text_xs()
                 .text_color(rgb(TEXT_MUTED))
-                .child(entity.mention_count.to_string()),
+                .child(format!("{}x", entity.mention_count)),
         )
 }
 
@@ -335,6 +367,18 @@ fn source_chip(label: &'static str, background: u32, foreground: u32) -> impl In
         .bg(rgb(background))
         .text_color(rgb(foreground))
         .child(label)
+}
+
+fn compact_kind_label(kind: EntityKind) -> &'static str {
+    match kind {
+        EntityKind::Character => "CHAR",
+        EntityKind::Location => "PLACE",
+        EntityKind::Npc => "NPC",
+        EntityKind::Faction => "GROUP",
+        EntityKind::Event => "EVENT",
+        EntityKind::Concept => "IDEA",
+        EntityKind::Custom => "CUSTOM",
+    }
 }
 
 fn family_color(kind: EntityKind, palette: HighlightPalette) -> u32 {
@@ -394,5 +438,11 @@ mod tests {
         assert!(entity_matches(&new_rome, "rome"));
         assert!(entity_matches(&new_rome, "LOCATION"));
         assert!(!entity_matches(&new_rome, "Ryan"));
+    }
+
+    #[test]
+    fn compact_kind_labels_use_bounded_copy() {
+        assert_eq!(compact_kind_label(EntityKind::Character), "CHAR");
+        assert_eq!(compact_kind_label(EntityKind::Location), "PLACE");
     }
 }

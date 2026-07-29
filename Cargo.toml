@@ -5,6 +5,7 @@ members = [
     "crates/gpui-animated-gradient-text",
     "crates/graph-render-wgpu",
     "crates/phoenix-analysis-contract",
+    "crates/phoenix-graph-generation",
     "crates/phoenix-app-core",
     "crates/phoenix-scene-compiler",
     "crates/phoenix-scene-archive",
@@ -24,6 +25,7 @@ default-members = [
     "crates/gpui-animated-gradient-text",
     "crates/graph-render-wgpu",
     "crates/phoenix-analysis-contract",
+    "crates/phoenix-graph-generation",
     "crates/phoenix-app-core",
     "crates/phoenix-scene-compiler",
     "crates/phoenix-scene-archive",
@@ -44,6 +46,7 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 anyhow = "1.0"
+async-channel = "=2.5.0"
 bytemuck = { version = "1.21", features = ["derive"] }
 blake3 = "1.8"
 glam = "0.29"

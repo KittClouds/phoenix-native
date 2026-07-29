@@ -13,12 +13,13 @@ use std::sync::mpsc::{self, SyncSender};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetParent, GetWindowLongPtrW, GetWindowRect, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
-    ShowWindow, GWL_STYLE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WS_CHILD,
+    PostMessageW, ShowWindow, GWL_STYLE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WM_MOUSEMOVE,
+    WS_CHILD,
 };
 use winit::event_loop::EventLoopProxy;
 
@@ -45,6 +46,7 @@ pub struct EmbeddedHostProof {
     pub resize_present_p95_us: u128,
     pub resize_present_max_us: u128,
     pub graph_command_queue_high_water: u64,
+    pub pointer_hover: bool,
     pub interaction_stress: InteractionStressProof,
     pub gpu_before: GraphGpuTelemetry,
     pub gpu_after: GraphGpuTelemetry,
@@ -189,6 +191,7 @@ impl GraphProofHandle {
                 );
             }
         }
+        let pointer_hover = self.probe_pointer_hover(original)?;
         let interaction_stress = self.stress_interaction()?;
         let mut hidden = original;
         hidden.visible = false;
@@ -316,6 +319,7 @@ impl GraphProofHandle {
             resize_present_p95_us,
             resize_present_max_us,
             graph_command_queue_high_water: self.queue_metrics.high_water.load(Ordering::Relaxed),
+            pointer_hover,
             interaction_stress,
             gpu_before,
             gpu_after,
@@ -368,6 +372,47 @@ impl GraphProofHandle {
             .recv_timeout(Duration::from_secs(30))
             .context("embedded graph interaction stress timed out")?
             .map_err(|error| anyhow!(error))
+    }
+
+    fn probe_pointer_hover(&self, geometry: ViewportGeometry) -> Result<bool> {
+        let initial = lifecycle::snapshot();
+        let mut expected_pointer_events = initial.pointer_events;
+        for row in 1..=7_u32 {
+            for column in 1..=11_u32 {
+                let x = geometry.width.saturating_mul(column) / 12;
+                let y = geometry.height.saturating_mul(row) / 8;
+                let packed = ((y & 0xffff) << 16) | (x & 0xffff);
+                // SAFETY: `self.hwnd` is the live, proof-owned child window and
+                // WM_MOUSEMOVE carries only bounded client coordinates.
+                unsafe {
+                    PostMessageW(
+                        Some(self.hwnd()),
+                        WM_MOUSEMOVE,
+                        WPARAM(0),
+                        LPARAM(packed as isize),
+                    )
+                }
+                .context("post pointer hover probe")?;
+                expected_pointer_events = expected_pointer_events.saturating_add(1);
+                let deadline = Instant::now() + Duration::from_millis(75);
+                loop {
+                    let state = lifecycle::snapshot();
+                    if state.hover_pick_events > initial.hover_pick_events {
+                        return Ok(true);
+                    }
+                    if state.pointer_events >= expected_pointer_events
+                        && Instant::now() + Duration::from_millis(2) >= deadline
+                    {
+                        break;
+                    }
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(2));
+                }
+            }
+        }
+        Ok(false)
     }
 
     fn switch_manifold(&self, manifold: Manifold) -> Result<()> {

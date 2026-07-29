@@ -11,6 +11,8 @@ blake3.workspace = true
 glam.workspace = true
 hashbrown.workspace = true
 memchr.workspace = true
+phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
+phoenix-graph-generation = { path = "../phoenix-graph-generation" }
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }

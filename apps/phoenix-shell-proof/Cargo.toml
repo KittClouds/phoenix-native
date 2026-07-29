@@ -13,6 +13,7 @@ legacy-graph-adapter = []
 
 [dependencies]
 anyhow.workspace = true
+async-channel.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
 gpui-animated-gradient-text = { path = "../../crates/gpui-animated-gradient-text" }

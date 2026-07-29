@@ -40,6 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         registry_revision: registry.revision(),
         document: &lease,
         registry: &registry,
+        verified_anchors: None,
+        nli: None,
         palette: HighlightPalette::default(),
     })?;
     let compile = compiled.receipt;

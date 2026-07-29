@@ -19,6 +19,8 @@ pub enum RenderError {
     PackedSceneFragmented,
     #[error("scene product index {resource} identity mismatch at slot {slot}")]
     ProductIdentityMismatch { resource: &'static str, slot: usize },
+    #[error("review overlay contains {actual} edges, exceeding the fixed limit of {limit}")]
+    ReviewOverlayOversized { actual: usize, limit: usize },
     #[error("graph view authority generation does not match the resident GPU scene")]
     GraphViewGenerationMismatch,
     #[error("graph view product-index authority does not match the resident GPU metadata")]

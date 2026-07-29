@@ -36,7 +36,10 @@ use i18n::I18nManager;
 use theme::ThemeManager;
 
 pub use components::{SemanticHighlight, SemanticHighlightMode};
-pub use editor::{Editor, EditorEvent, EntityTagKind, EntityTagRequest, SemanticHighlightError};
+pub use editor::{
+    Editor, EditorEvent, EntityTagKind, EntityTagRequest, SemanticHighlightError,
+    SemanticHighlightProjectionReceipt,
+};
 
 pub struct VelotypeAssets;
 
