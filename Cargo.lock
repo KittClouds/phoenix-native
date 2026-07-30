@@ -5401,8 +5401,12 @@ name = "phoenix-analysis-proof"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "phoenix-analysis-contract",
  "phoenix-app-core",
+ "phoenix-document-producer",
+ "phoenix-entity-producer",
+ "phoenix-graph-generation-v2",
  "phoenix-workspace",
 ]
 
@@ -5415,17 +5419,53 @@ dependencies = [
  "hashbrown 0.15.5",
  "memmap2",
  "phoenix-analysis-contract",
- "phoenix-graph-generation",
+ "phoenix-document-producer",
+ "phoenix-entity-producer",
+ "phoenix-graph-generation-v2",
  "phoenix-scene-archive",
  "phoenix-scene-compiler",
  "phoenix-scene-contract",
  "phoenix-scene-product-index",
  "phoenix-scene-publisher",
+ "phoenix-semantic-review",
+ "phoenix-story-producer",
  "phoenix-workspace",
  "postcard",
  "serde",
  "thiserror 2.0.19",
  "tracing",
+]
+
+[[package]]
+name = "phoenix-document-producer"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytemuck",
+ "hashbrown 0.15.5",
+ "phoenix-analysis-contract",
+ "phoenix-graph-generation-v2",
+ "phoenix-scene-compiler",
+ "tempfile",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "phoenix-entity-producer"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytemuck",
+ "hashbrown 0.15.5",
+ "phoenix-analysis-contract",
+ "phoenix-document-producer",
+ "phoenix-graph-generation-v2",
+ "phoenix-scene-compiler",
+ "phoenix-scene-contract",
+ "phoenix-semantic-lens",
+ "phoenix-semantic-review",
+ "tempfile",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -5440,20 +5480,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "phoenix-legacy-bridge"
+name = "phoenix-graph-generation-v2"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "blake3",
- "hashbrown 0.15.5",
+ "bytemuck",
  "memmap2",
- "phoenix-scene-archive",
- "phoenix-scene-contract",
- "phoenix-scene-product-index",
- "phoenix-scene-publisher",
- "serde",
- "serde_json",
- "zstd",
+ "phoenix-graph-generation",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -5485,15 +5519,19 @@ name = "phoenix-scene-compiler"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "bytemuck",
  "glam",
  "hashbrown 0.15.5",
  "memchr",
  "phoenix-analysis-contract",
  "phoenix-graph-generation",
+ "phoenix-graph-generation-v2",
  "phoenix-scene-archive",
  "phoenix-scene-contract",
  "phoenix-scene-product-index",
  "phoenix-scene-publisher",
+ "phoenix-semantic-lens",
+ "phoenix-semantic-review",
  "phoenix-workspace",
  "smallvec",
  "thiserror 2.0.19",
@@ -5538,6 +5576,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "phoenix-semantic-lens"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytemuck",
+ "hashbrown 0.15.5",
+ "memmap2",
+ "phoenix-graph-generation-v2",
+ "tempfile",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "phoenix-semantic-review"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytemuck",
+ "hashbrown 0.15.5",
+ "memmap2",
+ "phoenix-graph-generation-v2",
+ "phoenix-semantic-lens",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "phoenix-shell"
 version = "0.1.0"
 dependencies = [
@@ -5565,6 +5629,24 @@ dependencies = [
  "wgpu",
  "windows 0.61.3",
  "winit",
+]
+
+[[package]]
+name = "phoenix-story-producer"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytemuck",
+ "hashbrown 0.15.5",
+ "phoenix-analysis-contract",
+ "phoenix-document-producer",
+ "phoenix-entity-producer",
+ "phoenix-graph-generation-v2",
+ "phoenix-scene-contract",
+ "phoenix-semantic-lens",
+ "phoenix-semantic-review",
+ "tempfile",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -10347,34 +10429,6 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[package]]
-name = "zstd"
-version = "0.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
-dependencies = [
- "zstd-safe",
-]
-
-[[package]]
-name = "zstd-safe"
-version = "7.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
-dependencies = [
- "zstd-sys",
-]
-
-[[package]]
-name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
-dependencies = [
- "cc",
- "pkg-config",
-]
 
 [[package]]
 name = "zune-core"

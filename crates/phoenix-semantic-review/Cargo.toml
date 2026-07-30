@@ -1,0 +1,15 @@
+[package]
+name = "phoenix-semantic-review"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blake3.workspace = true
+bytemuck.workspace = true
+hashbrown.workspace = true
+memmap2.workspace = true
+phoenix-graph-generation-v2 = { path = "../phoenix-graph-generation-v2" }
+phoenix-semantic-lens = { path = "../phoenix-semantic-lens" }
+thiserror.workspace = true

@@ -17,7 +17,8 @@ use phoenix_scene_product_index::{
 };
 use phoenix_workspace::{EntityTag, NerPublicationResult};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
+use std::time::{Duration, Instant};
 
 mod graph_view_tests;
 mod selection_tests;
@@ -33,6 +34,62 @@ fn bounded_command_envelope_stays_compact() {
     );
 }
 
+#[test]
+fn command_queue_pressure_fails_closed_at_the_named_capacity(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start(path.clone(), None)?;
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let hold_kernel = Arc::clone(&kernel);
+    let hold_entered = Arc::clone(&entered);
+    let hold_release = Arc::clone(&release);
+    let hold = std::thread::spawn(move || {
+        hold_kernel.execute(KernelCommand::TestHoldCoordinator(Box::new((
+            hold_entered,
+            hold_release,
+        ))))
+    });
+    entered.wait();
+
+    let mut queued = Vec::with_capacity(COMMAND_CAPACITY);
+    for index in 0..COMMAND_CAPACITY {
+        let queued_kernel = Arc::clone(&kernel);
+        queued.push(std::thread::spawn(move || {
+            queued_kernel.execute(KernelCommand::SetManifold(
+                Manifold::ALL[index % Manifold::ALL.len()],
+            ))
+        }));
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while kernel.metrics().commands_pending < COMMAND_CAPACITY as u64 {
+        if Instant::now() >= deadline {
+            release.wait();
+            return Err("command queue did not reach its bounded capacity".into());
+        }
+        std::thread::yield_now();
+    }
+    assert!(matches!(
+        kernel.execute(KernelCommand::SetManifold(Manifold::Hybrid)),
+        Err(KernelError::CommandQueueFull)
+    ));
+    assert_eq!(
+        kernel.metrics().command_queue_high_water,
+        COMMAND_CAPACITY as u64 + 1
+    );
+    release.wait();
+    hold.join().map_err(|_| "hold command panicked")??;
+    for command in queued {
+        command.join().map_err(|_| "queued command panicked")??;
+    }
+    assert_eq!(kernel.metrics().commands_pending, 0);
+    assert!(kernel.metrics().commands_rejected >= 1);
+    kernel.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
 fn path() -> PathBuf {
     let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir()
@@ -41,6 +98,23 @@ fn path() -> PathBuf {
             std::process::id()
         ))
         .join("workspace.json")
+}
+
+#[test]
+fn analysis_generation_never_regresses_behind_persisted_authority() {
+    assert_eq!(
+        scene_rebuild::next_analysis_generation(2, 2, None).unwrap(),
+        3
+    );
+    assert_eq!(
+        scene_rebuild::next_analysis_generation(7, 2, Some(11)).unwrap(),
+        12
+    );
+    assert_eq!(
+        scene_rebuild::next_analysis_generation(19, 2, Some(11)).unwrap(),
+        19
+    );
+    assert!(scene_rebuild::next_analysis_generation(1, u64::MAX, None).is_err());
 }
 
 fn test_ner_batch(
@@ -620,7 +694,7 @@ fn ner_publication_rejects_duplicate_and_stale_batches() -> Result<(), Box<dyn s
 }
 
 #[test]
-fn production_publication_is_atomic_monotonic_and_restart_durable(
+fn test_only_backend_publication_cannot_become_restart_authority(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = path();
     let kernel = PhoenixKernel::start_production(path.clone())?;
@@ -695,17 +769,10 @@ fn production_publication_is_atomic_monotonic_and_restart_durable(
     kernel.shutdown()?;
     drop(kernel);
 
-    let reopened = PhoenixKernel::start_production(path.clone())?;
-    let reopened_snapshot = reopened.snapshot()?;
-    assert_eq!(reopened_snapshot.scene_publication, Some(full_receipt));
-    assert_eq!(
-        reopened_snapshot
-            .resident_scene
-            .as_ref()
-            .map(|scene| scene.source()),
-        Some(phoenix_scene_contract::SceneSource::Backend)
-    );
-    reopened.shutdown()?;
+    assert!(matches!(
+        PhoenixKernel::start_production(path.clone()),
+        Err(KernelError::MissingV2CompilerAuthority)
+    ));
     let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);
     Ok(())
@@ -753,18 +820,32 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
         KernelOutcome::GraphRebuilt(receipt) => receipt,
         other => return Err(format!("unexpected rebuild outcome: {other:?}").into()),
     };
-    assert_eq!(receipt.compile.node_count, 7);
-    assert_eq!(receipt.compile.edge_count, 7);
+    assert_eq!(receipt.compile.node_count, 9);
+    assert_eq!(receipt.compile.edge_count, 8);
     assert_eq!(receipt.compile.verified_mentions, 2);
     assert_eq!(receipt.publication.kind, ScenePublicationKind::Full);
-    assert_eq!(receipt.publication.node_count, 7);
-    assert_eq!(receipt.publication.edge_count, 7);
+    assert_eq!(receipt.publication.node_count, 9);
+    assert_eq!(receipt.publication.edge_count, 8);
 
     let snapshot = kernel.snapshot()?;
+    assert_eq!(snapshot.graph_view.surface, GraphSurface::Atlas);
+    assert_eq!(snapshot.graph_view.lens, GraphLens::Structure);
+    let generation_hash = snapshot
+        .graph_generation_v2
+        .as_deref()
+        .ok_or("V2 graph generation missing")?
+        .header()
+        .generation_hash;
+    let review_authority = snapshot
+        .review_catalog_v2
+        .as_deref()
+        .ok_or("V2 review catalog missing")?
+        .authority();
+    assert_eq!(review_authority.source_generation_hash, generation_hash);
     let scene = snapshot.resident_scene.as_ref().ok_or("scene missing")?;
     assert_eq!(scene.source(), phoenix_scene_contract::SceneSource::Backend);
-    assert_eq!(scene.inventory().node_count, 7);
-    assert_eq!(scene.inventory().edge_count, 7);
+    assert_eq!(scene.inventory().node_count, 9);
+    assert_eq!(scene.inventory().edge_count, 8);
     let anchors = snapshot
         .document_anchors
         .as_ref()
@@ -788,6 +869,8 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
 
     let reopened = PhoenixKernel::start_production(path.clone())?;
     let reopened_snapshot = reopened.snapshot()?;
+    assert_eq!(reopened_snapshot.graph_view.surface, GraphSurface::Atlas);
+    assert_eq!(reopened_snapshot.graph_view.lens, GraphLens::Structure);
     assert_eq!(
         reopened_snapshot.scene_publication,
         Some(receipt.publication)
@@ -798,6 +881,20 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
             .as_ref()
             .map(|scene| scene.source()),
         Some(phoenix_scene_contract::SceneSource::Backend)
+    );
+    assert_eq!(
+        reopened_snapshot
+            .graph_generation_v2
+            .as_deref()
+            .map(|generation| generation.header().generation_hash),
+        Some(generation_hash)
+    );
+    assert_eq!(
+        reopened_snapshot
+            .review_catalog_v2
+            .as_deref()
+            .map(|catalog| catalog.authority()),
+        Some(review_authority)
     );
     reopened.shutdown()?;
     let parent = path.parent().ok_or("test path has no parent")?;
@@ -922,10 +1019,6 @@ fn native_release_manifest_freezes_exact_authority_and_fails_closed_on_corruptio
     })))?;
     kernel.rebuild_active_scene()?;
 
-    assert!(matches!(
-        kernel.release_manifest(),
-        Err(ReleaseLockError::Missing("packed graph generation"))
-    ));
     let snapshot = kernel.snapshot()?;
     let lease = snapshot
         .active_document_lease
@@ -934,6 +1027,10 @@ fn native_release_manifest_freezes_exact_authority_and_fails_closed_on_corruptio
     let control = kernel.atlas_control_snapshot()?;
     let run = control.last_run.ok_or("release run missing")?;
     let scene = snapshot.resident_scene.as_deref().ok_or("scene missing")?;
+    assert!(matches!(
+        kernel.release_manifest(),
+        Err(ReleaseLockError::Missing("production analysis generation"))
+    ));
     let digest = ReleaseCohortDigestsV1 {
         document_structure: [1; 32],
         entity_mentions_evidence: [2; 32],
@@ -1030,6 +1127,41 @@ fn native_release_manifest_freezes_exact_authority_and_fails_closed_on_corruptio
 }
 
 #[test]
+fn production_graph_architecture_excludes_legacy_and_json_freight() {
+    let root_manifest = include_str!("../../../Cargo.toml");
+    let app_core_manifest = include_str!("../Cargo.toml");
+    let compiler_manifest = include_str!("../../phoenix-scene-compiler/Cargo.toml");
+    let shell_manifest = include_str!("../../../apps/phoenix-shell-proof/Cargo.toml");
+    let shell_main = include_str!("../../../apps/phoenix-shell-proof/src/main.rs");
+    let legacy_manifest = include_str!("../../../apps/phoenix-legacy-bridge/Cargo.toml");
+
+    let default_members = manifest_section(root_manifest, "default-members");
+    assert!(!default_members.contains("phoenix-graph-generation\""));
+    assert!(!default_members.contains("phoenix-legacy-bridge"));
+    assert!(root_manifest.contains("exclude = [\"apps/phoenix-legacy-bridge\"]"));
+    assert!(!app_core_manifest.contains("phoenix-graph-generation ="));
+    assert!(!app_core_manifest.contains("serde_json"));
+    assert!(compiler_manifest.contains("default = []"));
+    assert!(compiler_manifest.contains("legacy-v1-fixture = [\"dep:phoenix-graph-generation\"]"));
+    assert!(shell_manifest.contains("legacy-graph-adapter = []"));
+    assert!(shell_main.contains("PHOENIX_LEGACY_GRAPH_ADAPTER_FORBIDDEN"));
+    assert!(legacy_manifest.contains("[workspace]"));
+    assert_eq!(PRODUCTION_GRAPH_AUTHORITY, "PhoenixGraphGenerationV2");
+    assert_eq!(PRODUCTION_FALLBACK_COUNT, 0);
+    assert_eq!(PRODUCTION_JSON_GRAPH_FREIGHT, 0);
+    assert_eq!(PRODUCTION_RESIDENT_GENERATION_COUNT, 1);
+}
+
+fn manifest_section<'a>(manifest: &'a str, name: &str) -> &'a str {
+    let start = manifest
+        .find(&format!("{name} = ["))
+        .expect("manifest section must exist");
+    let tail = &manifest[start..];
+    let end = tail.find("]\n").expect("manifest section must terminate");
+    &tail[..end + 2]
+}
+
+#[test]
 fn explicit_publication_root_remains_a_writable_production_authority(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = path();
@@ -1078,6 +1210,48 @@ fn explicit_publication_root_remains_a_writable_production_authority(
         Some(generation)
     );
     reopened.shutdown()?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn corrupt_v2_compiler_authority_fails_closed_on_restart() -> Result<(), Box<dyn std::error::Error>>
+{
+    let path = path();
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let kernel = PhoenixKernel::start_production(path.clone())?;
+    let lease = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("initial lease missing")?;
+    kernel.execute(KernelCommand::TagSelection(Box::new(EntityTagCommand {
+        lease: lease.token(),
+        content: Arc::from("Ryan entered New Rome."),
+        tag: EntityTag {
+            kind: EntityKind::Character,
+            custom_kind: None,
+            start: 0,
+            end: 4,
+            surface: "Ryan".into(),
+        },
+    })))?;
+    let generation = match kernel.rebuild_active_scene()?.outcome {
+        KernelOutcome::GraphRebuilt(receipt) => receipt.publication.generation_id,
+        other => return Err(format!("unexpected rebuild outcome: {other:?}").into()),
+    };
+    kernel.shutdown()?;
+    drop(kernel);
+
+    let marker = parent
+        .join("scene-publications-v1")
+        .join(format!("generation-{generation:020}.phxcav2"));
+    let mut bytes = std::fs::read(&marker)?;
+    bytes[40] ^= 0x80;
+    std::fs::write(&marker, bytes)?;
+    assert!(matches!(
+        PhoenixKernel::start_production(path.clone()),
+        Err(KernelError::InvalidV2CompilerAuthority)
+    ));
     let _ = std::fs::remove_dir_all(parent);
     Ok(())
 }

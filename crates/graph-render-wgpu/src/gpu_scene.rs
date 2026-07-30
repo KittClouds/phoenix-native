@@ -8,7 +8,7 @@ use crate::interaction_index::InteractionIndex;
 use crate::{EdgeProductGpu, NodeProductGpu, RenderError, SceneChanges, SceneState};
 use graph_model::{EdgeId, GraphDiff, GraphRevision, GraphSnapshot, NodeId};
 use phoenix_scene_archive::{ManifoldPageSet, PositionRecord};
-use phoenix_scene_contract::GraphReviewOverride;
+use phoenix_scene_contract::{GraphReviewOverride, GraphViewState};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
 use std::time::Instant;
@@ -168,6 +168,17 @@ impl GpuScene {
     #[must_use]
     pub fn selected_node(&self) -> Option<NodeId> {
         self.selected_node
+    }
+
+    #[must_use]
+    pub fn node_visible_in_view(&self, slot: usize, view: GraphViewState) -> bool {
+        if self.bound_product_hash.is_none() {
+            return true;
+        }
+        let Some(product) = self.node_product_data.get(slot) else {
+            return false;
+        };
+        node_product_visible(product, view)
     }
 
     #[must_use]
@@ -861,5 +872,88 @@ impl GpuScene {
             };
         }
         Ok(())
+    }
+}
+
+fn packed_mask(words: [u32; 2]) -> u64 {
+    u64::from(words[0]) | (u64::from(words[1]) << 32)
+}
+
+fn node_product_visible(product: &NodeProductGpu, view: GraphViewState) -> bool {
+    product.enabled != 0
+        && packed_mask(product.family_mask) & view.family_mask().0 != 0
+        && packed_mask(product.scope_mask) & view.scope_mask().0 != 0
+        && product.review_mask & view.reviews.0 != 0
+}
+
+#[cfg(test)]
+fn edge_product_visible(
+    product: &EdgeProductGpu,
+    source: Option<&NodeProductGpu>,
+    target: Option<&NodeProductGpu>,
+    view: GraphViewState,
+) -> bool {
+    let Some((source, target)) = source.zip(target) else {
+        return false;
+    };
+    product.enabled != 0
+        && packed_mask(product.family_mask) & view.family_mask().0 != 0
+        && packed_mask(product.scope_mask) & view.scope_mask().0 != 0
+        && packed_mask(product.relation_mask) & view.relations.0 != 0
+        && product.review_mask & view.reviews.0 != 0
+        && node_product_visible(source, view)
+        && node_product_visible(target, view)
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+    use phoenix_scene_contract::{
+        FamilyMask, GraphLens, GraphSurface, RelationFamily, ReviewMask, ScopeMask,
+    };
+
+    const fn node(family: FamilyMask) -> NodeProductGpu {
+        NodeProductGpu {
+            family_mask: [family.0 as u32, (family.0 >> 32) as u32],
+            scope_mask: [ScopeMask::ALL.0 as u32, (ScopeMask::ALL.0 >> 32) as u32],
+            review_mask: ReviewMask::ACCEPTED.0,
+            enabled: 1,
+            _padding: [0; 2],
+        }
+    }
+
+    const EDGE: EdgeProductGpu = EdgeProductGpu {
+        family_mask: [(FamilyMask::STRUCTURE.0 | FamilyMask::ENTITIES.0) as u32, 0],
+        scope_mask: [u32::MAX; 2],
+        relation_mask: [RelationFamily::Observation.mask().0 as u32, 0],
+        review_mask: ReviewMask::ACCEPTED.0,
+        enabled: 1,
+    };
+
+    #[test]
+    fn entities_lens_rejects_edge_to_hidden_evidence_endpoint() {
+        let view = GraphViewState::default();
+        assert_eq!(view.surface, GraphSurface::Entities);
+        assert!(!edge_product_visible(
+            &EDGE,
+            Some(&node(FamilyMask::STRUCTURE)),
+            Some(&node(FamilyMask::ENTITIES)),
+            view,
+        ));
+    }
+
+    #[test]
+    fn structure_lens_keeps_edge_when_both_endpoints_are_structure() {
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            lens: GraphLens::Structure,
+            ..GraphViewState::default()
+        };
+        assert!(edge_product_visible(
+            &EDGE,
+            Some(&node(FamilyMask::STRUCTURE)),
+            Some(&node(FamilyMask::STRUCTURE)),
+            view,
+        ));
     }
 }

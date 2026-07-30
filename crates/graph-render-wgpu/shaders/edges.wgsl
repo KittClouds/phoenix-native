@@ -37,6 +37,14 @@ struct EdgeProductGpu {
     enabled: u32,
 };
 
+struct NodeProductGpu {
+    family_mask: vec2<u32>,
+    scope_mask: vec2<u32>,
+    review_mask: u32,
+    enabled: u32,
+    _padding: vec2<u32>,
+};
+
 struct GraphLensUniform {
     family_mask: vec2<u32>,
     scope_mask: vec2<u32>,
@@ -49,6 +57,7 @@ struct GraphLensUniform {
 @group(1) @binding(0) var<storage, read> nodes: array<NodeGpu>;
 @group(2) @binding(0) var<storage, read> edges: array<EdgeGpu>;
 @group(3) @binding(0) var<uniform> lens: GraphLensUniform;
+@group(3) @binding(1) var<storage, read> node_products: array<NodeProductGpu>;
 @group(3) @binding(2) var<storage, read> edge_products: array<EdgeProductGpu>;
 
 struct VertexOutput {
@@ -70,7 +79,14 @@ fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
     return ((left.x & right.x) | (left.y & right.y)) != 0u;
 }
 
-fn edge_visible(product: EdgeProductGpu) -> bool {
+fn node_visible(product: NodeProductGpu) -> bool {
+    return product.enabled != 0u
+        && intersects(product.family_mask, lens.family_mask)
+        && intersects(product.scope_mask, lens.scope_mask)
+        && (product.review_mask & lens.review_mask) != 0u;
+}
+
+fn edge_visible(edge: EdgeGpu, product: EdgeProductGpu) -> bool {
     if (lens.product_index_enabled == 0u) {
         return true;
     }
@@ -78,7 +94,9 @@ fn edge_visible(product: EdgeProductGpu) -> bool {
         && intersects(product.family_mask, lens.family_mask)
         && intersects(product.scope_mask, lens.scope_mask)
         && intersects(product.relation_mask, lens.relation_mask)
-        && (product.review_mask & lens.review_mask) != 0u;
+        && (product.review_mask & lens.review_mask) != 0u
+        && node_visible(node_products[edge.source_slot])
+        && node_visible(node_products[edge.target_slot]);
 }
 
 @vertex
@@ -87,7 +105,7 @@ fn vs_main(
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
     let edge = edges[instance_index];
-    let is_visible = edge_visible(edge_products[instance_index]);
+    let is_visible = edge_visible(edge, edge_products[instance_index]);
     let source_clip = camera.view_proj
         * vec4<f32>(nodes[edge.source_slot].position_radius.xyz, 1.0);
     let target_clip = camera.view_proj

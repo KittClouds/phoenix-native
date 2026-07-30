@@ -45,6 +45,8 @@ pub enum KernelCommand {
     SetHighlightPalette(Box<HighlightPalette>),
     SetGraphSelection(GraphSelectionCommand),
     SelectAtlasCandidate(AtlasCandidateId),
+    #[cfg(test)]
+    TestHoldCoordinator(Box<(Arc<std::sync::Barrier>, Arc<std::sync::Barrier>)>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

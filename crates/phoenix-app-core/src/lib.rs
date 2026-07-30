@@ -11,12 +11,14 @@ mod graph_view;
 mod metrics;
 mod protocol;
 mod release_lock;
+mod scene_authority_v2;
+mod scene_compiler_authority;
 mod scene_publication;
 mod scene_rebuild;
 mod state;
 
 pub use analysis::{
-    AnalysisPublicationReceipt, AnalysisRuntimeInfo, LegacyAnalysisAdapterConfig, NliPublication,
+    AnalysisPublicationReceipt, AnalysisRuntimeInfo, NativeProducerRuntimeConfig, NliPublication,
 };
 pub use atlas::{AtlasEntity, AtlasRegistry, NerEntityBatch};
 pub use atlas_control::{
@@ -36,7 +38,8 @@ pub use atlas_run::{
 };
 pub use metrics::KernelMetrics;
 pub use phoenix_scene_compiler::{
-    NativeSceneCompileReceipt, NativeSceneCompilerError, NATIVE_SCENE_COMPILER_CONTRACT,
+    NativeSceneCompileReceiptV2 as NativeSceneCompileReceipt, NativeSceneCompilerError,
+    NATIVE_SCENE_COMPILER_V2_CONTRACT as NATIVE_SCENE_COMPILER_CONTRACT,
 };
 pub use phoenix_scene_publisher::{
     NativeScenePublication, SceneEdgeProduct, SceneNodeProduct, ScenePublicationKind,
@@ -55,7 +58,7 @@ use phoenix_analysis_contract::{
     AnalysisContractError, PhoenixDocumentAnalysisV1, PhoenixNliArtifactV1,
     PhoenixProducerCoordinatorV1, PhoenixStructuralSubstrateV1,
 };
-use phoenix_graph_generation::{GraphGenerationError, VerifiedGraphGeneration};
+use phoenix_graph_generation_v2::{GraphGenerationV2Error, VerifiedGraphGenerationV2};
 use phoenix_scene_contract::{
     DocumentId, GraphAction, GraphGeneration, GraphViewState, HighlightContractError,
     HighlightPalette, Manifold, ResidentScene, RuntimeCapabilities, SceneContractError, StyleState,
@@ -63,6 +66,7 @@ use phoenix_scene_contract::{
 };
 use phoenix_scene_product_index::{PhoenixSceneProductIndexV1, ProductIndexError};
 use phoenix_scene_publisher::{ScenePublicationError, ScenePublicationStore};
+use phoenix_semantic_review::{ReviewCatalog, SemanticReviewError};
 use phoenix_workspace::{
     load_highlight_palette_or_default, open_document, ContentHash, DocumentLease,
     DocumentLeaseToken, DocumentRevision, EntityRegistry, EntryId, EntryKind, WorkspaceDocument,
@@ -79,6 +83,10 @@ use thiserror::Error;
 
 pub const COMMAND_CAPACITY: usize = 64;
 pub const EVENT_CAPACITY: usize = 256;
+pub const PRODUCTION_GRAPH_AUTHORITY: &str = "PhoenixGraphGenerationV2";
+pub const PRODUCTION_FALLBACK_COUNT: u64 = 0;
+pub const PRODUCTION_JSON_GRAPH_FREIGHT: u64 = 0;
+pub const PRODUCTION_RESIDENT_GENERATION_COUNT: u8 = 1;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug)]
@@ -94,7 +102,8 @@ pub struct KernelSnapshot {
     pub structural_analysis: Option<Arc<PhoenixStructuralSubstrateV1>>,
     pub nli_analysis: Option<Arc<PhoenixNliArtifactV1>>,
     pub producer_coordinator: Option<Arc<PhoenixProducerCoordinatorV1>>,
-    pub graph_generation: Option<Arc<VerifiedGraphGeneration>>,
+    pub graph_generation_v2: Option<Arc<VerifiedGraphGenerationV2>>,
+    pub review_catalog_v2: Option<Arc<ReviewCatalog>>,
     pub analysis_publication: Option<AnalysisPublicationReceipt>,
     pub resident_scene: Option<Arc<ResidentScene>>,
     pub scene_product_index: Option<Arc<PhoenixSceneProductIndexV1>>,
@@ -150,6 +159,12 @@ pub enum KernelError {
     BackendPublicationMustBeFull,
     #[error("compiled scene publication metadata does not match its archive generation")]
     CompiledPublicationMismatch,
+    #[error("the selected full scene has no verified V2 compiler authority")]
+    MissingV2CompilerAuthority,
+    #[error("the V2 compiler authority sidecar is corrupt or mismatched")]
+    InvalidV2CompilerAuthority,
+    #[error("V2 compiler authority I/O failed: {0}")]
+    V2CompilerAuthorityIo(String),
     #[error(
         "scene publication registry revision {publication} does not match current revision {current}"
     )]
@@ -172,9 +187,9 @@ pub enum KernelError {
         "document analysis authority does not match the active document, generation, or registry"
     )]
     AnalysisAuthorityMismatch,
-    #[error("legacy Rust analysis adapter is not configured: {0}")]
+    #[error("native producer runtime is not configured: {0}")]
     AnalysisProducerUnavailable(&'static str),
-    #[error("legacy Rust analysis adapter failed: {0}")]
+    #[error("native producer runtime failed: {0}")]
     AnalysisProducerFailed(String),
     #[error("semantic producer coordinator was cancelled")]
     AnalysisProducerCancelled,
@@ -187,7 +202,15 @@ pub enum KernelError {
     #[error(transparent)]
     AnalysisContract(#[from] AnalysisContractError),
     #[error(transparent)]
-    GraphGeneration(#[from] GraphGenerationError),
+    GraphGenerationV2(#[from] GraphGenerationV2Error),
+    #[error(transparent)]
+    DocumentProducer(#[from] phoenix_document_producer::DocumentProducerError),
+    #[error(transparent)]
+    EntityProducer(#[from] phoenix_entity_producer::EntityProducerError),
+    #[error(transparent)]
+    StoryProducer(#[from] phoenix_story_producer::StoryProducerError),
+    #[error(transparent)]
+    SemanticReview(#[from] SemanticReviewError),
     #[error("graph node {0} is absent from the resident scene product index")]
     GraphNodeNotFound(u64),
     #[error(transparent)]
@@ -218,7 +241,8 @@ struct KernelState {
     structural_analysis: Option<Arc<PhoenixStructuralSubstrateV1>>,
     nli_analysis: Option<Arc<PhoenixNliArtifactV1>>,
     producer_coordinator: Option<Arc<PhoenixProducerCoordinatorV1>>,
-    graph_generation: Option<Arc<VerifiedGraphGeneration>>,
+    graph_generation_v2: Option<Arc<VerifiedGraphGenerationV2>>,
+    review_catalog_v2: Option<Arc<ReviewCatalog>>,
     analysis_publication: Option<AnalysisPublicationReceipt>,
     resident_scene: Option<Arc<ResidentScene>>,
     scene_product_index: Option<Arc<PhoenixSceneProductIndexV1>>,
@@ -320,9 +344,8 @@ impl PhoenixKernel {
                     .entry(*id)
                     .is_some_and(|entry| entry.kind == EntryKind::Note)
             });
-        let active_entry = workspace
-            .active_entry()
-            .or(published_document)
+        let active_entry = published_document
+            .or(workspace.active_entry())
             .or_else(|| workspace.first_note())
             .unwrap_or(ROOT_ID);
         let active_document = active_document(&workspace, active_entry);
@@ -350,16 +373,34 @@ impl PhoenixKernel {
             initial_scene = Some(published.scene);
             initial_product_index = Some(published.product_index);
         }
+        let restored_v2 = match (
+            publisher.as_deref(),
+            scene_publication.filter(|receipt| receipt.kind == ScenePublicationKind::Full),
+        ) {
+            (Some(publisher), Some(receipt)) => {
+                let source_hash = scene_compiler_authority::verify(publisher, receipt)?;
+                Some(scene_authority_v2::open_exact(
+                    &workspace_path,
+                    receipt
+                        .document_id
+                        .ok_or(KernelError::InvalidV2CompilerAuthority)?,
+                    receipt.registry_revision,
+                    source_hash,
+                )?)
+            }
+            _ => None,
+        };
         let restored_atlas_run = atlas_run::restore_matching(
             &workspace_path,
             scene_publication,
             active_document_lease.as_deref(),
         )?;
-        let graph_view = initial_scene
+        let mut graph_view = initial_scene
             .as_ref()
             .map(|scene| scene.graph_view_state(initial_product_index.as_deref()))
             .transpose()?
             .unwrap_or_default();
+        scene_publication::configure_restored_graph_view(&mut graph_view, scene_publication);
         let document_anchors = match (restored_analysis.as_ref(), active_document_lease.as_deref())
         {
             (Some(restored), Some(lease)) => Some(Arc::new(analysis::verified_analysis_anchors(
@@ -389,9 +430,12 @@ impl PhoenixKernel {
             producer_coordinator: restored_analysis
                 .as_ref()
                 .map(|restored| Arc::clone(&restored.coordinator)),
-            graph_generation: restored_analysis
+            graph_generation_v2: restored_v2
                 .as_ref()
-                .map(|restored| Arc::clone(&restored.graph_generation)),
+                .map(|authority| Arc::clone(&authority.generation)),
+            review_catalog_v2: restored_v2
+                .as_ref()
+                .map(|authority| Arc::clone(&authority.catalog)),
             analysis_publication: restored_analysis.map(|restored| restored.receipt),
             resident_scene: initial_scene,
             scene_product_index: initial_product_index,
@@ -451,7 +495,8 @@ impl PhoenixKernel {
             structural_analysis: state.structural_analysis.as_ref().map(Arc::clone),
             nli_analysis: state.nli_analysis.as_ref().map(Arc::clone),
             producer_coordinator: state.producer_coordinator.as_ref().map(Arc::clone),
-            graph_generation: state.graph_generation.as_ref().map(Arc::clone),
+            graph_generation_v2: state.graph_generation_v2.as_ref().map(Arc::clone),
+            review_catalog_v2: state.review_catalog_v2.as_ref().map(Arc::clone),
             analysis_publication: state.analysis_publication,
             resident_scene: state.resident_scene.as_ref().map(Arc::clone),
             scene_product_index: state.scene_product_index.as_ref().map(Arc::clone),
@@ -710,6 +755,12 @@ fn apply_command(
         KernelCommand::SelectAtlasCandidate(candidate_id) => {
             graph_selection::select_candidate(shared, sequence, candidate_id)
         }
+        #[cfg(test)]
+        KernelCommand::TestHoldCoordinator(barriers) => {
+            barriers.0.wait();
+            barriers.1.wait();
+            graph_view::set_manifold(shared, sequence, Manifold::Hybrid)
+        }
     }
 }
 
@@ -747,6 +798,17 @@ fn select_entry(
         active_document_lease.as_deref(),
         entity_registry.revision(),
     )?;
+    let restored_v2 = match (restored_analysis.as_ref(), active_document_lease.as_deref()) {
+        (Some(restored), Some(lease)) => Some(scene_authority_v2::produce(
+            &shared.workspace_path,
+            lease,
+            &entity_registry,
+            &restored.analysis,
+            &restored.structural,
+            &restored.coordinator,
+        )?),
+        _ => None,
+    };
     let document_anchors = match (restored_analysis.as_ref(), active_document_lease.as_deref()) {
         (Some(restored), Some(lease)) => Some(Arc::new(analysis::verified_analysis_anchors(
             &restored.analysis.ner,
@@ -777,9 +839,12 @@ fn select_entry(
     state.producer_coordinator = restored_analysis
         .as_ref()
         .map(|restored| Arc::clone(&restored.coordinator));
-    state.graph_generation = restored_analysis
+    state.graph_generation_v2 = restored_v2
         .as_ref()
-        .map(|restored| Arc::clone(&restored.graph_generation));
+        .map(|authority| Arc::clone(&authority.generation));
+    state.review_catalog_v2 = restored_v2
+        .as_ref()
+        .map(|authority| Arc::clone(&authority.catalog));
     state.analysis_publication = restored_analysis.map(|restored| restored.receipt);
     state.revision = checked_revision(state.revision)?;
     let revision = state.revision;

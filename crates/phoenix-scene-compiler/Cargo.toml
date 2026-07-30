@@ -6,25 +6,41 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+default = []
+legacy-v1-fixture = ["dep:phoenix-graph-generation"]
+
 [dependencies]
 blake3.workspace = true
+bytemuck.workspace = true
 glam.workspace = true
 hashbrown.workspace = true
 memchr.workspace = true
 phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
-phoenix-graph-generation = { path = "../phoenix-graph-generation" }
+phoenix-graph-generation = { path = "../phoenix-graph-generation", optional = true }
+phoenix-graph-generation-v2 = { path = "../phoenix-graph-generation-v2" }
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }
 phoenix-scene-publisher = { path = "../phoenix-scene-publisher" }
+phoenix-semantic-lens = { path = "../phoenix-semantic-lens" }
+phoenix-semantic-review = { path = "../phoenix-semantic-review" }
 phoenix-workspace = { path = "../phoenix-workspace" }
 smallvec.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+phoenix-graph-generation = { path = "../phoenix-graph-generation" }
+
 [[bench]]
 name = "active_document_compile"
 harness = false
+required-features = ["legacy-v1-fixture"]
 
 [[bench]]
 name = "caps_layout"
 harness = false
+
+[[example]]
+name = "build_visual_fixture"
+required-features = ["legacy-v1-fixture"]

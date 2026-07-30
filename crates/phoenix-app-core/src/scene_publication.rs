@@ -3,6 +3,7 @@ use phoenix_scene_archive::{
     EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PositionRecord, TopologyRecord,
 };
 use phoenix_scene_contract::{EntityFamily, SceneSource};
+use phoenix_scene_contract::{GraphLens, GraphSurface, GraphViewState};
 use phoenix_scene_product_index::{EntityNodeMappingRecord, ProductReferenceRecord};
 use phoenix_scene_publisher::{
     NativeScenePublication, PublishedScene, SceneEdgeProduct, SceneNodeProduct,
@@ -13,6 +14,35 @@ const REGISTRY_SCOPE: u64 = 1;
 const REVIEW_ACCEPTED: u32 = 1;
 const NO_REFERENCE: u32 = u32::MAX;
 
+pub(super) fn configure_restored_graph_view(
+    view: &mut GraphViewState,
+    receipt: Option<ScenePublicationReceipt>,
+) {
+    if receipt.is_some_and(|receipt| receipt.kind == ScenePublicationKind::Full) {
+        view.surface = GraphSurface::Atlas;
+        view.lens = GraphLens::Structure;
+    }
+}
+
+fn reconcile_published_graph_view(
+    previous: GraphViewState,
+    previous_was_full: bool,
+    mut published: GraphViewState,
+) -> GraphViewState {
+    published.manifold = previous.manifold;
+    if previous_was_full {
+        published.surface = previous.surface;
+        published.lens = previous.lens;
+        published.scope = previous.scope;
+        published.reviews = previous.reviews;
+        published.relations = previous.relations;
+    } else {
+        published.surface = GraphSurface::Atlas;
+        published.lens = GraphLens::Structure;
+    }
+    published
+}
+
 pub(super) fn initial_production_scene(
     publisher: &ScenePublicationStore,
     atlas: &AtlasRegistry,
@@ -20,6 +50,7 @@ pub(super) fn initial_production_scene(
 ) -> Result<PublishedScene, KernelError> {
     if let Some(current) = publisher.open_current()? {
         if current.receipt.kind == ScenePublicationKind::Full {
+            scene_compiler_authority::verify(publisher, current.receipt)?;
             return Ok(current);
         }
         if current.receipt.registry_revision == atlas.registry_revision {
@@ -75,7 +106,8 @@ pub(super) fn publish_full_scene(
         shared,
         command.publication,
         command.anchors,
-        command.graph_generation,
+        command.source_generation_v2,
+        command.review_catalog_v2,
     )?;
     let (event, outcome) = if let Some(compile) = compile_receipt {
         let run_id = command
@@ -111,13 +143,21 @@ pub(super) fn publish_full_scene(
 
 fn validate_compiled_metadata(command: &NativeScenePublishCommand) -> Result<(), KernelError> {
     let Some(compile) = command.compile_receipt else {
-        if command.anchors.is_some()
-            || command.run_id.is_some()
-            || command.graph_generation.is_some()
+        #[cfg(not(test))]
         {
-            return Err(KernelError::CompiledPublicationMismatch);
+            return Err(KernelError::MissingV2CompilerAuthority);
         }
-        return Ok(());
+        #[cfg(test)]
+        {
+            if command.anchors.is_some()
+                || command.run_id.is_some()
+                || command.source_generation_v2.is_some()
+                || command.review_catalog_v2.is_some()
+            {
+                return Err(KernelError::CompiledPublicationMismatch);
+            }
+            return Ok(());
+        }
     };
     let generation = command.publication.generation_id;
     if command.run_id.is_none_or(|run_id| run_id == 0) {
@@ -127,7 +167,7 @@ fn validate_compiled_metadata(command: &NativeScenePublishCommand) -> Result<(),
         .anchors
         .as_ref()
         .ok_or(KernelError::CompiledPublicationMismatch)?;
-    if compile.generation_id != generation
+    if compile.scene_generation_id != generation
         || compile.registry_revision != command.publication.registry_revision
         || command.publication.document_id != Some(compile.document_id)
         || anchors.document() != DocumentId(compile.document_id)
@@ -137,13 +177,27 @@ fn validate_compiled_metadata(command: &NativeScenePublishCommand) -> Result<(),
     {
         return Err(KernelError::CompiledPublicationMismatch);
     }
-    if let Some(graph_generation) = command.graph_generation.as_ref() {
-        graph_generation.verify_binding(
-            compile.document_id,
-            compile.document_revision,
-            compile.content_hash,
-            compile.registry_revision,
-        )?;
+    let source = command
+        .source_generation_v2
+        .as_ref()
+        .ok_or(KernelError::CompiledPublicationMismatch)?;
+    let catalog = command
+        .review_catalog_v2
+        .as_ref()
+        .ok_or(KernelError::CompiledPublicationMismatch)?;
+    let catalog_authority = catalog.authority();
+    if source.header().generation_hash != compile.source_generation_hash
+        || source.header().native_document_id != compile.document_id
+        || source.header().document_revision != compile.document_revision
+        || source.header().content_hash != compile.content_hash
+        || source.header().registry_revision != compile.registry_revision
+        || catalog_authority.document_hash != compile.content_hash
+        || catalog_authority.native_document_id != compile.document_id
+        || catalog_authority.document_revision != compile.document_revision
+        || catalog_authority.registry_revision != compile.registry_revision
+        || catalog_authority.producer_generation != source.header().producer_generation
+    {
+        return Err(KernelError::CompiledPublicationMismatch);
     }
     Ok(())
 }
@@ -153,10 +207,14 @@ pub(super) fn install_published_scene_state(
     published: PublishedScene,
 ) -> Result<ScenePublicationReceipt, KernelError> {
     let previous_view = state.graph_view;
-    let mut graph_view = published
+    let previous_was_full = state
+        .scene_publication
+        .is_some_and(|receipt| receipt.kind == ScenePublicationKind::Full);
+    let published_view = published
         .scene
         .graph_view_state(Some(&published.product_index))?;
-    graph_view.manifold = previous_view.manifold;
+    let graph_view =
+        reconcile_published_graph_view(previous_view, previous_was_full, published_view);
     let receipt = published.receipt;
     state.resident_scene = Some(published.scene);
     state.scene_product_index = Some(published.product_index);
@@ -174,7 +232,8 @@ fn publish_and_install(
     shared: &KernelShared,
     publication: NativeScenePublication,
     anchors: Option<Arc<VerifiedDocumentAnchors>>,
-    graph_generation: Option<Arc<VerifiedGraphGeneration>>,
+    source_generation_v2: Option<Arc<VerifiedGraphGenerationV2>>,
+    review_catalog_v2: Option<Arc<ReviewCatalog>>,
 ) -> Result<(ScenePublicationReceipt, u64), KernelError> {
     if publication.kind != ScenePublicationKind::Full {
         return Err(KernelError::BackendPublicationMustBeFull);
@@ -212,6 +271,13 @@ fn publish_and_install(
         });
     }
     let published = publisher.publish(publication)?;
+    if let Some(source) = source_generation_v2.as_ref() {
+        scene_compiler_authority::write_new(
+            &publisher,
+            published.receipt,
+            source.header().generation_hash,
+        )?;
+    }
     let mut state = write_state(shared)?;
     if let Some(current) = state.scene_publication {
         if published.receipt.generation_id <= current.generation_id {
@@ -223,8 +289,9 @@ fn publish_and_install(
     }
     let publication_receipt = install_published_scene_state(&mut state, published)?;
     state.document_anchors = anchors;
-    if let Some(graph_generation) = graph_generation {
-        state.graph_generation = Some(graph_generation);
+    if let (Some(generation), Some(catalog)) = (source_generation_v2, review_catalog_v2) {
+        state.graph_generation_v2 = Some(generation);
+        state.review_catalog_v2 = Some(catalog);
     }
     {
         let ledger = shared
@@ -345,4 +412,42 @@ fn unit_coordinate(bytes: &[u8]) -> f32 {
     encoded.copy_from_slice(bytes);
     let raw = u32::from_le_bytes(encoded);
     (raw as f64 / u32::MAX as f64 * 2.0 - 1.0) as f32
+}
+
+#[cfg(test)]
+mod graph_view_contract_tests {
+    use super::*;
+    use phoenix_scene_contract::{GraphScope, Manifold, RelationMask, ReviewMask};
+
+    #[test]
+    fn registry_to_full_publication_opens_the_structural_atlas() {
+        let mut previous = GraphViewState::default();
+        previous.manifold = Manifold::Caps;
+
+        let reconciled = reconcile_published_graph_view(previous, false, GraphViewState::default());
+
+        assert_eq!(reconciled.surface, GraphSurface::Atlas);
+        assert_eq!(reconciled.lens, GraphLens::Structure);
+        assert_eq!(reconciled.manifold, Manifold::Caps);
+    }
+
+    #[test]
+    fn full_republication_preserves_the_active_visual_contract() {
+        let mut previous = GraphViewState::default();
+        previous.surface = GraphSurface::Atlas;
+        previous.lens = GraphLens::Facts;
+        previous.scope = GraphScope::Note;
+        previous.reviews = ReviewMask::PROPOSED;
+        previous.relations = RelationMask(0x24);
+        previous.manifold = Manifold::Siegel;
+
+        let reconciled = reconcile_published_graph_view(previous, true, GraphViewState::default());
+
+        assert_eq!(reconciled.surface, previous.surface);
+        assert_eq!(reconciled.lens, previous.lens);
+        assert_eq!(reconciled.scope, previous.scope);
+        assert_eq!(reconciled.reviews, previous.reviews);
+        assert_eq!(reconciled.relations, previous.relations);
+        assert_eq!(reconciled.manifold, previous.manifold);
+    }
 }

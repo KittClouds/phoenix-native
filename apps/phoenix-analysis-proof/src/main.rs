@@ -2,11 +2,13 @@ use anyhow::{bail, Context, Result};
 use phoenix_analysis_contract::{open_analysis_artifact, open_nli_artifact};
 use phoenix_app_core::{
     AtlasCapabilityCount, AtlasCapabilityState, AtlasRunReceiptV1, KernelCommand,
-    LegacyAnalysisAdapterConfig, PhoenixKernel,
+    NativeProducerRuntimeConfig, PhoenixKernel,
 };
 use phoenix_workspace::ContentHash;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+mod shadow_v2;
 
 fn main() -> Result<()> {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
@@ -39,23 +41,51 @@ fn main() -> Result<()> {
             Path::new(&args[3]),
             Path::new(&args[4]),
         ),
+        Some("shadow-v2-produce") if args.len() == 8 => shadow_v2::produce(
+            Path::new(&args[1]),
+            parse_entry_id(&args[2])?,
+            Path::new(&args[3]),
+            Path::new(&args[4]),
+            Path::new(&args[5]),
+            Path::new(&args[6]),
+            &args[7].to_string_lossy(),
+        ),
+        Some("shadow-v2-verify") if args.len() == 7 => shadow_v2::verify(
+            Path::new(&args[1]),
+            parse_entry_id(&args[2])?,
+            Path::new(&args[3]),
+            Path::new(&args[4]),
+            Path::new(&args[5]),
+            Path::new(&args[6]),
+        ),
         _ => bail!(
             "usage: phoenix-analysis-proof seed-and-publish <workspace> <publication-root> \
-             <document> <source-document-id> <bridge> <ner-model-root> <nli-model-root>\n\
+             <document> <source-document-id> <producer> <ner-model-root> <nli-model-root>\n\
              or: phoenix-analysis-proof verify <workspace> <publication-root> <blake3>\n\
              or: phoenix-analysis-proof run-pipeline <workspace> <publication-root> \
-             <source-document-id> <bridge> <ner-model-root> <nli-model-root>\n\
+             <source-document-id> <producer> <ner-model-root> <nli-model-root>\n\
              or: phoenix-analysis-proof compare-semantics \
-             <analysis-a> <nli-a> <analysis-b> <nli-b>"
+             <analysis-a> <nli-a> <analysis-b> <nli-b>\n\
+             or: phoenix-analysis-proof shadow-v2-produce <workspace> <entry-id> \
+             <analysis> <structural> <coordinator> <output-root> <run-label>\n\
+             or: phoenix-analysis-proof shadow-v2-verify <workspace> <entry-id> \
+             <analysis> <structural> <coordinator> <entity-generation>"
         ),
     }
+}
+
+fn parse_entry_id(value: &std::ffi::OsStr) -> Result<u64> {
+    value
+        .to_string_lossy()
+        .parse::<u64>()
+        .context("entry ID must be an unsigned integer")
 }
 
 fn run_pipeline(
     workspace_path: &Path,
     publication_root: &Path,
     source_document_id: String,
-    bridge: PathBuf,
+    producer: PathBuf,
     ner_model_root: PathBuf,
     nli_model_root: PathBuf,
 ) -> Result<()> {
@@ -63,8 +93,8 @@ fn run_pipeline(
         workspace_path.to_path_buf(),
         publication_root.to_path_buf(),
     )?;
-    let config = LegacyAnalysisAdapterConfig {
-        executable: bridge,
+    let config = NativeProducerRuntimeConfig {
+        producer_executable: producer,
         ner_model_root,
         nli_model_root,
         source_document_id: Some(source_document_id),
@@ -116,7 +146,7 @@ fn seed_and_publish(
     publication_root: &Path,
     document_path: &Path,
     source_document_id: String,
-    bridge: PathBuf,
+    producer: PathBuf,
     ner_model_root: PathBuf,
     nli_model_root: PathBuf,
 ) -> Result<()> {
@@ -143,8 +173,8 @@ fn seed_and_publish(
     })?;
     let receipt = kernel.analyze_active_document_with(
         2,
-        &LegacyAnalysisAdapterConfig {
-            executable: bridge,
+        &NativeProducerRuntimeConfig {
+            producer_executable: producer,
             ner_model_root,
             nli_model_root,
             source_document_id: Some(source_document_id),

@@ -1,20 +1,25 @@
 [package]
 name = "phoenix-legacy-bridge"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-rust-version.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
 publish = false
 
 [dependencies]
-anyhow.workspace = true
-blake3.workspace = true
-hashbrown.workspace = true
-memmap2.workspace = true
+anyhow = "1.0"
+blake3 = "1.8"
+hashbrown = "0.15"
+memmap2 = "0.9"
 phoenix-scene-archive = { path = "../../crates/phoenix-scene-archive" }
 phoenix-scene-contract = { path = "../../crates/phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../../crates/phoenix-scene-product-index" }
 phoenix-scene-publisher = { path = "../../crates/phoenix-scene-publisher" }
-serde.workspace = true
-serde_json.workspace = true
-zstd.workspace = true
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+zstd = "0.13"
+
+# Deliberately detached from the Phoenix Native production workspace. This
+# frozen utility may inspect old artifacts but cannot participate in a release
+# dependency graph or publish through the native kernel.
+[workspace]

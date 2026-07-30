@@ -37,6 +37,9 @@ fn main() {
     let require_full_scene = arguments
         .iter()
         .any(|argument| argument == "--require-full-scene");
+    let release_manifest_only = arguments
+        .iter()
+        .any(|argument| argument == "--release-manifest-only");
     if proof_mode && soak_mode {
         fail_start(
             "PHOENIX_RUN_MODE_CONFLICT",
@@ -75,6 +78,15 @@ fn main() {
             "freeze and verify release-manifest modes are mutually exclusive",
         );
     }
+    if release_manifest_only
+        && freeze_release_manifest.is_none()
+        && verify_release_manifest.is_none()
+    {
+        fail_start(
+            "PHOENIX_RELEASE_MANIFEST_MODE_REQUIRED",
+            "--release-manifest-only requires --freeze-release-manifest or --verify-release-manifest",
+        );
+    }
     if let Err(error) = validate_preview_authority(design_preview, publication_root.as_deref()) {
         fail_start("PHOENIX_SCENE_AUTHORITY_MODE_CONFLICT", error);
     }
@@ -96,10 +108,11 @@ fn main() {
             "--scene-product-index requires --scene-archive",
         );
     }
-    let workspace_path = if isolated_mode {
-        proof_workspace_path()
-    } else if let Some(path) = workspace_override {
+    let generated_proof_workspace = isolated_mode && workspace_override.is_none();
+    let workspace_path = if let Some(path) = workspace_override {
         path
+    } else if generated_proof_workspace {
+        proof_workspace_path()
     } else {
         match default_workspace_path() {
             Ok(path) => path,
@@ -193,6 +206,13 @@ fn main() {
         fail_start("PHOENIX_RELEASE_MANIFEST_FAILED", error);
     }
     report_active_publication(&kernel, publication_receipt);
+    if release_manifest_only {
+        if let Err(error) = kernel.shutdown() {
+            fail_start("PHOENIX_KERNEL_SHUTDOWN_FAILED", error);
+        }
+        println!("PHOENIX_RELEASE_MANIFEST_ONLY_COMPLETE");
+        return;
+    }
     let app_kernel = Arc::clone(&kernel);
     Application::new()
         .with_assets(VelotypeAssets)
@@ -238,7 +258,7 @@ fn main() {
         lifecycle::mark_proof_failed();
         eprintln!("PHOENIX_KERNEL_SHUTDOWN_FAILED {error}");
     }
-    if automated_mode {
+    if generated_proof_workspace {
         if let Some(parent) = workspace_path.parent() {
             if let Err(error) = std::fs::remove_dir_all(parent) {
                 lifecycle::mark_proof_failed();
@@ -425,19 +445,19 @@ fn scene_publication_root_argument(
 }
 
 fn configure_analysis_runtime(arguments: &[OsString]) -> Result<(), &'static str> {
-    let bridge = path_argument(arguments, "--analysis-bridge")?;
+    let producer = path_argument(arguments, "--producer")?;
     let ner = path_argument(arguments, "--ner-model-root")?;
     let nli = path_argument(arguments, "--nli-model-root")?;
-    match (bridge, ner, nli) {
+    match (producer, ner, nli) {
         (None, None, None) => {}
-        (Some(bridge), Some(ner), Some(nli)) => {
-            std::env::set_var("PHOENIX_NATIVE_ANALYSIS_BRIDGE", bridge);
+        (Some(producer), Some(ner), Some(nli)) => {
+            std::env::set_var("PHOENIX_NATIVE_PRODUCER", producer);
             std::env::set_var("PHOENIX_NATIVE_NER_MODEL_ROOT", ner);
             std::env::set_var("PHOENIX_NATIVE_NLI_MODEL_ROOT", nli);
         }
         _ => {
             return Err(
-                "--analysis-bridge, --ner-model-root, and --nli-model-root must be supplied together",
+                "--producer, --ner-model-root, and --nli-model-root must be supplied together",
             );
         }
     }
@@ -563,8 +583,8 @@ mod tests {
     fn analysis_runtime_arguments_are_all_or_none() {
         let incomplete = [
             OsString::from("phoenix-shell"),
-            OsString::from("--analysis-bridge"),
-            OsString::from(r"C:\bin\bridge.exe"),
+            OsString::from("--producer"),
+            OsString::from(r"C:\bin\producer.exe"),
         ];
         assert!(configure_analysis_runtime(&incomplete).is_err());
     }

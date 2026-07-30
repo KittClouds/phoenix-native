@@ -7,6 +7,10 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+blake3.workspace = true
 phoenix-app-core = { path = "../../crates/phoenix-app-core" }
 phoenix-analysis-contract = { path = "../../crates/phoenix-analysis-contract" }
+phoenix-document-producer = { path = "../../crates/phoenix-document-producer" }
+phoenix-entity-producer = { path = "../../crates/phoenix-entity-producer" }
+phoenix-graph-generation-v2 = { path = "../../crates/phoenix-graph-generation-v2" }
 phoenix-workspace = { path = "../../crates/phoenix-workspace" }

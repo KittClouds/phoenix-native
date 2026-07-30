@@ -1,12 +1,18 @@
 use super::atlas_run::AtlasRunReceiptError;
-use super::{AtlasRunReceiptV1, KernelError, PhoenixKernel};
+use super::{
+    AtlasRunReceiptV1, KernelError, PhoenixKernel, PRODUCTION_FALLBACK_COUNT,
+    PRODUCTION_JSON_GRAPH_FREIGHT, PRODUCTION_RESIDENT_GENERATION_COUNT,
+};
 use bytemuck::Pod;
 use memmap2::Mmap;
-use phoenix_graph_generation::{
-    promoted_edge_id, ACCEPTED_EDGE_FLAG_PROMOTED, DECISION_FLAG_DURABLE_RECEIPT,
-    DECISION_STATUS_ACCEPTED,
+use phoenix_graph_generation_v2::{
+    CandidateStatus, CausalCandidateRecord, DecisionRecord, EpisodeMembershipRecord, EpisodeRecord,
+    EventRecord, IdentityCandidateRecord, MemoryStateCandidateRecord,
+    PageKind as GenerationPageKind, TemporalCandidateRecord, TypedRelationshipCandidateRecord,
+    VerifiedGraphGenerationV2,
 };
-use phoenix_scene_archive::{ArchiveManifold, PageKey, PageKind};
+use phoenix_scene_archive::{ArchiveManifold, PageKey, PageKind as ScenePageKind};
+use phoenix_semantic_review::{ReviewCandidateLocation, ReviewCatalog, ReviewPage};
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -329,12 +335,25 @@ impl PhoenixKernel {
             .as_deref()
             .ok_or(ReleaseLockError::Missing("scene product index"))?;
         let generation = snapshot
-            .graph_generation
+            .graph_generation_v2
             .as_deref()
-            .ok_or(ReleaseLockError::Missing("packed graph generation"))?;
+            .ok_or(ReleaseLockError::Missing("packed V2 graph generation"))?;
+        let catalog = snapshot
+            .review_catalog_v2
+            .as_deref()
+            .ok_or(ReleaseLockError::Missing("V2 review catalog"))?;
         let run = control
             .last_run
             .ok_or(ReleaseLockError::Missing("matching Atlas run receipt"))?;
+        let analysis_generation = run
+            .authority
+            .analysis_generation
+            .ok_or(ReleaseLockError::Missing("production analysis generation"))?;
+        if generation.header().producer_generation != analysis_generation {
+            return Err(ReleaseLockError::Invalid(
+                "V2 generation and analysis producer disagree",
+            ));
+        }
         let run_bytes = postcard::to_allocvec(&run)
             .map_err(|error| ReleaseLockError::Codec(error.to_string()))?;
         let decisions = self.atlas_decision_receipts()?;
@@ -343,7 +362,8 @@ impl PhoenixKernel {
         for receipt in &decisions {
             decision_hasher.update(&receipt.receipt_id);
         }
-        let (receipt_backed_promotions, unreceipted_promotions) = promotion_counts(generation);
+        let (receipt_backed_promotions, unreceipted_promotions) =
+            promotion_counts(generation, catalog)?;
         let inventory = scene.inventory();
         let digests = release_digests(generation, scene.archive(), index)?;
         let manifest = PhoenixReleaseManifestV1 {
@@ -354,8 +374,8 @@ impl PhoenixKernel {
                 document_hash: lease.content_hash.0,
                 document_bytes: lease.content.len() as u64,
                 registry_revision: snapshot.atlas_registry.registry_revision,
-                analysis_generation: generation.header().analysis_generation,
-                graph_generation_hash: generation.generation_hash(),
+                analysis_generation,
+                graph_generation_hash: generation.header().generation_hash,
                 scene_generation: scene.generation().0,
                 archive_cohort_hash: scene.archive_identity().cohort_hash,
                 product_index_hash: index.header().index_hash,
@@ -364,16 +384,16 @@ impl PhoenixKernel {
                 decision_ledger_hash: *decision_hasher.finalize().as_bytes(),
             },
             counts: ReleaseCohortCountsV1 {
-                chunks: generation.chunks().len() as u64,
-                sentences: generation.sentences().len() as u64,
-                spans: generation.spans().len() as u64,
-                canonical_entities: generation.entities().len() as u64,
-                mentions: generation.mentions().len() as u64,
-                evidence: generation.evidence().len() as u64,
-                accepted_edges: generation.accepted_edges().len() as u64,
-                candidate_edges: generation.candidate_edges().len() as u64,
-                adjudications: generation.adjudications().len() as u64,
-                durable_decisions: generation.decisions().len() as u64,
+                chunks: page_count(generation, GenerationPageKind::Chunks),
+                sentences: page_count(generation, GenerationPageKind::Sentences),
+                spans: page_count(generation, GenerationPageKind::Spans),
+                canonical_entities: page_count(generation, GenerationPageKind::Entities),
+                mentions: page_count(generation, GenerationPageKind::Mentions),
+                evidence: page_count(generation, GenerationPageKind::Evidence),
+                accepted_edges: receipt_backed_promotions,
+                candidate_edges: catalog.candidates().len() as u64,
+                adjudications: page_count(generation, GenerationPageKind::NliAdjudications),
+                durable_decisions: page_count(generation, GenerationPageKind::Decisions),
                 scene_nodes: inventory.node_count as u64,
                 scene_edges: inventory.edge_count as u64,
                 entity_node_mappings: index.header().mapping_count as u64,
@@ -383,9 +403,9 @@ impl PhoenixKernel {
             digests,
             run,
             gates: ReleaseGateTargetsV1::default(),
-            json_graph_freight: 0,
-            fallback_count: 0,
-            resident_generation_count: 1,
+            json_graph_freight: PRODUCTION_JSON_GRAPH_FREIGHT,
+            fallback_count: PRODUCTION_FALLBACK_COUNT,
+            resident_generation_count: PRODUCTION_RESIDENT_GENERATION_COUNT,
         };
         manifest.validate()?;
         Ok(manifest)
@@ -393,48 +413,64 @@ impl PhoenixKernel {
 }
 
 fn release_digests(
-    generation: &phoenix_graph_generation::VerifiedGraphGeneration,
+    generation: &VerifiedGraphGenerationV2,
     archive: &phoenix_scene_archive::PhoenixSceneArchiveV1,
     index: &phoenix_scene_product_index::PhoenixSceneProductIndexV1,
 ) -> Result<ReleaseCohortDigestsV1, ReleaseLockError> {
     let document_structure = hash_record_groups(
         b"phoenix.release.document-structure/v1\0",
         &[
-            bytemuck::cast_slice(generation.documents()),
-            bytemuck::cast_slice(generation.chunks()),
-            bytemuck::cast_slice(generation.sentences()),
-            bytemuck::cast_slice(generation.spans()),
+            generation.page_bytes(GenerationPageKind::Documents),
+            generation.page_bytes(GenerationPageKind::Chapters),
+            generation.page_bytes(GenerationPageKind::Paragraphs),
+            generation.page_bytes(GenerationPageKind::Chunks),
+            generation.page_bytes(GenerationPageKind::Sentences),
+            generation.page_bytes(GenerationPageKind::Spans),
         ],
     );
     let entity_mentions_evidence = hash_record_groups(
         b"phoenix.release.entity-mention-evidence/v1\0",
         &[
-            bytemuck::cast_slice(generation.entities()),
-            bytemuck::cast_slice(generation.mentions()),
-            bytemuck::cast_slice(generation.evidence()),
+            generation.page_bytes(GenerationPageKind::Entities),
+            generation.page_bytes(GenerationPageKind::CanonicalEntityBindings),
+            generation.page_bytes(GenerationPageKind::Mentions),
+            generation.page_bytes(GenerationPageKind::Evidence),
         ],
     );
-    let accepted_topology = hash_records(
-        b"phoenix.release.accepted-topology/v1\0",
-        generation.accepted_edges(),
+    let accepted_topology = hash_record_groups(
+        b"phoenix.release.accepted-topology/v2\0",
+        &[
+            generation.page_bytes(GenerationPageKind::StructuralEdges),
+            generation.page_bytes(GenerationPageKind::Decisions),
+        ],
     );
     let candidate_semantics = hash_record_groups(
-        b"phoenix.release.candidate-semantics/v1\0",
+        b"phoenix.release.candidate-semantics/v2\0",
         &[
-            bytemuck::cast_slice(generation.candidate_edges()),
-            bytemuck::cast_slice(generation.adjudications()),
+            generation.page_bytes(GenerationPageKind::TypedRelationshipCandidates),
+            generation.page_bytes(GenerationPageKind::IdentityCandidates),
+            generation.page_bytes(GenerationPageKind::Events),
+            generation.page_bytes(GenerationPageKind::Episodes),
+            generation.page_bytes(GenerationPageKind::EpisodeMemberships),
+            generation.page_bytes(GenerationPageKind::TemporalCandidates),
+            generation.page_bytes(GenerationPageKind::CausalCandidates),
+            generation.page_bytes(GenerationPageKind::MemoryStateCandidates),
+            generation.page_bytes(GenerationPageKind::ContextualEvidence),
+            generation.page_bytes(GenerationPageKind::CandidateEvidenceBindings),
+            generation.page_bytes(GenerationPageKind::NliAdjudications),
         ],
     );
-    let durable_decisions = hash_records(
-        b"phoenix.release.durable-decisions/v1\0",
-        generation.decisions(),
+    let durable_decisions = domain_hash(
+        b"phoenix.release.durable-decisions/v2\0",
+        generation.page_bytes(GenerationPageKind::Decisions),
     );
     let producer_capabilities = hash_record_groups(
-        b"phoenix.release.producer-capabilities/v1\0",
+        b"phoenix.release.producer-capabilities/v2\0",
         &[
-            bytemuck::cast_slice(generation.capabilities()),
-            bytemuck::cast_slice(generation.identities()),
-            bytemuck::cast_slice(generation.stage_receipts()),
+            generation.page_bytes(GenerationPageKind::Capabilities),
+            generation.page_bytes(GenerationPageKind::ModelIdentities),
+            generation.page_bytes(GenerationPageKind::StageReceipts),
+            generation.page_bytes(GenerationPageKind::PublicationReceipts),
         ],
     );
 
@@ -442,13 +478,13 @@ fn release_digests(
         archive,
         b"phoenix.release.shared-scene-pages/v1\0",
         &[
-            PageKey::shared(PageKind::NodeIdentity),
-            PageKey::shared(PageKind::NodeStyle),
-            PageKey::shared(PageKind::Topology),
-            PageKey::shared(PageKind::Edge),
-            PageKey::shared(PageKind::LabelPriority),
-            PageKey::shared(PageKind::RelationMasks),
-            PageKey::shared(PageKind::PalettePolicy),
+            PageKey::shared(ScenePageKind::NodeIdentity),
+            PageKey::shared(ScenePageKind::NodeStyle),
+            PageKey::shared(ScenePageKind::Topology),
+            PageKey::shared(ScenePageKind::Edge),
+            PageKey::shared(ScenePageKind::LabelPriority),
+            PageKey::shared(ScenePageKind::RelationMasks),
+            PageKey::shared(ScenePageKind::PalettePolicy),
         ],
     )?;
     let mut manifold_positions = [[0; 32]; 5];
@@ -458,20 +494,20 @@ fn release_digests(
         manifold_positions[slot] = hash_archive_pages(
             archive,
             b"phoenix.release.manifold-positions/v1\0",
-            &[PageKey::manifold(PageKind::Positions, manifold)],
+            &[PageKey::manifold(ScenePageKind::Positions, manifold)],
         )?;
         manifold_guides[slot] = hash_archive_pages(
             archive,
             b"phoenix.release.manifold-guides/v1\0",
-            &[PageKey::manifold(PageKind::Guides, manifold)],
+            &[PageKey::manifold(ScenePageKind::Guides, manifold)],
         )?;
         manifold_paths[slot] = hash_archive_pages(
             archive,
             b"phoenix.release.manifold-paths/v1\0",
             &[
-                PageKey::manifold(PageKind::StraightPaths, manifold),
-                PageKey::manifold(PageKind::CurvedPaths, manifold),
-                PageKey::manifold(PageKind::BundledPaths, manifold),
+                PageKey::manifold(ScenePageKind::StraightPaths, manifold),
+                PageKey::manifold(ScenePageKind::CurvedPaths, manifold),
+                PageKey::manifold(ScenePageKind::BundledPaths, manifold),
             ],
         )?;
     }
@@ -547,23 +583,81 @@ fn domain_hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
-fn promotion_counts(generation: &phoenix_graph_generation::VerifiedGraphGeneration) -> (u64, u64) {
-    generation
-        .accepted_edges()
-        .iter()
-        .filter(|edge| edge.flags & ACCEPTED_EDGE_FLAG_PROMOTED != 0)
-        .fold((0, 0), |(verified, missing), edge| {
-            let receipt_backed = generation.decisions().iter().any(|decision| {
-                decision.flags & DECISION_FLAG_DURABLE_RECEIPT != 0
-                    && decision.status == DECISION_STATUS_ACCEPTED
-                    && promoted_edge_id(decision.candidate_id) == edge.id
-            });
-            if receipt_backed {
-                (verified + 1, missing)
-            } else {
-                (verified, missing + 1)
-            }
-        })
+fn page_count(generation: &VerifiedGraphGenerationV2, kind: GenerationPageKind) -> u64 {
+    generation.descriptor(kind).count
+}
+
+fn promotion_counts(
+    generation: &VerifiedGraphGenerationV2,
+    catalog: &ReviewCatalog,
+) -> Result<(u64, u64), ReleaseLockError> {
+    let decisions: &[DecisionRecord] = generation.typed_page(GenerationPageKind::Decisions)?;
+    let mut receipt_backed = 0_u64;
+    let mut missing = 0_u64;
+    for candidate in catalog.candidates() {
+        if candidate_status(generation, candidate.location)? != CandidateStatus::Accepted as u16 {
+            continue;
+        }
+        let has_receipt = decisions.iter().any(|decision| {
+            decision.candidate_id == candidate.binding.origin.candidate_id
+                && decision.action == phoenix_graph_generation_v2::DecisionAction::Accept as u16
+                && decision.status == CandidateStatus::Accepted as u16
+                && decision.evidence_hash == candidate.binding.evidence_hash
+        });
+        if has_receipt {
+            receipt_backed += 1;
+        } else {
+            missing += 1;
+        }
+    }
+    Ok((receipt_backed, missing))
+}
+
+fn candidate_status(
+    generation: &VerifiedGraphGenerationV2,
+    location: ReviewCandidateLocation,
+) -> Result<u16, ReleaseLockError> {
+    let index = location.row_index as usize;
+    let status = match ReviewPage::from_raw(location.page) {
+        Some(ReviewPage::TypedRelationship) => generation
+            .typed_page::<TypedRelationshipCandidateRecord>(
+                GenerationPageKind::TypedRelationshipCandidates,
+            )?
+            .get(index)
+            .map(|row| row.status),
+        Some(ReviewPage::Identity) => generation
+            .typed_page::<IdentityCandidateRecord>(GenerationPageKind::IdentityCandidates)?
+            .get(index)
+            .map(|row| row.status),
+        Some(ReviewPage::Event) => generation
+            .typed_page::<EventRecord>(GenerationPageKind::Events)?
+            .get(index)
+            .map(|row| row.status),
+        Some(ReviewPage::Episode) => generation
+            .typed_page::<EpisodeRecord>(GenerationPageKind::Episodes)?
+            .get(index)
+            .map(|row| row.status),
+        Some(ReviewPage::EpisodeMembership) => generation
+            .typed_page::<EpisodeMembershipRecord>(GenerationPageKind::EpisodeMemberships)?
+            .get(index)
+            .map(|row| row.status),
+        Some(ReviewPage::Temporal) => generation
+            .typed_page::<TemporalCandidateRecord>(GenerationPageKind::TemporalCandidates)?
+            .get(index)
+            .map(|row| row.status),
+        Some(ReviewPage::Causal) => generation
+            .typed_page::<CausalCandidateRecord>(GenerationPageKind::CausalCandidates)?
+            .get(index)
+            .map(|row| row.status),
+        Some(ReviewPage::MemoryState) => generation
+            .typed_page::<MemoryStateCandidateRecord>(GenerationPageKind::MemoryStateCandidates)?
+            .get(index)
+            .map(|row| row.status),
+        None => None,
+    };
+    status.ok_or(ReleaseLockError::Invalid(
+        "review catalog candidate location is invalid",
+    ))
 }
 
 fn current_binary_hash() -> Result<[u8; 32], ReleaseLockError> {
@@ -640,6 +734,8 @@ pub enum ReleaseLockError {
     AtlasRun(#[from] AtlasRunReceiptError),
     #[error("scene archive verification failed: {0}")]
     Archive(#[from] phoenix_scene_archive::ArchiveError),
+    #[error("V2 graph generation verification failed: {0}")]
+    GraphGenerationV2(#[from] phoenix_graph_generation_v2::GraphGenerationV2Error),
     #[error("release manifest is missing {0}")]
     Missing(&'static str),
     #[error("release manifest is invalid: {0}")]

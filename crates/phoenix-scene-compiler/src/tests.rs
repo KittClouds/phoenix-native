@@ -20,7 +20,7 @@ use phoenix_scene_archive::ArchiveManifold;
 use phoenix_scene_contract::{
     AnchorCandidate, AnchorSource, CapsRole, DocumentId, EntityKind, HighlightPalette,
     RelationFamily, ReviewMask, VerifiedDocumentAnchors, CHUNK_NODE_KIND, DOCUMENT_NODE_KIND,
-    EPISODE_NODE_KIND, EVIDENCE_NODE_KIND,
+    EVIDENCE_NODE_KIND,
 };
 use phoenix_scene_publisher::ScenePublicationKind;
 use phoenix_workspace::{
@@ -53,8 +53,8 @@ fn compiles_canonical_mentions_into_one_deterministic_full_scene(
         "phoenix.native.active-document-scene-compiler/v2"
     );
     assert_eq!(compiled.publication.kind, ScenePublicationKind::Full);
-    assert_eq!(compiled.receipt.node_count, 7);
-    assert_eq!(compiled.receipt.edge_count, 7);
+    assert_eq!(compiled.receipt.node_count, 6);
+    assert_eq!(compiled.receipt.edge_count, 6);
     assert_eq!(compiled.receipt.verified_mentions, 2);
     assert_eq!(
         compiled.publication.document_id,
@@ -62,7 +62,7 @@ fn compiles_canonical_mentions_into_one_deterministic_full_scene(
     );
     assert_eq!(
         std::array::from_fn::<_, 5, _>(|page| compiled.publication.positions[page].len()),
-        [7; 5]
+        [6; 5]
     );
     assert_eq!(compiled.anchors.len(), 2);
     compiled.publication.validate()?;
@@ -104,15 +104,14 @@ fn compiles_canonical_mentions_into_one_deterministic_full_scene(
             .publication
             .styles
             .iter()
-            .filter(|style| style.kind == EPISODE_NODE_KIND || style.kind == CHUNK_NODE_KIND)
+            .filter(|style| style.kind == CHUNK_NODE_KIND)
             .count(),
-        2
+        1
     );
     let caps = &compiled.publication.positions[ArchiveManifold::Caps as usize];
     for (slot, style) in compiled.publication.styles.iter().enumerate() {
         let expected = match style.kind {
             DOCUMENT_NODE_KIND => CapsRole::Document.world_radius(),
-            EPISODE_NODE_KIND => CapsRole::Episode.world_radius(),
             CHUNK_NODE_KIND => CapsRole::Chunk.world_radius(),
             EVIDENCE_NODE_KIND => CapsRole::Evidence.world_radius(),
             _ => CapsRole::Entity.world_radius(),
@@ -676,7 +675,7 @@ fn paragraph_boundaries_do_not_invent_cross_paragraph_edges(
             .iter()
             .filter(|edge| edge.relation_mask == RelationFamily::Structural.mask().0)
             .count(),
-        7
+        6
     );
     fixture.cleanup();
     Ok(())

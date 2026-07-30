@@ -1,18 +1,13 @@
 use hashbrown::HashMap;
 use memmap2::Mmap;
-use phoenix_analysis_contract::{NliCandidateKind, PhoenixDocumentAnalysisV1};
-use phoenix_graph_generation::{
-    promoted_edge_id, write_graph_generation_new, AcceptedEdgeInput, CanonicalEntityInput,
-    DurableDecisionInput, GraphGenerationInput, ProducerCapabilityInput, VerifiedGraphGeneration,
-    ACCEPTED_EDGE_FLAG_PROMOTED, DECISION_FLAG_DURABLE_RECEIPT, DECISION_STATUS_ACCEPTED,
-    DECISION_STATUS_DEFERRED, DECISION_STATUS_REJECTED, GRAPH_GENERATION_EXTENSION,
+use phoenix_graph_generation_v2::{
+    CandidateEvidenceBindingRecord, CandidateId, DecisionAction, EvidenceRecord, PageKind,
+    VerifiedGraphGenerationV2,
 };
-use phoenix_scene_compiler::{
-    compile_graph_generation, proposed_nli_edge_id, NativeSceneCompilerInput,
-};
-use phoenix_scene_contract::{
-    AnchorSource, DocumentId, GraphGeneration, GraphReviewOverride, ReviewMask,
-    VerifiedDocumentAnchors,
+use phoenix_scene_compiler::{compile_graph_generation_v2, NativeSceneCompilerV2Input};
+use phoenix_scene_contract::{GraphReviewOverride, ReviewMask};
+use phoenix_semantic_review::{
+    publish_reviewed_generation_new, DecisionCommand, DecisionLedger, ReviewCatalog,
 };
 use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
@@ -22,9 +17,9 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use super::{
-    checked_revision, push_event, read_state, receipt, scene_publication, write_state,
-    AtlasDecisionCommandReceipt, CommandReceipt, GraphReviewOverlay, KernelError, KernelEvent,
-    KernelEventKind, KernelOutcome, KernelShared, NativeScenePublishCommand,
+    checked_revision, push_event, read_state, receipt, scene_publication, scene_rebuild,
+    write_state, AtlasDecisionCommandReceipt, CommandReceipt, GraphReviewOverlay, KernelError,
+    KernelEvent, KernelEventKind, KernelOutcome, KernelShared, NativeScenePublishCommand,
 };
 
 pub const ATLAS_DECISION_RECEIPT_CONTRACT: &str = "phoenix.native.atlas-decision-receipt/v1";
@@ -430,51 +425,16 @@ fn publish_reviewed_decisions_inner(
     sequence: u64,
     run_id: u64,
 ) -> Result<CommandReceipt, KernelError> {
-    let (
-        authority,
-        lease,
-        registry,
-        analysis,
-        structural,
-        coordinator,
-        source_generation,
-        nli,
-        anchors,
-        palette,
-        publisher,
-    ) = {
+    let (source, catalog, anchors, lease, palette, publisher) = {
         let state = read_state(shared)?;
-        let authority = current_authority(&state)?;
         (
-            authority,
             state
-                .active_document_lease
-                .as_ref()
-                .map(Arc::clone)
-                .ok_or(KernelError::AnalysisAuthorityMismatch)?,
-            Arc::clone(&state.entity_registry),
-            state
-                .document_analysis
+                .graph_generation_v2
                 .as_ref()
                 .map(Arc::clone)
                 .ok_or(KernelError::AnalysisAuthorityMismatch)?,
             state
-                .structural_analysis
-                .as_ref()
-                .map(Arc::clone)
-                .ok_or(KernelError::AnalysisAuthorityMismatch)?,
-            state
-                .producer_coordinator
-                .as_ref()
-                .map(Arc::clone)
-                .ok_or(KernelError::AnalysisAuthorityMismatch)?,
-            state
-                .graph_generation
-                .as_ref()
-                .map(Arc::clone)
-                .ok_or(KernelError::AnalysisAuthorityMismatch)?,
-            state
-                .nli_analysis
+                .review_catalog_v2
                 .as_ref()
                 .map(Arc::clone)
                 .ok_or(KernelError::AnalysisAuthorityMismatch)?,
@@ -483,6 +443,11 @@ fn publish_reviewed_decisions_inner(
                 .as_ref()
                 .map(Arc::clone)
                 .ok_or(KernelError::DocumentAnchorsNotActive)?,
+            state
+                .active_document_lease
+                .as_ref()
+                .map(Arc::clone)
+                .ok_or(KernelError::AnalysisAuthorityMismatch)?,
             *state.highlight_palette,
             shared
                 .publisher
@@ -491,25 +456,18 @@ fn publish_reviewed_decisions_inner(
                 .ok_or(KernelError::ProductionPublisherUnavailable)?,
         )
     };
-    coordinator
-        .validate_final(&analysis, &structural)
-        .map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
-    let effective = {
+    let authority = {
+        let state = read_state(shared)?;
+        current_authority(&state)?
+    };
+    let decisions = {
         let ledger = shared
             .atlas_review
             .lock()
             .map_err(|_| KernelError::Poisoned("Atlas review ledger"))?;
-        effective_bound_receipts(&ledger, authority, &nli, &coordinator)?
+        effective_v2_receipts(&ledger, authority, &catalog)
     };
-    let reviewed_generation = materialize_reviewed_generation(
-        &lease,
-        &registry,
-        &analysis,
-        &structural,
-        &source_generation,
-        &effective,
-    )?;
-    if source_generation.generation_hash() == reviewed_generation.generation_hash() {
+    if decisions.is_empty() {
         let state = read_state(shared)?;
         let publication = state
             .scene_publication
@@ -520,28 +478,69 @@ fn publish_reviewed_decisions_inner(
             KernelOutcome::SceneGenerationPublished(publication),
         ));
     }
-    let generation_id = publisher.next_generation()?;
-    let compiled = compile_graph_generation(
-        NativeSceneCompilerInput {
-            generation_id,
-            registry_revision: authority.registry_revision,
-            document: &lease,
-            registry: &registry,
-            verified_anchors: Some(&anchors),
-            nli: Some(&nli),
-            palette,
-        },
-        &reviewed_generation,
+    let review_root = shared
+        .workspace_path
+        .parent()
+        .ok_or(AtlasReviewError::MissingAuthorityRoot)?
+        .join("atlas-decision-authority-v2");
+    let mut v2_ledger = DecisionLedger::open(&review_root)?;
+    for decision in &decisions {
+        let candidate = catalog
+            .get(CandidateId(decision.candidate_id.0))
+            .ok_or(AtlasReviewError::UnknownCandidate)?;
+        v2_ledger.decide(
+            &catalog,
+            &DecisionCommand {
+                candidate_id: candidate.binding.origin.candidate_id,
+                expected_source_generation_hash: catalog.authority().source_generation_hash,
+                expected_candidate_hash: candidate.binding.candidate_hash,
+                expected_evidence_hash: candidate.binding.evidence_hash,
+                action: v2_action(decision.resulting_status)
+                    .ok_or(AtlasReviewError::InvalidReceipt)?,
+                reason: decision.reason.clone(),
+                decided_at_unix_millis: decision.sequence,
+            },
+        )?;
+    }
+    let review_hash = hash_postcard(
+        &decisions
+            .iter()
+            .map(|decision| decision.receipt_id)
+            .collect::<Vec<_>>(),
     )?;
-    let anchors = Arc::new(VerifiedDocumentAnchors::verify(
-        DocumentId(lease.entry_id.0),
-        lease.revision.0,
-        lease.content_hash.0,
-        Some(GraphGeneration(generation_id)),
-        AnchorSource::ResidentGraph,
-        &lease.content,
-        compiled.anchors,
-    )?);
+    let reviewed_path = review_root.join(format!(
+        "reviewed-{}-{}.pgg2",
+        source.header().published_generation,
+        short_hash(review_hash)
+    ));
+    let reviewed_generation = if reviewed_path.is_file() {
+        let opened = VerifiedGraphGenerationV2::open(&reviewed_path)?;
+        if opened.header().content_hash != source.header().content_hash
+            || opened.header().registry_revision != source.header().registry_revision
+        {
+            return Err(KernelError::AnalysisAuthorityMismatch);
+        }
+        opened
+    } else {
+        publish_reviewed_generation_new(
+            &reviewed_path,
+            &source,
+            &catalog,
+            &v2_ledger,
+            decision_clock(&decisions),
+        )?
+        .0
+    };
+    let reviewed_generation = Arc::new(reviewed_generation);
+    let reviewed_catalog = super::scene_authority_v2::review_catalog(&reviewed_generation)?;
+    let generation_id = publisher.next_generation()?;
+    let compiled = compile_graph_generation_v2(NativeSceneCompilerV2Input {
+        scene_generation_id: generation_id,
+        generation: reviewed_generation.as_ref(),
+        review_catalog: &reviewed_catalog,
+        palette,
+    })?;
+    let anchors = scene_rebuild::rebind_anchors((*anchors).clone(), &lease, generation_id)?;
     scene_publication::publish_full_scene(
         shared,
         sequence,
@@ -551,8 +550,26 @@ fn publish_reviewed_decisions_inner(
             compiled.receipt,
             run_id,
             reviewed_generation,
+            reviewed_catalog,
         ),
     )
+}
+
+fn v2_action(status: Option<AtlasDecisionStatus>) -> Option<DecisionAction> {
+    match status {
+        Some(AtlasDecisionStatus::Accepted) => Some(DecisionAction::Accept),
+        Some(AtlasDecisionStatus::Rejected) => Some(DecisionAction::Reject),
+        Some(AtlasDecisionStatus::Deferred) => Some(DecisionAction::Defer),
+        None => None,
+    }
+}
+
+fn decision_clock(decisions: &[AtlasDecisionReceiptV1]) -> u64 {
+    decisions
+        .iter()
+        .map(|decision| decision.sequence)
+        .max()
+        .unwrap_or(1)
 }
 
 fn decision_binding(
@@ -573,39 +590,37 @@ pub(super) fn current_candidate_binding(
     candidate_id: AtlasCandidateId,
 ) -> Result<CurrentCandidateBinding, KernelError> {
     let authority = current_authority(state)?;
-    let nli = state
-        .nli_analysis
+    let generation = state
+        .graph_generation_v2
         .as_deref()
         .ok_or(KernelError::AnalysisAuthorityMismatch)?;
-    let coordinator = state
-        .producer_coordinator
+    let catalog = state
+        .review_catalog_v2
         .as_deref()
         .ok_or(KernelError::AnalysisAuthorityMismatch)?;
-    let candidate = nli
-        .nli_candidates
-        .iter()
-        .find(|candidate| candidate.candidate_id == candidate_id.0)
+    let candidate = catalog
+        .get(CandidateId(candidate_id.0))
         .ok_or(AtlasReviewError::UnknownCandidate)?;
-    let adjudication = nli
-        .nli_adjudications
+    let bindings: &[CandidateEvidenceBindingRecord] =
+        generation.typed_page(PageKind::CandidateEvidenceBindings)?;
+    let evidence_rows: &[EvidenceRecord] = generation.typed_page(PageKind::Evidence)?;
+    let evidence_id = bindings
         .iter()
-        .find(|adjudication| adjudication.candidate_id == candidate_id.0)
+        .find(|binding| binding.candidate_id == CandidateId(candidate_id.0))
+        .map(|binding| binding.evidence_id)
         .ok_or(AtlasReviewError::UnknownCandidate)?;
-    let evidence = coordinator
-        .evidence_bindings
+    let evidence = evidence_rows
         .iter()
-        .find(|binding| binding.candidate_id == candidate_id.0)
+        .find(|row| row.id == evidence_id)
         .ok_or(AtlasReviewError::UnknownCandidate)?;
-    let candidate_hash = hash_postcard(&(candidate, adjudication))?;
-    let evidence_hash = hash_postcard(evidence)?;
     Ok(CurrentCandidateBinding {
         authority,
-        candidate_hash,
-        evidence_hash,
-        left_entity_id: candidate.left_entity_id,
-        right_entity_id: candidate.right_entity_id,
-        premise_start: evidence.premise_start,
-        premise_end: evidence.premise_end,
+        candidate_hash: candidate.binding.candidate_hash,
+        evidence_hash: candidate.binding.evidence_hash,
+        left_entity_id: candidate.binding.source.id,
+        right_entity_id: candidate.binding.target.id,
+        premise_start: evidence.start,
+        premise_end: evidence.end,
     })
 }
 
@@ -616,23 +631,20 @@ pub(super) fn current_authority(
         .active_document_lease
         .as_deref()
         .ok_or(KernelError::AnalysisAuthorityMismatch)?;
-    let receipt = state
-        .analysis_publication
-        .ok_or(KernelError::AnalysisAuthorityMismatch)?;
     let generation = state
-        .graph_generation
+        .graph_generation_v2
         .as_deref()
         .ok_or(KernelError::AnalysisAuthorityMismatch)?;
-    generation.verify_binding(
-        lease.entry_id.0,
-        lease.revision.0,
-        lease.content_hash.0,
-        state.entity_registry.revision(),
-    )?;
-    if receipt.native_document_id != lease.entry_id.0
-        || receipt.document_revision != lease.revision.0
-        || receipt.registry_revision != state.entity_registry.revision()
-        || receipt.analysis_generation != generation.header().analysis_generation
+    let catalog = state
+        .review_catalog_v2
+        .as_deref()
+        .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+    let header = generation.header();
+    if header.native_document_id != lease.entry_id.0
+        || header.document_revision != lease.revision.0
+        || header.content_hash != lease.content_hash.0
+        || header.registry_revision != state.entity_registry.revision()
+        || catalog.authority().source_generation_hash != header.generation_hash
     {
         return Err(KernelError::AnalysisAuthorityMismatch);
     }
@@ -640,10 +652,9 @@ pub(super) fn current_authority(
         document_id: lease.entry_id.0,
         document_revision: lease.revision.0,
         document_hash: lease.content_hash.0,
-        registry_revision: receipt.registry_revision,
-        producer_generation: receipt.analysis_generation,
-        // The producer artifact remains stable while reviewed graph products advance.
-        producer_graph_hash: receipt.analysis_artifact_hash,
+        registry_revision: header.registry_revision,
+        producer_generation: header.producer_generation,
+        producer_graph_hash: header.generation_hash,
     })
 }
 
@@ -655,15 +666,7 @@ pub(super) fn refresh_review_overlay(
     let generation_id = state
         .scene_publication
         .map(|publication| publication.generation_id);
-    let Some(nli) = state.nli_analysis.as_deref() else {
-        state.graph_review_overlay = GraphReviewOverlay {
-            revision,
-            generation_id,
-            entries: Arc::from([]),
-        };
-        return Ok(());
-    };
-    let Some(coordinator) = state.producer_coordinator.as_deref() else {
+    let Some(catalog) = state.review_catalog_v2.as_deref() else {
         state.graph_review_overlay = GraphReviewOverlay {
             revision,
             generation_id,
@@ -687,20 +690,11 @@ pub(super) fn refresh_review_overlay(
         };
         return Ok(());
     };
-    let effective = effective_bound_receipts(ledger, authority, nli, coordinator)?;
+    let effective = effective_v2_receipts(ledger, authority, catalog);
     let mut entries = Vec::with_capacity(effective.len());
     for receipt in effective {
-        let promoted = state.graph_generation.as_deref().is_some_and(|generation| {
-            generation.decisions().iter().any(|decision| {
-                decision.candidate_id == receipt.candidate_id.0
-                    && decision.status == DECISION_STATUS_ACCEPTED
-            })
-        });
-        let edge_id = if promoted {
-            promoted_edge_id(receipt.candidate_id.0)
-        } else {
-            proposed_nli_edge_id(authority.document_id, &receipt.candidate_id.0)
-        };
+        let edge_id =
+            phoenix_scene_compiler::semantic_candidate_edge_id(CandidateId(receipt.candidate_id.0));
         if !index.edges().iter().any(|edge| edge.edge_id == edge_id) {
             continue;
         }
@@ -724,33 +718,19 @@ pub(super) fn refresh_review_overlay(
     Ok(())
 }
 
-fn effective_bound_receipts(
+fn effective_v2_receipts(
     ledger: &AtlasReviewLedger,
     authority: AtlasDecisionAuthority,
-    nli: &phoenix_analysis_contract::PhoenixNliArtifactV1,
-    coordinator: &phoenix_analysis_contract::PhoenixProducerCoordinatorV1,
-) -> Result<Vec<AtlasDecisionReceiptV1>, KernelError> {
-    let mut effective = Vec::with_capacity(nli.nli_candidates.len());
-    for candidate in &nli.nli_candidates {
-        let Some(adjudication) = nli
-            .nli_adjudications
-            .iter()
-            .find(|item| item.candidate_id == candidate.candidate_id)
-        else {
-            continue;
-        };
-        let Some(evidence) = coordinator
-            .evidence_bindings
-            .iter()
-            .find(|item| item.candidate_id == candidate.candidate_id)
-        else {
-            continue;
-        };
-        let candidate_hash = hash_postcard(&(candidate, adjudication))?;
-        let evidence_hash = hash_postcard(evidence)?;
-        let candidate_id = AtlasCandidateId(candidate.candidate_id);
-        let Some(receipt) = ledger.head_for_binding(candidate_id, candidate_hash, evidence_hash)
-        else {
+    catalog: &ReviewCatalog,
+) -> Vec<AtlasDecisionReceiptV1> {
+    let mut effective = Vec::with_capacity(catalog.candidates().len());
+    for candidate in catalog.candidates() {
+        let candidate_id = AtlasCandidateId(candidate.binding.origin.candidate_id.0);
+        let Some(receipt) = ledger.head_for_binding(
+            candidate_id,
+            candidate.binding.candidate_hash,
+            candidate.binding.evidence_hash,
+        ) else {
             continue;
         };
         if receipt.resulting_status.is_some()
@@ -760,167 +740,7 @@ fn effective_bound_receipts(
         }
     }
     effective.sort_unstable_by_key(|receipt| receipt.candidate_id);
-    Ok(effective)
-}
-
-fn materialize_reviewed_generation(
-    lease: &phoenix_workspace::DocumentLease,
-    registry: &phoenix_workspace::EntityRegistry,
-    analysis: &PhoenixDocumentAnalysisV1,
-    structural: &phoenix_analysis_contract::PhoenixStructuralSubstrateV1,
-    source: &VerifiedGraphGeneration,
-    effective: &[AtlasDecisionReceiptV1],
-) -> Result<Arc<VerifiedGraphGeneration>, KernelError> {
-    let canonical_entities = registry
-        .entities()
-        .iter()
-        .map(|entity| {
-            let manual_mentions = registry
-                .mentions()
-                .iter()
-                .filter(|mention| mention.active && mention.entity_id == entity.id)
-                .count()
-                .min(u32::MAX as usize) as u32;
-            CanonicalEntityInput {
-                id: entity.id,
-                label: &entity.label,
-                custom_kind: entity.custom_kind.as_deref(),
-                mention_count: entity.ner_mention_count.saturating_add(manual_mentions),
-                kind: entity.kind as u16,
-                source_mask: u16::from(entity.sources.ner)
-                    | (u16::from(entity.sources.user_tagged) << 1),
-            }
-        })
-        .collect::<Vec<_>>();
-    let decisions = effective
-        .iter()
-        .map(|receipt| DurableDecisionInput {
-            id: stable_u64(b"decision", &receipt.receipt_id),
-            candidate_id: receipt.candidate_id.0,
-            reason: &receipt.reason,
-            decided_at_revision: receipt.authority.document_revision,
-            status: decision_status(receipt.resulting_status),
-            flags: DECISION_FLAG_DURABLE_RECEIPT,
-        })
-        .collect::<Vec<_>>();
-    let candidates = analysis
-        .nli
-        .nli_candidates
-        .iter()
-        .map(|candidate| (candidate.candidate_id, candidate))
-        .collect::<HashMap<_, _>>();
-    let adjudications = analysis
-        .nli
-        .nli_adjudications
-        .iter()
-        .map(|adjudication| (adjudication.candidate_id, adjudication))
-        .collect::<HashMap<_, _>>();
-    let accepted_edges = effective
-        .iter()
-        .filter(|receipt| receipt.resulting_status == Some(AtlasDecisionStatus::Accepted))
-        .map(|receipt| {
-            let candidate = candidates
-                .get(&receipt.candidate_id.0)
-                .ok_or(AtlasReviewError::UnknownCandidate)?;
-            let adjudication = adjudications
-                .get(&receipt.candidate_id.0)
-                .ok_or(AtlasReviewError::UnknownCandidate)?;
-            Ok(AcceptedEdgeInput {
-                id: promoted_edge_id(receipt.candidate_id.0),
-                source_id: candidate.left_entity_id,
-                target_id: candidate.right_entity_id,
-                evidence_id: 0,
-                weight: (adjudication.confidence_millis as f32 / 1000.0).clamp(0.56, 1.0),
-                relation: candidate_relation(candidate.kind),
-                flags: ACCEPTED_EDGE_FLAG_PROMOTED,
-            })
-        })
-        .collect::<Result<Vec<_>, AtlasReviewError>>()?;
-    let owned_capabilities = source
-        .capabilities()
-        .iter()
-        .map(|capability| {
-            Ok((
-                source.string(capability.name)?.to_owned(),
-                source.string(capability.producer)?.to_owned(),
-                capability.supported != 0,
-                capability.emitted != 0,
-                capability.flags,
-            ))
-        })
-        .collect::<Result<Vec<_>, phoenix_graph_generation::GraphGenerationError>>()?;
-    let capabilities = owned_capabilities
-        .iter()
-        .map(
-            |(name, producer, supported, emitted, flags)| ProducerCapabilityInput {
-                name,
-                producer,
-                supported: *supported,
-                emitted: *emitted,
-                flags: *flags,
-            },
-        )
-        .collect::<Vec<_>>();
-    let review_hash = hash_postcard(
-        &effective
-            .iter()
-            .map(|receipt| receipt.receipt_id)
-            .collect::<Vec<_>>(),
-    )?;
-    let path = source
-        .path()
-        .parent()
-        .ok_or(AtlasReviewError::MissingAuthorityRoot)?
-        .join(format!(
-            "review-{}-{}.{}",
-            source.header().analysis_generation,
-            short_hash(review_hash),
-            GRAPH_GENERATION_EXTENSION
-        ));
-    if !path.exists() {
-        write_graph_generation_new(
-            &path,
-            &GraphGenerationInput {
-                text: &lease.content,
-                analysis,
-                structural,
-                canonical_entities: &canonical_entities,
-                accepted_edges: &accepted_edges,
-                decisions: &decisions,
-                capabilities: &capabilities,
-            },
-        )?;
-    }
-    Ok(Arc::new(VerifiedGraphGeneration::open(path)?))
-}
-
-fn decision_status(status: Option<AtlasDecisionStatus>) -> u16 {
-    match status {
-        Some(AtlasDecisionStatus::Accepted) => DECISION_STATUS_ACCEPTED,
-        Some(AtlasDecisionStatus::Rejected) => DECISION_STATUS_REJECTED,
-        Some(AtlasDecisionStatus::Deferred) => DECISION_STATUS_DEFERRED,
-        None => unreachable!("effective review list excludes undone decisions"),
-    }
-}
-
-const fn candidate_relation(kind: NliCandidateKind) -> u16 {
-    match kind {
-        NliCandidateKind::SameSurface => 1,
-        NliCandidateKind::Alias => 2,
-        NliCandidateKind::Coreference => 3,
-        NliCandidateKind::Related => 4,
-    }
-}
-
-fn stable_u64(domain: &[u8], value: &[u8]) -> u64 {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"phoenix.native.review-authority/v1\0");
-    hasher.update(domain);
-    hasher.update(&[0]);
-    hasher.update(value);
-    let mut raw = [0; 8];
-    raw.copy_from_slice(&hasher.finalize().as_bytes()[..8]);
-    u64::from_le_bytes(raw).max(1)
+    effective
 }
 
 fn hash_postcard<T: Serialize>(value: &T) -> Result<[u8; 32], AtlasReviewError> {

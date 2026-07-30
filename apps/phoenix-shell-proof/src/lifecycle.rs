@@ -19,6 +19,7 @@ counter!(SURFACE_LIVE);
 counter!(DEVICE_CREATED);
 counter!(DEVICE_DROPPED);
 counter!(DEVICE_LIVE);
+counter!(RESOURCE_RECOVERIES);
 counter!(VISIBILITY_TRANSITIONS);
 counter!(FOCUS_EVENTS);
 counter!(POINTER_EVENTS);
@@ -45,6 +46,7 @@ pub struct LifecycleSnapshot {
     pub device_created: u64,
     pub device_dropped: u64,
     pub device_live: u64,
+    pub resource_recoveries: u64,
     pub visibility_transitions: u64,
     pub focus_events: u64,
     pub pointer_events: u64,
@@ -70,6 +72,7 @@ pub fn snapshot() -> LifecycleSnapshot {
         device_created: DEVICE_CREATED.load(Ordering::Relaxed),
         device_dropped: DEVICE_DROPPED.load(Ordering::Relaxed),
         device_live: DEVICE_LIVE.load(Ordering::Relaxed),
+        resource_recoveries: RESOURCE_RECOVERIES.load(Ordering::Relaxed),
         visibility_transitions: VISIBILITY_TRANSITIONS.load(Ordering::Relaxed),
         focus_events: FOCUS_EVENTS.load(Ordering::Relaxed),
         pointer_events: POINTER_EVENTS.load(Ordering::Relaxed),
@@ -102,6 +105,16 @@ pub fn graph_window_dropped() {
     SURFACE_LIVE.fetch_sub(1, Ordering::Relaxed);
     DEVICE_DROPPED.fetch_add(1, Ordering::Relaxed);
     DEVICE_LIVE.fetch_sub(1, Ordering::Relaxed);
+}
+
+pub fn graph_resources_recreated() {
+    RENDERER_CREATED.fetch_add(1, Ordering::Relaxed);
+    RENDERER_DROPPED.fetch_add(1, Ordering::Relaxed);
+    SURFACE_CREATED.fetch_add(1, Ordering::Relaxed);
+    SURFACE_DROPPED.fetch_add(1, Ordering::Relaxed);
+    DEVICE_CREATED.fetch_add(1, Ordering::Relaxed);
+    DEVICE_DROPPED.fetch_add(1, Ordering::Relaxed);
+    RESOURCE_RECOVERIES.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn visibility_transition() {

@@ -15,6 +15,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
+use windows::Win32::System::ProcessStatus::{
+    K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+};
+use windows::Win32::System::Threading::GetCurrentProcess;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetParent, GetWindowLongPtrW, GetWindowRect, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
@@ -46,6 +50,11 @@ pub struct EmbeddedHostProof {
     pub resize_present_p95_us: u128,
     pub resize_present_max_us: u128,
     pub graph_command_queue_high_water: u64,
+    pub private_bytes_after_warm: usize,
+    pub private_bytes_after_soak: usize,
+    pub private_bytes_plateau_delta: usize,
+    pub stable_memory_plateau: bool,
+    pub renderer_recovery: bool,
     pub pointer_hover: bool,
     pub interaction_stress: InteractionStressProof,
     pub gpu_before: GraphGpuTelemetry,
@@ -182,6 +191,7 @@ impl GraphProofHandle {
         self.send(GraphWindowCommand::ResetSwitchTelemetry)?;
         self.barrier()?;
         let gpu_after_warm = self.telemetry()?;
+        let private_bytes_after_warm = private_usage_bytes()?;
         for cycle in 0..200 {
             self.switch_manifold(Manifold::ALL[cycle % Manifold::ALL.len()])?;
             if cycle % 50 == 49 {
@@ -191,6 +201,7 @@ impl GraphProofHandle {
                 );
             }
         }
+        self.fit_graph()?;
         let pointer_hover = self.probe_pointer_hover(original)?;
         let interaction_stress = self.stress_interaction()?;
         let mut hidden = original;
@@ -260,6 +271,13 @@ impl GraphProofHandle {
         self.set_proof_viewport(original)?;
         self.barrier()?;
         let gpu_after = self.telemetry()?;
+        let private_bytes_after_soak = private_usage_bytes()?;
+        let private_bytes_plateau_delta =
+            private_bytes_after_soak.saturating_sub(private_bytes_after_warm);
+        let memory_growth_limit = (private_bytes_after_warm / 50).max(8 * 1024 * 1024);
+        let stable_memory_plateau = private_bytes_plateau_delta <= memory_growth_limit;
+        let lifecycle_before_recovery = lifecycle::snapshot();
+        let renderer_recovery = self.recover_renderer(original)?;
         unsafe {
             let _ = ShowWindow(self.parent.hwnd(), SW_MINIMIZE);
         }
@@ -294,10 +312,10 @@ impl GraphProofHandle {
             dpi_matches_parent: self.dpi_matches(original.scale_factor),
             stable_hwnd: self.hwnd == original_hwnd
                 && self.is_window()
-                && after.graph_window_created == before.graph_window_created
-                && after.renderer_created == before.renderer_created
-                && after.surface_created == before.surface_created,
-            stable_device: after.device_created == before.device_created,
+                && lifecycle_before_recovery.graph_window_created == before.graph_window_created
+                && lifecycle_before_recovery.renderer_created == before.renderer_created
+                && lifecycle_before_recovery.surface_created == before.surface_created,
+            stable_device: lifecycle_before_recovery.device_created == before.device_created,
             stable_gpu_allocations: gpu_after_warm.allocated_bytes == gpu_after.allocated_bytes
                 && gpu_after_warm.node_buffer_generation == gpu_after.node_buffer_generation
                 && gpu_after_warm.edge_buffer_generation == gpu_after.edge_buffer_generation
@@ -319,6 +337,11 @@ impl GraphProofHandle {
             resize_present_p95_us,
             resize_present_max_us,
             graph_command_queue_high_water: self.queue_metrics.high_water.load(Ordering::Relaxed),
+            private_bytes_after_warm,
+            private_bytes_after_soak,
+            private_bytes_plateau_delta,
+            stable_memory_plateau,
+            renderer_recovery,
             pointer_hover,
             interaction_stress,
             gpu_before,
@@ -365,6 +388,13 @@ impl GraphProofHandle {
             .context("embedded graph focus probe timed out")
     }
 
+    fn fit_graph(&self) -> Result<()> {
+        let previous_frame = lifecycle::snapshot().frames_presented;
+        self.send(GraphWindowCommand::FitGraph)?;
+        self.barrier()?;
+        self.wait_for_present(previous_frame)
+    }
+
     fn stress_interaction(&self) -> Result<InteractionStressProof> {
         let (sender, receiver) = mpsc::sync_channel(1);
         self.send(GraphWindowCommand::StressInteraction(sender))?;
@@ -374,45 +404,77 @@ impl GraphProofHandle {
             .map_err(|error| anyhow!(error))
     }
 
+    fn recover_renderer(&self, geometry: ViewportGeometry) -> Result<bool> {
+        let frame_before = lifecycle::snapshot().frames_presented;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        self.send(GraphWindowCommand::RecoverRenderer(sender))?;
+        receiver
+            .recv_timeout(Duration::from_secs(30))
+            .context("embedded graph renderer recovery timed out")?
+            .map_err(|error| anyhow!(error))?;
+        self.wait_for_present(frame_before)?;
+        Ok(self.matches_geometry(geometry))
+    }
+
     fn probe_pointer_hover(&self, geometry: ViewportGeometry) -> Result<bool> {
         let initial = lifecycle::snapshot();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        self.send(GraphWindowCommand::PickProbePoint(sender))?;
+        let point = receiver
+            .recv_timeout(Duration::from_secs(10))
+            .context("visible-node pick probe timed out")?
+            .ok_or_else(|| anyhow!("resident scene has no camera-visible pick point"))?;
+        if self.post_pointer_and_wait(point, initial, 1)? {
+            return Ok(true);
+        }
         let mut expected_pointer_events = initial.pointer_events;
         for row in 1..=7_u32 {
             for column in 1..=11_u32 {
                 let x = geometry.width.saturating_mul(column) / 12;
                 let y = geometry.height.saturating_mul(row) / 8;
-                let packed = ((y & 0xffff) << 16) | (x & 0xffff);
-                // SAFETY: `self.hwnd` is the live, proof-owned child window and
-                // WM_MOUSEMOVE carries only bounded client coordinates.
-                unsafe {
-                    PostMessageW(
-                        Some(self.hwnd()),
-                        WM_MOUSEMOVE,
-                        WPARAM(0),
-                        LPARAM(packed as isize),
-                    )
-                }
-                .context("post pointer hover probe")?;
                 expected_pointer_events = expected_pointer_events.saturating_add(1);
-                let deadline = Instant::now() + Duration::from_millis(75);
-                loop {
-                    let state = lifecycle::snapshot();
-                    if state.hover_pick_events > initial.hover_pick_events {
-                        return Ok(true);
-                    }
-                    if state.pointer_events >= expected_pointer_events
-                        && Instant::now() + Duration::from_millis(2) >= deadline
-                    {
-                        break;
-                    }
-                    if Instant::now() >= deadline {
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(2));
+                if self.post_pointer_and_wait((x, y), initial, expected_pointer_events)? {
+                    return Ok(true);
                 }
             }
         }
         Ok(false)
+    }
+
+    fn post_pointer_and_wait(
+        &self,
+        point: (u32, u32),
+        initial: lifecycle::LifecycleSnapshot,
+        expected_pointer_events: u64,
+    ) -> Result<bool> {
+        let packed = ((point.1 & 0xffff) << 16) | (point.0 & 0xffff);
+        // SAFETY: `self.hwnd` is the live, proof-owned child window and
+        // WM_MOUSEMOVE carries only bounded client coordinates.
+        unsafe {
+            PostMessageW(
+                Some(self.hwnd()),
+                WM_MOUSEMOVE,
+                WPARAM(0),
+                LPARAM(packed as isize),
+            )
+        }
+        .context("post pointer hover probe")?;
+        let deadline = Instant::now() + Duration::from_millis(250);
+        loop {
+            let state = lifecycle::snapshot();
+            if state.hover_pick_events > initial.hover_pick_events {
+                return Ok(true);
+            }
+            if state.pointer_events >= expected_pointer_events
+                && Instant::now() + Duration::from_millis(2) >= deadline
+            {
+                return Ok(false);
+            }
+            if Instant::now() >= deadline {
+                return Ok(false);
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
     }
 
     fn switch_manifold(&self, manifold: Manifold) -> Result<()> {
@@ -535,4 +597,25 @@ impl GraphProofHandle {
             && parent_dpi == child_dpi
             && ((parent_dpi as f32 / 96.0) - scale_factor).abs() <= 0.01
     }
+}
+
+fn private_usage_bytes() -> Result<usize> {
+    let mut counters = PROCESS_MEMORY_COUNTERS_EX {
+        cb: u32::try_from(std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>())
+            .map_err(|_| anyhow!("process memory counter size overflow"))?,
+        ..Default::default()
+    };
+    // SAFETY: `GetCurrentProcess` returns the live pseudo-handle for this
+    // process and `counters` is an initialized, correctly sized writable
+    // structure whose prefix is `PROCESS_MEMORY_COUNTERS`.
+    unsafe {
+        K32GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            (&mut counters as *mut PROCESS_MEMORY_COUNTERS_EX).cast::<PROCESS_MEMORY_COUNTERS>(),
+            counters.cb,
+        )
+        .ok()
+        .context("query Phoenix private memory")?;
+    }
+    Ok(counters.PrivateUsage)
 }

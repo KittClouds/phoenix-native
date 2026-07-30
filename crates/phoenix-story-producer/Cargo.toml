@@ -1,0 +1,23 @@
+[package]
+name = "phoenix-story-producer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+blake3.workspace = true
+bytemuck.workspace = true
+hashbrown.workspace = true
+phoenix-graph-generation-v2 = { path = "../phoenix-graph-generation-v2" }
+phoenix-semantic-lens = { path = "../phoenix-semantic-lens" }
+phoenix-semantic-review = { path = "../phoenix-semantic-review" }
+thiserror.workspace = true
+
+[dev-dependencies]
+phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
+phoenix-document-producer = { path = "../phoenix-document-producer" }
+phoenix-entity-producer = { path = "../phoenix-entity-producer" }
+phoenix-scene-contract = { path = "../phoenix-scene-contract" }
+tempfile = "3.20"

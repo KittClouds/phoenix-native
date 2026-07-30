@@ -14,6 +14,8 @@ pub enum ReviewState {
     Accepted = 1,
     Proposed = 2,
     Rejected = 4,
+    Deferred = 8,
+    Superseded = 16,
 }
 
 #[repr(C)]

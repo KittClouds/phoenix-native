@@ -255,7 +255,7 @@ impl PhoenixKernel {
             .as_ref()
             .map(|anchors| anchors.anchors().len() as u64)
             .unwrap_or_default();
-        let analysis_runtime = LegacyAnalysisAdapterConfig::runtime_info();
+        let analysis_runtime = NativeProducerRuntimeConfig::runtime_info();
         let pipeline_ready = analysis_runtime.ready || cfg!(test);
         let analysis = analysis_summary(&state);
         let publication = state.scene_publication;
@@ -388,6 +388,18 @@ impl PhoenixKernel {
         let mut candidates = Vec::with_capacity(analysis.nli_candidates.len());
         for candidate in &analysis.nli_candidates {
             let candidate_id = AtlasCandidateId(candidate.candidate_id);
+            if state
+                .review_catalog_v2
+                .as_deref()
+                .and_then(|catalog| {
+                    catalog.get(phoenix_graph_generation_v2::CandidateId(
+                        candidate.candidate_id,
+                    ))
+                })
+                .is_none()
+            {
+                continue;
+            }
             let binding = atlas_review::current_candidate_binding(&state, candidate_id)?;
             let head = ledger.head_for_binding(
                 candidate_id,
@@ -618,7 +630,7 @@ fn decide_control_state(
             AtlasBuildState::RuntimeUnavailable,
             AtlasPrimaryAction::ConfigurePipeline,
             "Connect the analysis runtime",
-            "Phoenix needs the verified Rust bridge and both model roots before this document can run.",
+            "Phoenix needs the verified native producer and both model roots before this document can run.",
         );
     }
     if full_for_document && last_run_matches {

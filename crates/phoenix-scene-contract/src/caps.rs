@@ -12,6 +12,10 @@ pub const DOCUMENT_NODE_KIND: u16 = 999;
 pub const EPISODE_NODE_KIND: u16 = 1_000;
 pub const CHUNK_NODE_KIND: u16 = 1_001;
 pub const EVIDENCE_NODE_KIND: u16 = 1_002;
+pub const CHAPTER_NODE_KIND: u16 = 1_003;
+pub const PARAGRAPH_NODE_KIND: u16 = 1_004;
+pub const SENTENCE_NODE_KIND: u16 = 1_005;
+pub const EVENT_NODE_KIND: u16 = 1_006;
 
 pub const GUIDE_FLAG_SHELL: u32 = 1;
 pub const GUIDE_FLAG_CAP_BOUNDARY: u32 = 2;

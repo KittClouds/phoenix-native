@@ -1,3 +1,4 @@
+use phoenix_graph_generation_v2::PageKind;
 use thiserror::Error;
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -14,6 +15,22 @@ pub enum NativeSceneCompilerError {
     NliAuthorityMismatch,
     #[error("packed graph generation does not match compiler authority")]
     GraphGenerationAuthorityMismatch,
+    #[error("V2 generation page {0:?} is unavailable or has an invalid packed layout")]
+    V2InvalidPage(PageKind),
+    #[error("V2 generation, review catalog, or publication authority does not match")]
+    V2AuthorityMismatch,
+    #[error("V2 candidate at review page {page} row {row} has no exact review binding")]
+    V2MissingReviewBinding { page: u16, row: u32 },
+    #[error("V2 candidate {0:?} has no exact decision receipt")]
+    V2DecisionReceiptMismatch(phoenix_graph_generation_v2::CandidateId),
+    #[error("V2 candidate status {0} is unsupported")]
+    V2CandidateStatus(u16),
+    #[error("V2 entity kind {0} is unsupported")]
+    V2EntityKind(u16),
+    #[error("V2 topology endpoint {0} has no scene node")]
+    V2MissingEndpoint(u64),
+    #[error("V2 string reference is corrupt")]
+    V2StringReference,
     #[error("verified mention {start}..{end} no longer matches the active document")]
     StaleMention { start: u32, end: u32 },
     #[error("document contains {actual} bytes; scene references support at most {maximum}")]
@@ -38,4 +55,6 @@ pub enum NativeSceneCompilerError {
     CapsSiblingRange { slot: usize, rank: u32, count: u32 },
     #[error("CAPS node slot {slot} produced a non-finite or out-of-ball projection")]
     CapsProjectionInvalid { slot: usize },
+    #[error(transparent)]
+    V2Structural(#[from] crate::StructuralSourceError),
 }

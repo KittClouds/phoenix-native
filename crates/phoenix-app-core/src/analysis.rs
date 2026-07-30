@@ -5,15 +5,10 @@ use phoenix_analysis_contract::{
     write_message_new, write_nli_artifact_new, write_producer_coordinator_new, AnalysisEntityKind,
     AnalysisStageReceipt, ContextualEvidenceBinding, DocumentAnalysisBinding,
     DocumentAnalysisRequestBinding, PhoenixAnalysisRequestV1, PhoenixDocumentAnalysisV1,
-    PhoenixNerArtifactV1, PhoenixNliArtifactV1, PhoenixProducerCoordinatorV1, ProducerRunState,
-    SemanticProduct, VerifiedAnalysisArtifact, VerifiedProducerCoordinator,
-    VerifiedStructuralArtifact, ANALYSIS_ARTIFACT_EXTENSION, ANALYSIS_CONTRACT,
-    MAX_CONTEXTUAL_EVIDENCE_BINDINGS, PRODUCER_COORDINATOR_EXTENSION,
-    STRUCTURAL_ARTIFACT_EXTENSION,
-};
-use phoenix_graph_generation::{
-    write_graph_generation_new, CanonicalEntityInput, GraphGenerationInput,
-    ProducerCapabilityInput, VerifiedGraphGeneration, GRAPH_GENERATION_EXTENSION,
+    PhoenixNerArtifactV1, PhoenixNliArtifactV1, PhoenixProducerCoordinatorV1,
+    VerifiedAnalysisArtifact, VerifiedProducerCoordinator, VerifiedStructuralArtifact,
+    ANALYSIS_ARTIFACT_EXTENSION, ANALYSIS_CONTRACT, MAX_CONTEXTUAL_EVIDENCE_BINDINGS,
+    PRODUCER_COORDINATOR_EXTENSION, STRUCTURAL_ARTIFACT_EXTENSION,
 };
 use phoenix_scene_contract::{AnchorCandidate, AnchorSource, EntityKind};
 use std::collections::BTreeMap;
@@ -52,15 +47,14 @@ pub struct NliPublication {
     pub structural: Arc<PhoenixStructuralSubstrateV1>,
     pub artifact: Arc<PhoenixNliArtifactV1>,
     pub coordinator: Arc<PhoenixProducerCoordinatorV1>,
-    pub graph_generation: Arc<VerifiedGraphGeneration>,
     pub entity_count: u32,
     pub mention_count: u32,
     pub stages: AnalysisStageReceipt,
 }
 
 #[derive(Clone, Debug)]
-pub struct LegacyAnalysisAdapterConfig {
-    pub executable: PathBuf,
+pub struct NativeProducerRuntimeConfig {
+    pub producer_executable: PathBuf,
     pub ner_model_root: PathBuf,
     pub nli_model_root: PathBuf,
     pub source_document_id: Option<String>,
@@ -70,7 +64,7 @@ pub struct LegacyAnalysisAdapterConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnalysisRuntimeInfo {
     pub ready: bool,
-    pub bridge: Arc<str>,
+    pub producer: Arc<str>,
     pub dynamic_ner: Arc<str>,
     pub nli: Arc<str>,
     pub detail: Arc<str>,
@@ -81,14 +75,13 @@ pub(super) struct RestoredAnalysis {
     pub structural: Arc<PhoenixStructuralSubstrateV1>,
     pub nli: Arc<PhoenixNliArtifactV1>,
     pub coordinator: Arc<PhoenixProducerCoordinatorV1>,
-    pub graph_generation: Arc<VerifiedGraphGeneration>,
     pub receipt: AnalysisPublicationReceipt,
 }
 
-impl LegacyAnalysisAdapterConfig {
+impl NativeProducerRuntimeConfig {
     pub fn from_env() -> Result<Self, KernelError> {
         Ok(Self {
-            executable: required_path("PHOENIX_NATIVE_ANALYSIS_BRIDGE")?,
+            producer_executable: required_path("PHOENIX_NATIVE_PRODUCER")?,
             ner_model_root: required_path("PHOENIX_NATIVE_NER_MODEL_ROOT")?,
             nli_model_root: required_path("PHOENIX_NATIVE_NLI_MODEL_ROOT")?,
             source_document_id: std::env::var("PHOENIX_NATIVE_SOURCE_DOCUMENT_ID").ok(),
@@ -105,28 +98,28 @@ impl LegacyAnalysisAdapterConfig {
             Err(error) => {
                 return AnalysisRuntimeInfo {
                     ready: false,
-                    bridge: Arc::from("not configured"),
+                    producer: Arc::from("not configured"),
                     dynamic_ner: Arc::from("not configured"),
                     nli: Arc::from("not configured"),
                     detail: Arc::from(error.to_string()),
                 };
             }
         };
-        let bridge_ready = config.executable.is_file();
+        let producer_ready = config.producer_executable.is_file();
         let ner_ready = config.ner_model_root.is_dir();
         let nli_ready = config.nli_model_root.is_dir();
-        let ready = bridge_ready && ner_ready && nli_ready;
+        let ready = producer_ready && ner_ready && nli_ready;
         AnalysisRuntimeInfo {
             ready,
-            bridge: display_name(&config.executable),
+            producer: display_name(&config.producer_executable),
             dynamic_ner: display_name(&config.ner_model_root),
             nli: display_name(&config.nli_model_root),
             detail: Arc::from(if ready {
-                "Verified Rust analysis bridge and model roots are available".to_owned()
+                "Verified native producer and model roots are available".to_owned()
             } else {
                 format!(
-                    "missing runtime input: bridge={} dynamic_ner={} nli={}",
-                    !bridge_ready, !ner_ready, !nli_ready
+                    "missing runtime input: producer={} dynamic_ner={} nli={}",
+                    !producer_ready, !ner_ready, !nli_ready
                 )
             }),
         }
@@ -138,14 +131,14 @@ impl PhoenixKernel {
         &self,
         generation: u64,
     ) -> Result<AnalysisPublicationReceipt, KernelError> {
-        let config = LegacyAnalysisAdapterConfig::from_env()?;
+        let config = NativeProducerRuntimeConfig::from_env()?;
         self.analyze_active_document_with(generation, &config)
     }
 
     pub fn analyze_active_document_with(
         &self,
         generation: u64,
-        config: &LegacyAnalysisAdapterConfig,
+        config: &NativeProducerRuntimeConfig,
     ) -> Result<AnalysisPublicationReceipt, KernelError> {
         let (lease, source_registry_revision) = {
             let state = read_state(&self.shared)?;
@@ -196,7 +189,7 @@ impl PhoenixKernel {
         let preliminary_coordinator_path =
             directory.join(format!("{stem}.producer.{PRODUCER_COORDINATOR_EXTENSION}"));
         write_message_new(&request_path, &request)?;
-        let mut child = Command::new(&config.executable)
+        let mut child = Command::new(&config.producer_executable)
             .arg("analyze")
             .arg(&request_path)
             .arg(&output_path)
@@ -206,14 +199,14 @@ impl PhoenixKernel {
             .map_err(|error| {
                 KernelError::AnalysisProducerFailed(format!(
                     "start {}: {error}",
-                    config.executable.display()
+                    config.producer_executable.display()
                 ))
             })?;
         let status = wait_for_producer(&mut child, &self.shared.producer_cancel)?;
         if !status.success() {
             return Err(KernelError::AnalysisProducerFailed(format!(
                 "{} exited with {status}",
-                config.executable.display()
+                config.producer_executable.display()
             )));
         }
         let verified = open_analysis_artifact(&output_path)?;
@@ -287,142 +280,6 @@ impl PhoenixKernel {
         let producer_coordinator_hash =
             write_producer_coordinator_new(&coordinator_path, &coordinator)?;
         let coordinator = Arc::new(coordinator);
-        let graph_generation = {
-            let state = read_state(&self.shared)?;
-            let lease = state
-                .active_document_lease
-                .as_deref()
-                .ok_or(KernelError::ActiveSceneDocumentUnavailable)?;
-            if structural.structural().binding != analysis.ner.binding
-                || lease.content_hash.0 != analysis.ner.binding.content_hash
-            {
-                return Err(KernelError::AnalysisAuthorityMismatch);
-            }
-            let path = graph_generation_path_for(analysis_path);
-            let canonical_entities = state
-                .entity_registry
-                .entities()
-                .iter()
-                .map(|entity| {
-                    let manual_mentions = state
-                        .entity_registry
-                        .mentions()
-                        .iter()
-                        .filter(|mention| mention.active && mention.entity_id == entity.id)
-                        .count()
-                        .min(u32::MAX as usize) as u32;
-                    CanonicalEntityInput {
-                        id: entity.id,
-                        label: &entity.label,
-                        custom_kind: entity.custom_kind.as_deref(),
-                        mention_count: entity.ner_mention_count.saturating_add(manual_mentions),
-                        kind: entity.kind as u16,
-                        source_mask: u16::from(entity.sources.ner)
-                            | (u16::from(entity.sources.user_tagged) << 1),
-                    }
-                })
-                .collect::<Vec<_>>();
-            write_graph_generation_new(
-                &path,
-                &GraphGenerationInput {
-                    text: &lease.content,
-                    analysis: &analysis,
-                    structural: structural.structural(),
-                    canonical_entities: &canonical_entities,
-                    accepted_edges: &[],
-                    decisions: &[],
-                    capabilities: &[
-                        ProducerCapabilityInput {
-                            name: "document-structure",
-                            producer: "phoenix-chunker/structural-v1",
-                            supported: true,
-                            emitted: true,
-                            flags: 0x01,
-                        },
-                        ProducerCapabilityInput {
-                            name: "exact-dynamic-chunks-and-spans",
-                            producer: "phoenix-chunker/structural-v1",
-                            supported: true,
-                            emitted: true,
-                            flags: 0x01,
-                        },
-                        ProducerCapabilityInput {
-                            name: "mentions-and-evidence",
-                            producer: "phoenix-dynamic-ner",
-                            supported: true,
-                            emitted: true,
-                            flags: 0x01,
-                        },
-                        ProducerCapabilityInput {
-                            name: "canonical-entity-bindings",
-                            producer: "phoenix-native-atlas-registry",
-                            supported: true,
-                            emitted: true,
-                            flags: 0x01,
-                        },
-                        ProducerCapabilityInput {
-                            name: "identity-alias-coreference-candidates",
-                            producer: "phoenix-dynamic-ner+ModernBERT-NLI",
-                            supported: true,
-                            emitted: capability_emitted(
-                                &coordinator,
-                                SemanticProduct::IdentityAliasCoreference,
-                            ),
-                            flags: 0x02,
-                        },
-                        ProducerCapabilityInput {
-                            name: "generic-related-context-evidence",
-                            producer: "phoenix-dynamic-ner+ModernBERT-NLI",
-                            supported: true,
-                            emitted: capability_emitted(
-                                &coordinator,
-                                SemanticProduct::GenericRelatedEvidence,
-                            ),
-                            flags: 0x04,
-                        },
-                        ProducerCapabilityInput {
-                            name: "typed-relationships",
-                            producer: "none",
-                            supported: false,
-                            emitted: false,
-                            flags: 0x02,
-                        },
-                        ProducerCapabilityInput {
-                            name: "events-timeline",
-                            producer: "none",
-                            supported: false,
-                            emitted: false,
-                            flags: 0x02,
-                        },
-                        ProducerCapabilityInput {
-                            name: "causality",
-                            producer: "none",
-                            supported: false,
-                            emitted: false,
-                            flags: 0x02,
-                        },
-                        ProducerCapabilityInput {
-                            name: "memory-state",
-                            producer: "none",
-                            supported: false,
-                            emitted: false,
-                            flags: 0x02,
-                        },
-                        ProducerCapabilityInput {
-                            name: "contextual-cooccurrence-evidence",
-                            producer: "phoenix-scene-compiler/contextual-cooccurrence-v1",
-                            supported: true,
-                            emitted: capability_emitted(
-                                &coordinator,
-                                SemanticProduct::ContextualCoOccurrence,
-                            ),
-                            flags: 0x04,
-                        },
-                    ],
-                },
-            )?;
-            Arc::new(VerifiedGraphGeneration::open(path)?)
-        };
         let receipt = publication_receipt(
             &analysis,
             verified.artifact_hash(),
@@ -438,7 +295,6 @@ impl PhoenixKernel {
                 structural: Arc::clone(structural.structural()),
                 artifact: Arc::new(analysis.nli.clone()),
                 coordinator,
-                graph_generation,
                 entity_count: receipt.entity_count,
                 mention_count: receipt.mention_count,
                 stages: analysis.ner.receipt,
@@ -490,7 +346,7 @@ pub(super) fn verified_analysis_anchors(
             .content
             .get(start..end)
             .ok_or(KernelError::AnalysisAuthorityMismatch)?;
-        // The analysis bridge only exports accepted or alias-candidate mention
+        // The native producer exports only accepted or alias-candidate mention
         // packets into this artifact. Canonical registry membership therefore
         // controls paint visibility; `accepted` remains semantic evidence and
         // must not silently promote a candidate into graph topology.
@@ -631,7 +487,8 @@ pub(super) fn publish_nli_artifact(
     state.document_analysis = Some(publication.analysis);
     state.structural_analysis = Some(publication.structural);
     state.producer_coordinator = Some(publication.coordinator);
-    state.graph_generation = Some(publication.graph_generation);
+    state.graph_generation_v2 = None;
+    state.review_catalog_v2 = None;
     state.analysis_publication = Some(publication_receipt_value);
     state.revision = checked_revision(state.revision)?;
     let kernel_revision = state.revision;
@@ -739,21 +596,6 @@ pub(super) fn restore_active_analysis(
             .coordinator()
             .validate_final(analysis, structural.structural())
             .map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
-        let Ok(graph_generation) = VerifiedGraphGeneration::open(graph_generation_path_for(&path))
-        else {
-            continue;
-        };
-        if graph_generation
-            .verify_binding(
-                lease.entry_id.0,
-                lease.revision.0,
-                lease.content_hash.0,
-                registry_revision,
-            )
-            .is_err()
-        {
-            continue;
-        }
         let receipt = publication_receipt(
             analysis,
             verified.artifact_hash(),
@@ -765,7 +607,6 @@ pub(super) fn restore_active_analysis(
             structural: Arc::clone(structural.structural()),
             nli: Arc::clone(verified_nli.nli()),
             coordinator: Arc::clone(coordinator.coordinator()),
-            graph_generation: Arc::new(graph_generation),
             receipt,
         }));
     }
@@ -888,15 +729,6 @@ fn contextual_evidence_bindings(
     Ok(bindings)
 }
 
-fn capability_emitted(
-    coordinator: &PhoenixProducerCoordinatorV1,
-    product: SemanticProduct,
-) -> bool {
-    coordinator
-        .capability(product)
-        .is_some_and(|capability| capability.state == ProducerRunState::Produced)
-}
-
 fn analysis_directory(workspace_path: &Path) -> Result<PathBuf, KernelError> {
     workspace_path
         .parent()
@@ -920,17 +752,6 @@ fn structural_path_for(analysis_path: &Path) -> PathBuf {
     analysis_path.with_file_name(file.replace(
         ".analysis.pnaa",
         &format!(".structural.{STRUCTURAL_ARTIFACT_EXTENSION}"),
-    ))
-}
-
-fn graph_generation_path_for(analysis_path: &Path) -> PathBuf {
-    let file = analysis_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("analysis.pnaa");
-    analysis_path.with_file_name(file.replace(
-        ".analysis.pnaa",
-        &format!(".graph.{GRAPH_GENERATION_EXTENSION}"),
     ))
 }
 

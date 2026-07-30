@@ -8,6 +8,8 @@ pub(super) enum GraphWindowCommand {
     ResetCamera,
     ResetSwitchTelemetry,
     StressInteraction(SyncSender<Result<InteractionStressProof, String>>),
+    PickProbePoint(SyncSender<Option<(u32, u32)>>),
+    RecoverRenderer(SyncSender<Result<(), String>>),
     ProbeFocus(SyncSender<bool>),
     Barrier(SyncSender<()>),
     Telemetry(SyncSender<GraphGpuTelemetry>),

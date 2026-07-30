@@ -18,7 +18,7 @@ use crate::{
 };
 use graph_model::{GraphDiff, GraphRevision, GraphSnapshot};
 use phoenix_scene_archive::{LabelPriorityRecord, ManifoldPageSet, PositionRecord};
-use phoenix_scene_contract::{GraphReviewOverride, GraphViewState, Manifold};
+use phoenix_scene_contract::{GraphReviewOverride, GraphSurface, GraphViewState, Manifold};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
 use std::sync::Arc;
@@ -360,6 +360,13 @@ impl GraphRenderer {
         &mut self,
         view: GraphViewState,
     ) -> Result<LensUpdateMetrics, RenderError> {
+        let authority_changed = self.active_view.authority != view.authority;
+        let framing_changed = authority_changed
+            || self.active_view.surface != view.surface
+            || self.active_view.lens != view.lens
+            || self.active_view.scope != view.scope
+            || self.active_view.reviews != view.reviews
+            || self.active_view.manifold != view.manifold;
         let index_hash = validate_view_authority(
             view,
             self.scene.revision(),
@@ -369,6 +376,10 @@ impl GraphRenderer {
         let before = self.scene.allocation_stats();
         self.write_lens_uniform(GraphLensUniform::from_view(view, index_hash.is_some()));
         self.active_view = view;
+        if framing_changed {
+            self.fit_active_graph();
+            self.write_camera();
+        }
         self.labels.mark_dirty();
         self.redraw_requested = true;
         let after = self.scene.allocation_stats();
@@ -436,12 +447,41 @@ impl GraphRenderer {
     }
 
     #[must_use]
+    pub fn visible_node_pick_point(&self) -> Option<(u32, u32)> {
+        self.scene
+            .state()
+            .nodes_with_slots()
+            .filter(|(slot, _)| self.scene.node_visible_in_view(*slot, self.active_view))
+            .filter_map(|(_, node)| {
+                self.camera
+                    .project_to_viewport(node.position)
+                    .map(|(x, y, depth)| (depth, x, y))
+            })
+            .min_by(|left, right| left.0.total_cmp(&right.0))
+            .map(|(_, x, y)| {
+                (
+                    x.round().clamp(0.0, self.width.saturating_sub(1) as f32) as u32,
+                    y.round().clamp(0.0, self.height.saturating_sub(1) as f32) as u32,
+                )
+            })
+    }
+
+    #[must_use]
     pub const fn graph_view(&self) -> GraphViewState {
         self.active_view
     }
 
     fn fit_active_graph(&mut self) {
-        self.camera.fit_graph(self.scene.state().nodes());
+        let view = self.active_view;
+        let scene = &self.scene;
+        let visible_nodes = scene
+            .state()
+            .nodes_with_slots()
+            .filter_map(|(slot, node)| scene.node_visible_in_view(slot, view).then_some(node));
+        match view.surface {
+            GraphSurface::Entities => self.camera.fit_graph_around_bounds(visible_nodes),
+            GraphSurface::Atlas => self.camera.fit_graph(visible_nodes),
+        }
         if self.active_view.manifold == Manifold::Caps {
             self.camera.orient(0.72, 0.34);
         }

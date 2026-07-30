@@ -487,7 +487,7 @@ pub(super) fn completed_receipt(
             analysis_chunks: stages
                 .map(|receipt| AtlasCapabilityCount::produced(receipt.chunk_count.into()))
                 .unwrap_or_else(AtlasCapabilityCount::unsupported),
-            scene_chunks: compile.chunk_count.into(),
+            scene_chunks: compile.chunk_count,
             sentences: stages
                 .map(|receipt| AtlasCapabilityCount::produced(receipt.sentence_count.into()))
                 .unwrap_or_else(AtlasCapabilityCount::unsupported),
@@ -500,7 +500,7 @@ pub(super) fn completed_receipt(
                 .analysis
                 .map(|receipt| AtlasCapabilityCount::produced(receipt.mention_count.into()))
                 .unwrap_or_else(AtlasCapabilityCount::unsupported),
-            resident_verified_anchors: compile.verified_mentions.into(),
+            resident_verified_anchors: compile.verified_mentions,
             graph_nodes: publication.node_count,
             graph_edges: publication.edge_count,
             nli_candidates: input
@@ -704,7 +704,7 @@ pub(super) fn persist(
     receipt: &AtlasRunReceiptV1,
 ) -> Result<[u8; 32], AtlasRunReceiptError> {
     receipt.validate()?;
-    let path = receipt_path(workspace_path, receipt.authority.published_generation)?;
+    let path = authority_receipt_path(workspace_path, &receipt.authority)?;
     if path.exists() {
         let (hash, existing) = open(&path)?;
         if existing == *receipt {
@@ -772,26 +772,116 @@ pub(super) fn restore_matching(
     let Some(publication) = publication else {
         return Ok(None);
     };
-    let path = receipt_path(workspace_path, publication.generation_id)?;
-    if !path.exists() {
+    let keyed_path = publication_receipt_path(workspace_path, publication)?;
+    if keyed_path.exists() {
+        let (hash, receipt) = open(&keyed_path)?;
+        return if receipt.matches(publication, lease) {
+            Ok(Some((hash, receipt)))
+        } else {
+            Ok(None)
+        };
+    }
+    let legacy_path = legacy_receipt_path(workspace_path, publication.generation_id)?;
+    if !legacy_path.exists() {
         return Ok(None);
     }
-    let (hash, receipt) = open(&path)?;
+    let (hash, receipt) = open(&legacy_path)?;
     if !receipt.matches(publication, lease) {
         return Ok(None);
     }
     Ok(Some((hash, receipt)))
 }
 
-fn receipt_path(workspace_path: &Path, generation: u64) -> Result<PathBuf, AtlasRunReceiptError> {
+fn authority_receipt_path(
+    workspace_path: &Path,
+    authority: &AtlasAuthoritySnapshotV1,
+) -> Result<PathBuf, AtlasRunReceiptError> {
+    receipt_directory(workspace_path).map(|directory| {
+        directory.join(format!(
+            "generation-{:020}-{}-{}.{}",
+            authority.published_generation,
+            hash_prefix(authority.archive_cohort_hash),
+            hash_prefix(authority.product_index_hash),
+            RECEIPT_EXTENSION,
+        ))
+    })
+}
+
+fn publication_receipt_path(
+    workspace_path: &Path,
+    publication: ScenePublicationReceipt,
+) -> Result<PathBuf, AtlasRunReceiptError> {
+    receipt_directory(workspace_path).map(|directory| {
+        directory.join(format!(
+            "generation-{:020}-{}-{}.{}",
+            publication.generation_id,
+            hash_prefix(publication.archive_cohort_hash),
+            hash_prefix(publication.product_index_hash),
+            RECEIPT_EXTENSION,
+        ))
+    })
+}
+
+fn legacy_receipt_path(
+    workspace_path: &Path,
+    generation: u64,
+) -> Result<PathBuf, AtlasRunReceiptError> {
+    receipt_directory(workspace_path)
+        .map(|directory| directory.join(format!("generation-{generation:020}.{RECEIPT_EXTENSION}")))
+}
+
+fn receipt_directory(workspace_path: &Path) -> Result<PathBuf, AtlasRunReceiptError> {
     let parent = workspace_path
         .parent()
         .ok_or(AtlasRunReceiptError::Invalid(
             "workspace path has no parent",
         ))?;
-    Ok(parent
-        .join(AUTHORITY_DIRECTORY)
-        .join(format!("generation-{generation:020}.{RECEIPT_EXTENSION}")))
+    Ok(parent.join(AUTHORITY_DIRECTORY))
+}
+
+fn hash_prefix(hash: [u8; 32]) -> String {
+    use std::fmt::Write as _;
+    let mut encoded = String::with_capacity(16);
+    for byte in hash.iter().take(8) {
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    encoded
+}
+
+#[cfg(test)]
+mod receipt_path_tests {
+    use super::*;
+
+    fn authority(archive: u8, index: u8) -> AtlasAuthoritySnapshotV1 {
+        AtlasAuthoritySnapshotV1 {
+            document_id: 7,
+            document_revision: 1,
+            content_hash: [3; 32],
+            registry_revision: 4,
+            analysis_generation: Some(4),
+            previous_generation: Some(3),
+            published_generation: 4,
+            archive_cohort_hash: [archive; 32],
+            product_index_hash: [index; 32],
+        }
+    }
+
+    #[test]
+    fn receipt_path_is_bound_to_both_published_artifacts() {
+        let workspace = Path::new(r"C:\Phoenix\workspace-v1.json");
+        let first = authority_receipt_path(workspace, &authority(1, 2)).unwrap();
+        let changed_archive = authority_receipt_path(workspace, &authority(3, 2)).unwrap();
+        let changed_index = authority_receipt_path(workspace, &authority(1, 4)).unwrap();
+        let legacy = legacy_receipt_path(workspace, 4).unwrap();
+
+        assert_ne!(first, changed_archive);
+        assert_ne!(first, changed_index);
+        assert_ne!(first, legacy);
+        assert_eq!(
+            first.file_name().and_then(|name| name.to_str()),
+            Some("generation-00000000000000000004-0101010101010101-0202020202020202.phxar")
+        );
+    }
 }
 
 fn open(path: &Path) -> Result<([u8; 32], AtlasRunReceiptV1), AtlasRunReceiptError> {

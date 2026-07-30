@@ -112,9 +112,10 @@ impl Camera {
     }
 
     pub fn orbit(&mut self, delta_x: f32, delta_y: f32) {
-        // Keep the scene's screen-space offset stable while the view tilts. This
-        // matches the Angular renderer: a prior pan rotates with the camera frame
-        // instead of becoming the fixed pivot that the graph spins around.
+        // V3 rotates the scene root around its semantic origin. The native
+        // camera is the inverse representation of that transform, so carry only
+        // the screen-space framing offset through the new camera frame. The
+        // authoritative orbit center must never be replaced by a page's AABB.
         let (old_right, old_up, old_backward) = self.frame_basis();
         let offset = self.target - self.orbit_center;
         let local_offset = Vec3::new(
@@ -124,9 +125,7 @@ impl Camera {
         );
 
         self.yaw += delta_x * 0.006;
-        self.pitch += delta_y * 0.004;
-        let limit = std::f32::consts::FRAC_PI_2 - 0.01;
-        self.pitch = self.pitch.clamp(-limit, limit);
+        self.pitch = (self.pitch + delta_y * 0.006).clamp(-1.35, 1.35);
 
         let (right, up, backward) = self.frame_basis();
         self.target = self.orbit_center
@@ -136,9 +135,9 @@ impl Camera {
     }
 
     pub fn pan(&mut self, delta_x: f32, delta_y: f32) {
-        let world_per_pixel = 0.0045 * self.distance;
-        // Angular stores pan as world X/Y camera-target offsets. The orbit path
-        // then carries that offset through subsequent yaw/tilt changes.
+        // Match the V3 root-translation contract. Pan is independent from the
+        // scene rotation and remains a framing offset around the fixed pivot.
+        let world_per_pixel = self.distance / 900.0;
         self.target.x -= delta_x * world_per_pixel;
         self.target.y += delta_y * world_per_pixel;
     }
@@ -175,8 +174,7 @@ impl Camera {
 
     pub fn orient(&mut self, yaw: f32, pitch: f32) {
         self.yaw = yaw;
-        let limit = std::f32::consts::FRAC_PI_2 - 0.01;
-        self.pitch = pitch.clamp(-limit, limit);
+        self.pitch = pitch.clamp(-1.35, 1.35);
     }
 
     pub fn focus(&mut self, position: [f32; 3]) {
@@ -190,28 +188,45 @@ impl Camera {
         I: IntoIterator<Item = &'a NodeVisual>,
         I::IntoIter: Clone,
     {
+        self.fit_graph_around(nodes, Vec3::ZERO);
+    }
+
+    pub fn fit_graph_around_bounds<'a, I>(&mut self, nodes: I)
+    where
+        I: IntoIterator<Item = &'a NodeVisual>,
+        I::IntoIter: Clone,
+    {
         let nodes = nodes.into_iter();
-        let mut min = Vec3::splat(f32::INFINITY);
-        let mut max = Vec3::splat(f32::NEG_INFINITY);
-        let mut found = false;
-        for node in nodes.clone() {
-            found = true;
-            let position = Vec3::from_array(node.position);
-            let radius = Vec3::splat(node.radius);
-            min = min.min(position - radius);
-            max = max.max(position + radius);
-        }
-        if !found {
+        if nodes.clone().next().is_none() {
             self.reset();
             return;
         }
 
-        self.orbit_center = (min + max) * 0.5;
-        self.target = self.orbit_center;
+        let (minimum, maximum) = nodes.clone().fold(
+            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+            |(minimum, maximum), node| {
+                let position = Vec3::from_array(node.position);
+                (minimum.min(position), maximum.max(position))
+            },
+        );
+        self.fit_graph_around(nodes, (minimum + maximum) * 0.5);
+    }
+
+    fn fit_graph_around<'a, I>(&mut self, nodes: I, center: Vec3)
+    where
+        I: IntoIterator<Item = &'a NodeVisual>,
+        I::IntoIter: Clone,
+    {
+        let nodes = nodes.into_iter();
+        if nodes.clone().next().is_none() {
+            self.reset();
+            return;
+        }
+
+        self.orbit_center = center;
+        self.target = center;
         let radius = nodes
-            .map(|node| {
-                (Vec3::from_array(node.position) - self.target).length() + node.radius.max(0.0)
-            })
+            .map(|node| Vec3::from_array(node.position).distance(center) + node.radius.max(0.0))
             .fold(1.0_f32, f32::max);
         let vertical_half = self.fov_y * 0.5;
         let horizontal_half = (vertical_half.tan() * self.aspect).atan();
@@ -227,6 +242,27 @@ impl Camera {
         let near = inverse.project_point3(Vec3::new(ndc_x, ndc_y, 0.0));
         let far = inverse.project_point3(Vec3::new(ndc_x, ndc_y, 1.0));
         (near, (far - near).normalize_or_zero())
+    }
+
+    #[must_use]
+    pub fn project_to_viewport(&self, position: [f32; 3]) -> Option<(f32, f32, f32)> {
+        let clip = self.view_projection_matrix() * Vec3::from_array(position).extend(1.0);
+        if !clip.is_finite() || clip.w <= 0.0 {
+            return None;
+        }
+        let ndc = clip.truncate() / clip.w;
+        if !ndc.is_finite()
+            || !(-1.0..=1.0).contains(&ndc.x)
+            || !(-1.0..=1.0).contains(&ndc.y)
+            || !(0.0..=1.0).contains(&ndc.z)
+        {
+            return None;
+        }
+        Some((
+            (ndc.x + 1.0) * 0.5 * self.viewport_width,
+            (1.0 - ndc.y) * 0.5 * self.viewport_height,
+            ndc.z,
+        ))
     }
 
     fn frame_basis(&self) -> (Vec3, Vec3, Vec3) {
@@ -277,6 +313,17 @@ mod tests {
     }
 
     #[test]
+    fn camera_target_projects_to_viewport_center() {
+        let camera = Camera::new(800.0, 600.0);
+        let (x, y, depth) = camera
+            .project_to_viewport(camera.target.to_array())
+            .unwrap();
+        assert!((x - 400.0).abs() < 0.001);
+        assert!((y - 300.0).abs() < 0.001);
+        assert!((0.0..=1.0).contains(&depth));
+    }
+
+    #[test]
     fn fit_graph_centers_bounds_and_accounts_for_aspect() {
         let mut camera = Camera::new(1600.0, 500.0);
         let nodes = [node(1, [-50.0, -10.0, 0.0]), node(2, [50.0, 10.0, 0.0])];
@@ -304,6 +351,19 @@ mod tests {
     }
 
     #[test]
+    fn subset_fit_centers_the_visible_cluster_without_changing_scene_fit() {
+        let nodes = [node(1, [1.0, 10.0, -24.0]), node(2, [5.0, 18.0, -16.0])];
+        let mut subset = Camera::new(800.0, 800.0);
+        subset.fit_graph_around_bounds(&nodes);
+        assert!((subset.target - Vec3::new(3.0, 14.0, -20.0)).length() < 0.0001);
+
+        let mut scene = Camera::new(800.0, 800.0);
+        scene.fit_graph(&nodes);
+        assert!((scene.target - Vec3::ZERO).length() < 0.0001);
+        assert!(subset.distance < scene.distance);
+    }
+
+    #[test]
     fn resize_updates_projection_aspect() {
         let mut camera = Camera::new(800.0, 600.0);
         camera.resize(1920.0, 1080.0);
@@ -319,6 +379,25 @@ mod tests {
         assert_eq!(camera.snapshot().yaw, 0.72);
         assert!(camera.snapshot().pitch < std::f32::consts::FRAC_PI_2);
         assert_eq!(camera.snapshot().distance, distance);
+    }
+
+    #[test]
+    fn asymmetric_page_rotates_about_the_shared_projection_origin() {
+        let mut camera = Camera::new(1200.0, 800.0);
+        camera.fit_graph(&[
+            node(1, [4.0, 2.0, 0.0]),
+            node(2, [38.0, 9.0, -3.0]),
+            node(3, [12.0, -16.0, 7.0]),
+        ]);
+        camera.pan(70.0, -25.0);
+        let before = camera.project_to_viewport([0.0, 0.0, 0.0]).unwrap();
+
+        camera.orbit(90.0, 45.0);
+
+        let after = camera.project_to_viewport([0.0, 0.0, 0.0]).unwrap();
+        assert!((before.0 - after.0).abs() < 0.001);
+        assert!((before.1 - after.1).abs() < 0.001);
+        assert_eq!(camera.orbit_center, Vec3::ZERO);
     }
 
     #[test]
@@ -346,7 +425,7 @@ mod tests {
     fn vertical_drag_uses_the_angular_tilt_direction_and_sensitivity() {
         let mut camera = Camera::new(800.0, 600.0);
         camera.orbit(0.0, 25.0);
-        assert!((camera.snapshot().pitch - 0.3).abs() < 0.0001);
+        assert!((camera.snapshot().pitch - 0.35).abs() < 0.0001);
     }
 
     #[test]
@@ -355,7 +434,7 @@ mod tests {
         camera.orbit(60.0, 35.0);
         let before = camera.target;
         camera.pan(10.0, -5.0);
-        let scale = 0.0045 * camera.distance;
+        let scale = camera.distance / 900.0;
         assert!((camera.target.x - (before.x - 10.0 * scale)).abs() < 0.0001);
         assert!((camera.target.y - (before.y - 5.0 * scale)).abs() < 0.0001);
         assert_eq!(camera.target.z, before.z);

@@ -40,6 +40,9 @@ pub(crate) struct ExecutionReport {
 
 #[derive(Serialize)]
 struct SoakAuthority {
+    release_contract: String,
+    document_id: u64,
+    document_hash: String,
     workspace_revision: u64,
     document_revision: Option<u64>,
     entity_registry_revision: u64,
@@ -47,8 +50,18 @@ struct SoakAuthority {
     canonical_entities: usize,
     resident_generation: u64,
     resident_source: &'static str,
+    graph_generation_hash: String,
+    archive_cohort_hash: String,
+    product_index_hash: String,
+    runtime_binary_hash: String,
+    atlas_run_hash: String,
+    fallback_count: u64,
+    json_graph_freight: u64,
+    resident_generation_count: u8,
     kernel_command_queue_high_water: u64,
     kernel_commands_pending: u64,
+    kernel_event_queue_high_water: u64,
+    kernel_events_pending: u64,
 }
 
 #[derive(Serialize)]
@@ -191,9 +204,9 @@ pub fn execute(
     }
     let receipt = SceneProductCutReceipt {
         contract: if report.soak_mode {
-            "phoenix.native.release-lock-cut6-soak/v1"
+            "phoenix.native.release-lock-cut9-soak/v1"
         } else {
-            "phoenix.native.release-lock-cut6/v1"
+            "phoenix.native.release-lock-cut9/v1"
         },
         status: if failures.is_empty() { "pass" } else { "stop" },
         gpui: GPUI_VERSION,
@@ -249,6 +262,9 @@ fn prove_editor(
 
 fn inspect_soak_authority(kernel: &Arc<PhoenixKernel>) -> Result<SoakAuthority, String> {
     let snapshot = kernel.snapshot().map_err(|error| error.to_string())?;
+    let manifest = kernel
+        .release_manifest()
+        .map_err(|error| error.to_string())?;
     let scene = snapshot
         .resident_scene
         .ok_or_else(|| "verified resident scene is missing".to_string())?;
@@ -263,6 +279,9 @@ fn inspect_soak_authority(kernel: &Arc<PhoenixKernel>) -> Result<SoakAuthority, 
     };
     let metrics = kernel.metrics();
     Ok(SoakAuthority {
+        release_contract: manifest.contract,
+        document_id: manifest.authority.document_id,
+        document_hash: hex_hash(manifest.authority.document_hash),
         workspace_revision: snapshot.workspace.revision(),
         document_revision: snapshot
             .active_document_lease
@@ -273,8 +292,18 @@ fn inspect_soak_authority(kernel: &Arc<PhoenixKernel>) -> Result<SoakAuthority, 
         canonical_entities: snapshot.atlas_registry.entities.len(),
         resident_generation: scene.generation().0,
         resident_source,
+        graph_generation_hash: hex_hash(manifest.authority.graph_generation_hash),
+        archive_cohort_hash: hex_hash(manifest.authority.archive_cohort_hash),
+        product_index_hash: hex_hash(manifest.authority.product_index_hash),
+        runtime_binary_hash: hex_hash(manifest.authority.runtime_binary_hash),
+        atlas_run_hash: hex_hash(manifest.authority.atlas_run_hash),
+        fallback_count: manifest.fallback_count,
+        json_graph_freight: manifest.json_graph_freight,
+        resident_generation_count: manifest.resident_generation_count,
         kernel_command_queue_high_water: metrics.command_queue_high_water,
         kernel_commands_pending: metrics.commands_pending,
+        kernel_event_queue_high_water: metrics.event_queue_high_water,
+        kernel_events_pending: metrics.events_pending,
     })
 }
 
@@ -534,6 +563,15 @@ fn enforce_host(proof: Option<&EmbeddedHostProof>, failures: &mut Vec<String>) {
     if !proof.stable_graph_slots {
         failures.push("node or edge slot capacity changed during manifold soak".into());
     }
+    if !proof.stable_memory_plateau {
+        failures.push(format!(
+            "process private memory grew {} bytes after warmup",
+            proof.private_bytes_plateau_delta
+        ));
+    }
+    if !proof.renderer_recovery {
+        failures.push("controlled renderer/device recovery did not present a frame".into());
+    }
     if !proof.gpu_after.product_index_bound {
         failures.push("renderer did not retain the archive-bound scene product index".into());
     }
@@ -591,14 +629,17 @@ fn enforce_lifecycle(state: &LifecycleSnapshot, failures: &mut Vec<String>) {
     {
         failures.push("embedded child graph lifetime invariant failed".into());
     }
-    if state.renderer_created != 1 || state.renderer_dropped != 1 || state.renderer_live != 0 {
+    if state.renderer_created != state.renderer_dropped || state.renderer_live != 0 {
         failures.push("graph renderer lifetime invariant failed".into());
     }
-    if state.surface_created != 1 || state.surface_dropped != 1 || state.surface_live != 0 {
+    if state.surface_created != state.surface_dropped || state.surface_live != 0 {
         failures.push("graph surface lifetime invariant failed".into());
     }
-    if state.device_created != 1 || state.device_dropped != 1 || state.device_live != 0 {
+    if state.device_created != state.device_dropped || state.device_live != 0 {
         failures.push("graph device lifetime invariant failed".into());
+    }
+    if state.resource_recoveries != 1 {
+        failures.push("controlled renderer/device recovery count differs from one".into());
     }
     if state.visibility_transitions < 401 {
         failures.push("embedded graph did not complete 200 hide/show cycles".into());

@@ -100,7 +100,7 @@ pub(super) fn render(
                 ))
                 .child(runtime_lane(
                     "NATIVE SCENE",
-                    "PhoenixGraphGenerationV1 → PSA/PSPI".to_owned(),
+                    "PhoenixGraphGenerationV2 -> PSA/PSPI".to_owned(),
                     true,
                 )),
         )

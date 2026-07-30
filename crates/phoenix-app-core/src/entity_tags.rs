@@ -288,7 +288,8 @@ fn install_committed_document(
     state.structural_analysis = None;
     state.nli_analysis = None;
     state.producer_coordinator = None;
-    state.graph_generation = None;
+    state.graph_generation_v2 = None;
+    state.review_catalog_v2 = None;
     state.analysis_publication = None;
     if let Some((registry, atlas)) = registry {
         state.atlas_registry = atlas;

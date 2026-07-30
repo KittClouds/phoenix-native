@@ -120,8 +120,11 @@ impl ReviewMask {
     pub const ACCEPTED: Self = Self(1);
     pub const PROPOSED: Self = Self(2);
     pub const REJECTED: Self = Self(4);
+    pub const DEFERRED: Self = Self(8);
+    pub const SUPERSEDED: Self = Self(16);
     pub const VISIBLE: Self = Self(Self::ACCEPTED.0 | Self::PROPOSED.0);
-    pub const ALL: Self = Self(Self::VISIBLE.0 | Self::REJECTED.0);
+    pub const ALL: Self =
+        Self(Self::VISIBLE.0 | Self::REJECTED.0 | Self::DEFERRED.0 | Self::SUPERSEDED.0);
 
     #[must_use]
     pub const fn contains(self, other: Self) -> bool {

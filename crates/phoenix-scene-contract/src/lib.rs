@@ -15,9 +15,10 @@ use std::sync::Arc;
 use thiserror::Error;
 
 pub use caps::{
-    CapsRole, CAPS_KLEIN_BOUND, CAPS_LAYOUT_CONTRACT, CAPS_WORLD_SCALE, CHUNK_NODE_KIND,
-    DOCUMENT_NODE_KIND, EPISODE_NODE_KIND, EVIDENCE_NODE_KIND, GUIDE_FLAG_CAP_BOUNDARY,
-    GUIDE_FLAG_CONCENTRATION_AXIS, GUIDE_FLAG_SHELL,
+    CapsRole, CAPS_KLEIN_BOUND, CAPS_LAYOUT_CONTRACT, CAPS_WORLD_SCALE, CHAPTER_NODE_KIND,
+    CHUNK_NODE_KIND, DOCUMENT_NODE_KIND, EPISODE_NODE_KIND, EVENT_NODE_KIND, EVIDENCE_NODE_KIND,
+    GUIDE_FLAG_CAP_BOUNDARY, GUIDE_FLAG_CONCENTRATION_AXIS, GUIDE_FLAG_SHELL, PARAGRAPH_NODE_KIND,
+    SENTENCE_NODE_KIND,
 };
 pub use entities::EntityKind;
 pub use highlights::{
@@ -32,6 +33,8 @@ pub use view::{
 
 pub const SCENE_CONTRACT: &str = "phoenix.native.resident-scene/v1";
 pub const NATIVE_SCENE_COMPILER_CONTRACT: &str = "phoenix.native.active-document-scene-compiler/v2";
+pub const NATIVE_SCENE_COMPILER_V2_CONTRACT: &str =
+    "phoenix.native.graph-generation-scene-compiler/v2";
 pub const HOT_MANIFOLD_PAGE_BUDGET_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]

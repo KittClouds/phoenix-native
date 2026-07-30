@@ -12,12 +12,16 @@ bytemuck.workspace = true
 hashbrown.workspace = true
 memmap2.workspace = true
 phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
-phoenix-graph-generation = { path = "../phoenix-graph-generation" }
+phoenix-document-producer = { path = "../phoenix-document-producer" }
+phoenix-entity-producer = { path = "../phoenix-entity-producer" }
+phoenix-graph-generation-v2 = { path = "../phoenix-graph-generation-v2" }
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
 phoenix-scene-compiler = { path = "../phoenix-scene-compiler" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }
 phoenix-scene-publisher = { path = "../phoenix-scene-publisher" }
+phoenix-semantic-review = { path = "../phoenix-semantic-review" }
+phoenix-story-producer = { path = "../phoenix-story-producer" }
 phoenix-workspace = { path = "../phoenix-workspace" }
 postcard.workspace = true
 serde.workspace = true

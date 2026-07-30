@@ -1,0 +1,18 @@
+[package]
+name = "phoenix-document-producer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blake3.workspace = true
+bytemuck.workspace = true
+hashbrown.workspace = true
+phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
+phoenix-graph-generation-v2 = { path = "../phoenix-graph-generation-v2" }
+thiserror.workspace = true
+
+[dev-dependencies]
+phoenix-scene-compiler = { path = "../phoenix-scene-compiler" }
+tempfile = "3"

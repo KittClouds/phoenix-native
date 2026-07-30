@@ -20,7 +20,7 @@ use phoenix_scene_archive::{
 use phoenix_scene_contract::{
     AnchorCandidate, CapsRole, EntityFamily, FamilyMask, HighlightPalette, RelationFamily,
     ReviewMask, ScopeMask, VerifiedDocumentAnchors, CHUNK_NODE_KIND, DOCUMENT_NODE_KIND,
-    EPISODE_NODE_KIND, EVIDENCE_NODE_KIND,
+    EVIDENCE_NODE_KIND,
 };
 use phoenix_scene_product_index::{EntityNodeMappingRecord, ProductReferenceRecord};
 use phoenix_scene_publisher::{
@@ -415,7 +415,7 @@ fn compile_document(
     let total_node_count = entity_count
         .checked_add(structural_chunks.len())
         .and_then(|count| count.checked_add(evidence_specs.len()))
-        .and_then(|count| count.checked_add(2))
+        .and_then(|count| count.checked_add(1))
         .ok_or(NativeSceneCompilerError::RangeOverflow(
             "structural node count",
         ))?;
@@ -428,11 +428,8 @@ fn compile_document(
     let mut caps_memberships = HashMap::with_capacity(mentioned_entities.len());
     let document_slot = u32::try_from(entity_count)
         .map_err(|_| NativeSceneCompilerError::RangeOverflow("CAPS document slot"))?;
-    let episode_slot = document_slot
-        .checked_add(1)
-        .ok_or(NativeSceneCompilerError::RangeOverflow("CAPS episode slot"))?;
     let evidence_base = entity_count
-        .checked_add(2)
+        .checked_add(1)
         .and_then(|slot| slot.checked_add(structural_chunks.len()))
         .ok_or(NativeSceneCompilerError::RangeOverflow(
             "CAPS evidence base",
@@ -492,7 +489,7 @@ fn compile_document(
                 let rank = unmentioned_rank;
                 unmentioned_rank = unmentioned_rank.saturating_add(1);
                 (
-                    episode_slot,
+                    document_slot,
                     rank,
                     u32::try_from(unmentioned_count).map_err(|_| {
                         NativeSceneCompilerError::RangeOverflow("CAPS unmentioned count")
@@ -548,46 +545,12 @@ fn compile_document(
             },
         },
     );
-    let episode_id = stable_structural_id(input.document.entry_id.0, b"episode", 0);
-    ensure_node_id_available(&identities, episode_id)?;
-    push_structure_node(
-        &mut identities,
-        &mut styles,
-        &mut node_products,
-        &mut positions,
-        &mut caps_nodes,
-        StructureNodeSpec {
-            id: episode_id,
-            label: "Episode 1",
-            kind: EPISODE_NODE_KIND,
-            color: structure_palette.primary,
-            radius: 1.25,
-            total_node_count,
-            degree: structural_chunks.len() as u32,
-            caps: layout::CapsNode {
-                stable_id: episode_id,
-                role: CapsRole::Episode,
-                parent_slot: Some(document_slot),
-                sibling_rank: 0,
-                sibling_count: 1,
-                membership_count: 1,
-            },
-        },
-    );
     let mut structural_edges = StructuralEdgeBuffers {
         topology: &mut topology,
         edges: &mut edges,
         products: &mut edge_products,
         ids: &mut edge_ids,
     };
-    push_structural_edge(
-        &mut structural_edges,
-        input.document.entry_id.0,
-        document_id,
-        episode_id,
-        structure_palette.primary,
-        structure_palette.primary,
-    )?;
     let mut chunk_slots = HashMap::with_capacity(structural_chunks.len());
     for (chunk_index, (chunk_ordinal, _)) in structural_chunks.iter().enumerate() {
         let node_id = generation_chunk_ids
@@ -602,7 +565,7 @@ fn compile_document(
             });
         ensure_node_id_available(&identities, node_id)?;
         let chunk_slot = entity_count
-            .checked_add(2)
+            .checked_add(1)
             .and_then(|slot| slot.checked_add(chunk_index))
             .ok_or(NativeSceneCompilerError::RangeOverflow("CAPS chunk slot"))?;
         chunk_slots.insert(
@@ -627,7 +590,7 @@ fn compile_document(
                 caps: layout::CapsNode {
                     stable_id: node_id,
                     role: CapsRole::Chunk,
-                    parent_slot: Some(episode_slot),
+                    parent_slot: Some(document_slot),
                     sibling_rank: u32::try_from(chunk_index)
                         .map_err(|_| NativeSceneCompilerError::RangeOverflow("CAPS chunk rank"))?,
                     sibling_count: u32::try_from(structural_chunks.len())
@@ -639,7 +602,7 @@ fn compile_document(
         push_structural_edge(
             &mut structural_edges,
             input.document.entry_id.0,
-            episode_id,
+            document_id,
             node_id,
             structure_palette.primary,
             structure_palette.secondary,

@@ -446,6 +446,107 @@ impl EmbeddedGraphApp {
         }
     }
 
+    fn recover_renderer(&mut self, window: &Arc<Window>) -> Result<()> {
+        let kernel_snapshot = self
+            .kernel
+            .snapshot()
+            .context("read resident scene for renderer recovery")?;
+        let scene = kernel_snapshot.resident_scene.ok_or_else(|| {
+            anyhow!("[PHX_SCENE_MISSING] renderer recovery has no resident generation")
+        })?;
+        let active = scene
+            .activate_manifold(kernel_snapshot.graph_view.manifold)
+            .context("open resident manifold for renderer recovery")?;
+        let size = window.inner_size();
+        // A Win32 HWND may have only one configured wgpu surface at a time.
+        // Release the old renderer, surface, device, and queue before creating
+        // their replacements against the same child window.
+        drop(self.renderer.take());
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: graph_render_wgpu::native_backends(),
+            ..Default::default()
+        });
+        let surface = instance
+            .create_surface(Arc::clone(window))
+            .context("recreate embedded graph surface")?;
+        let mut renderer = pollster::block_on(GraphRenderer::new(
+            &instance,
+            surface,
+            size.width.max(1),
+            size.height.max(1),
+            window.scale_factor() as f32,
+        ))
+        .context("recreate embedded graph renderer and device")?;
+        renderer
+            .set_archive_scene_bound(
+                GraphRevision(scene.generation().0),
+                scene.archive_identity().cohort_hash,
+                &active.pages,
+            )
+            .context("restore resident scene after renderer recovery")?;
+        renderer
+            .set_prepared_geometry(active.guides, active.prepared_paths)
+            .context("restore prepared geometry after renderer recovery")?;
+        if let Some(index) = kernel_snapshot.scene_product_index.as_ref() {
+            if scene
+                .archive()
+                .has_page(PageKey::shared(PageKind::LabelPriority))
+            {
+                let priorities = scene
+                    .archive()
+                    .typed_page(PageKey::shared(PageKind::LabelPriority))
+                    .context("open label priorities after renderer recovery")?;
+                renderer
+                    .set_product_index_shared(Arc::clone(index), priorities)
+                    .context("restore product index after renderer recovery")?;
+            } else {
+                renderer
+                    .set_product_index(index)
+                    .context("restore pre-label product index after renderer recovery")?;
+            }
+            renderer
+                .apply_review_overrides(index, &kernel_snapshot.graph_review_overlay.entries)
+                .context("restore review overlay after renderer recovery")?;
+        }
+        renderer
+            .set_graph_view(kernel_snapshot.graph_view)
+            .context("restore graph view after renderer recovery")?;
+        renderer
+            .set_external_selection_pair(
+                kernel_snapshot.graph_selection.node_id.map(NodeId),
+                kernel_snapshot
+                    .graph_selection
+                    .secondary_node_id
+                    .map(NodeId),
+                matches!(
+                    kernel_snapshot.graph_selection.origin,
+                    GraphSelectionOrigin::Atlas | GraphSelectionOrigin::AtlasCandidate
+                ),
+            )
+            .context("restore graph selection after renderer recovery")?;
+        let projected = renderer
+            .revision()
+            .map(|revision| GraphGeneration(revision.0))
+            .ok_or_else(|| anyhow!("recovered renderer has no resident generation"))?;
+        if projected != scene.generation() {
+            return Err(anyhow!(
+                "recovered renderer generation {} differs from authority {}",
+                projected.0,
+                scene.generation().0
+            ));
+        }
+        self.renderer = Some(renderer);
+        self.loaded_generation = Some(projected);
+        self.loaded_manifold = kernel_snapshot.graph_view.manifold;
+        self.loaded_graph_view = kernel_snapshot.graph_view;
+        self.loaded_selection_revision = kernel_snapshot.graph_selection.revision;
+        self.loaded_review_overlay_revision = kernel_snapshot.graph_review_overlay.revision;
+        self.max_hot_page_bytes = self.max_hot_page_bytes.max(active.hot_pages.byte_len);
+        lifecycle::graph_resources_recreated();
+        window.request_redraw();
+        Ok(())
+    }
+
     fn process_commands(&mut self, event_loop: &ActiveEventLoop) {
         while let Ok(command) = self.receiver.try_recv() {
             self.queue_metrics.received();
@@ -470,6 +571,19 @@ impl EmbeddedGraphApp {
                         .map_err(|error| format!("{error:#}"));
                     let _ = sender.send(result);
                     window.request_redraw();
+                }
+                GraphWindowCommand::PickProbePoint(sender) => {
+                    let point = self
+                        .renderer
+                        .as_ref()
+                        .and_then(GraphRenderer::visible_node_pick_point);
+                    let _ = sender.send(point);
+                }
+                GraphWindowCommand::RecoverRenderer(sender) => {
+                    let result = self
+                        .recover_renderer(&window)
+                        .map_err(|error| format!("{error:#}"));
+                    let _ = sender.send(result);
                 }
                 GraphWindowCommand::ProbeFocus(sender) => {
                     let _ = sender.send(focus_child(window.as_ref()).unwrap_or(false));
