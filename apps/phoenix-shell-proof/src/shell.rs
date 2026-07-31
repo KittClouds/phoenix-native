@@ -6,12 +6,13 @@ mod footer;
 mod graph_controls;
 mod graph_viewport;
 mod highlights;
+mod style_hub;
 mod view;
 
 use crate::graph_window::{GraphWindow, ViewportGeometry};
 use crate::lifecycle;
 use crate::proof;
-use gpui::{AppContext as _, Context, Entity, FocusHandle, SharedString, Timer, Window};
+use gpui::{AppContext as _, Context, Entity, FocusHandle, SharedString, Task, Timer, Window};
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::resizable::ResizableState;
 use hashbrown::HashSet;
@@ -79,9 +80,11 @@ pub struct PhoenixShell {
     drawer_layout: drawer::DrawerLayout,
     drawer_resize_state: Entity<ResizableState>,
     drawer_tab: drawer::DrawerTab,
+    graph_sidebar_panel: style_hub::GraphSidebarPanel,
     atlas_control_section: atlas_control::AtlasControlSection,
     atlas_control_focus: FocusHandle,
     atlas_selected_candidate: Option<phoenix_app_core::AtlasCandidateId>,
+    highlight_reprojection_task: Option<Task<()>>,
     document_metrics: footer::DocumentMetrics,
     status: SharedString,
 }
@@ -162,9 +165,11 @@ impl PhoenixShell {
             drawer_layout: drawer::DrawerLayout::new(proof_mode || soak_mode || design_preview),
             drawer_resize_state: cx.new(|_| ResizableState::default()),
             drawer_tab: drawer::DrawerTab::Graph,
+            graph_sidebar_panel: style_hub::GraphSidebarPanel::Registry,
             atlas_control_section: atlas_control::AtlasControlSection::Overview,
             atlas_control_focus,
             atlas_selected_candidate: None,
+            highlight_reprojection_task: None,
             document_metrics,
             status,
         };
@@ -466,12 +471,7 @@ impl PhoenixShell {
 
     fn select_entry(&mut self, id: EntryId, cx: &mut Context<Self>) {
         self.delete_armed = None;
-        if id != self.active_entry()
-            && self.editor_lease.is_some()
-            && self.editor.read_with(cx, |editor, _| editor.is_dirty())
-        {
-            self.status = "BLOCKED / SAVE THE ACTIVE NOTE BEFORE CHANGING SELECTION".into();
-            cx.notify();
+        if id != self.active_entry() && !self.commit_dirty_editor_before_selection(cx) {
             return;
         }
         if self
@@ -497,6 +497,43 @@ impl PhoenixShell {
         cx.notify();
     }
 
+    fn commit_dirty_editor_before_selection(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.editor.read_with(cx, |editor, _| editor.is_dirty()) {
+            return true;
+        }
+        let Some(lease) = self.editor_lease.as_ref().map(Arc::clone) else {
+            self.status = "NOTE SWITCH BLOCKED / NO ACTIVE DOCUMENT LEASE".into();
+            cx.notify();
+            return false;
+        };
+        let content: Arc<str> = Arc::from(
+            self.editor
+                .read_with(cx, |editor, cx| editor.host_document_text(cx)),
+        );
+        match self.kernel.execute(KernelCommand::SaveDocument {
+            lease: lease.token(),
+            content,
+        }) {
+            Ok(_) => {
+                if let Ok(snapshot) = self.kernel.snapshot() {
+                    self.editor_lease = snapshot.active_document_lease;
+                }
+                self.editor
+                    .update(cx, |editor, cx| editor.mark_embedded_saved(cx));
+                let _ = self.kernel.drain_events();
+                true
+            }
+            Err(error) => {
+                if let Ok(snapshot) = self.kernel.snapshot() {
+                    self.editor_lease = snapshot.active_document_lease;
+                }
+                self.status = format!("NOTE SWITCH BLOCKED / AUTO-SAVE FAILED / {error}").into();
+                cx.notify();
+                false
+            }
+        }
+    }
+
     fn on_editor_event(
         &mut self,
         editor: Entity<velotype::Editor>,
@@ -507,6 +544,7 @@ impl PhoenixShell {
             self.document_metrics = editor.read_with(cx, |editor, cx| {
                 footer::DocumentMetrics::from_text(&editor.host_document_text(cx))
             });
+            self.schedule_highlight_reprojection(editor, cx);
             cx.notify();
             return;
         }

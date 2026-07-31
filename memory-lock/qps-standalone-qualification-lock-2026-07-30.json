@@ -1,0 +1,96 @@
+{
+  "contract": "phoenix.memory.qps-standalone-qualification-lock/v1",
+  "frozen_at": "2026-07-30",
+  "disposition": "qualified_for_standalone_use",
+  "runtime_architecture": "one_qps_index_no_bm25_runtime_arm",
+  "producer": {
+    "git_head": "abaa35ff9bfbeae73a7ab598adff363346fae3f6",
+    "branch": "codex/phoenix-native-cleanroom-cut3",
+    "source_file_count": 18,
+    "source_tree_hash_algorithm": "sha256(sorted(normalized_relative_path || 0x00 || file_bytes || 0xff))",
+    "source_tree_sha256": "2eefa53a350fb23e7003726d93bb528fa148637b9840d949a4350709fe2a95c2",
+    "binary_path": "C:\\phoenix-bin\\qps-standalone-qualified\\phoenix-memory-lock.exe",
+    "binary_bytes": 751104,
+    "binary_sha256": "d8e0e13b6f26491b30e41e8b0179f0122ef5e0f7f4328b1ea4a7866d82c47265"
+  },
+  "mixed_qualification": {
+    "suite_path": "memory-lock\\qps-mixed-qualification-v1.json",
+    "suite_bytes": 13851,
+    "suite_sha256": "17400c9d9f3cc93ee5db225caf25a13ce62bf62cfe09f53c89133f56fbfbd4e9",
+    "receipt_path": "C:\\benchmarks\\phoenix-qps-standalone-qualification-20260730\\qualification-final.json",
+    "receipt_sha256": "f2c6d4690bb83e615b8092ae776fb134c9b7883a97b401ba5110a56d0ad2b2fa",
+    "documents": 24,
+    "document_sources": 12,
+    "conversation_sources": 12,
+    "queries": {
+      "ordinary": 12,
+      "phrase": 8,
+      "fuzzy": 8,
+      "no_result": 4
+    },
+    "measured_searches": 32768,
+    "quality": {
+      "hit_at_10": 1.0,
+      "mrr": 1.0,
+      "top_1_accuracy": 1.0,
+      "no_result_accuracy": 1.0
+    },
+    "latency_nanos": {
+      "median": 900,
+      "p95": 1300,
+      "p99": 1700,
+      "max": 12200
+    },
+    "shape_p99_nanos": {
+      "ordinary": 1900,
+      "phrase": 1500,
+      "fuzzy": 1400,
+      "no_result": 700
+    },
+    "source_p99_nanos": {
+      "document": 1900,
+      "conversation": 1500
+    },
+    "scratch_capacity_growths": 0,
+    "determinism_failures": 0
+  },
+  "longmemeval_regression": {
+    "cases": 500,
+    "repetitions_per_case": 32,
+    "retrieval_path": "C:\\benchmarks\\phoenix-qps-standalone-qualification-20260730\\longmemeval-qps-confirmation.plmr",
+    "retrieval_sha256": "9927f0673e5933a5c6bead22f581020a1ac0705b36dfc1322468537aee010b3e",
+    "hit_at_10": 0.98,
+    "mrr": 0.8910047619047616,
+    "latency_nanos": {
+      "median": 236100,
+      "p95": 524900,
+      "p99": 697800,
+      "max": 1053600
+    },
+    "scratch_capacity_growths": 0,
+    "maximum_query_groups": 57,
+    "maximum_candidates": 62,
+    "maximum_reranked": 60
+  },
+  "product_gates": {
+    "mixed_hit_at_10_at_least_098": true,
+    "mixed_mrr_at_least_090": true,
+    "mixed_top_1_at_least_085": true,
+    "no_result_accuracy_is_one": true,
+    "mixed_p99_at_most_one_millisecond": true,
+    "longmemeval_hit_at_10_at_least_098": true,
+    "longmemeval_mrr_at_least_089": true,
+    "longmemeval_p99_at_most_one_millisecond": true,
+    "zero_warm_capacity_growth": true,
+    "deterministic_rankings": true,
+    "all_requested_shapes_present": true,
+    "documents_and_conversations_present": true,
+    "qualified_for_standalone_use": true
+  },
+  "limits": {
+    "mixed_suite_is_curated_not_a_blind_universal_relevance_claim": true,
+    "concurrent_multi_worker_scaling_evaluated": false,
+    "fuzzy_expansions_are_supplied_by_the_caller": true,
+    "bm25_turbo_is_benchmark_only": true
+  }
+}

@@ -1,12 +1,16 @@
 use super::PhoenixShell;
-use gpui::Context;
+use gpui::{Context, Entity, Timer};
 use phoenix_app_core::KernelCommand;
 use phoenix_scene_contract::HighlightMode;
+use std::time::Duration;
 use velotype::{SemanticHighlight, SemanticHighlightMode};
+
+const EDIT_HIGHLIGHT_REPROJECTION_DELAY: Duration = Duration::from_millis(75);
 
 impl PhoenixShell {
     pub(super) fn initialize_highlights(&mut self, cx: &mut Context<Self>) {
         self.apply_kernel_highlights(cx);
+        self.schedule_highlight_reprojection(self.editor.clone(), cx);
     }
 
     pub(super) fn set_highlight_mode(&mut self, mode: HighlightMode, cx: &mut Context<Self>) {
@@ -43,6 +47,32 @@ impl PhoenixShell {
             Err(error) => self.status = format!("HIGHLIGHTS BLOCKED / {error}").into(),
         }
         cx.notify();
+    }
+
+    /// Reprojects immutable, evidence-bound anchors after the editor settles.
+    ///
+    /// Velotype clears block-local paint on every edit so offsets can never
+    /// silently drift. The shell restores that paint from the kernel's exact
+    /// source spans once the current edit burst stops. Replacing the task
+    /// cancels the prior timer; the revision guard also prevents an older task
+    /// from painting a newer document.
+    pub(super) fn schedule_highlight_reprojection(
+        &mut self,
+        editor: Entity<velotype::Editor>,
+        cx: &mut Context<Self>,
+    ) {
+        let scheduled_revision = editor.read_with(cx, |editor, _cx| editor.document_revision());
+        self.highlight_reprojection_task = Some(cx.spawn(async move |shell, async_cx| {
+            Timer::after(EDIT_HIGHLIGHT_REPROJECTION_DELAY).await;
+            let _ = shell.update(async_cx, |this, cx| {
+                let current_revision =
+                    editor.read_with(cx, |editor, _cx| editor.document_revision());
+                if current_revision != scheduled_revision {
+                    return;
+                }
+                this.apply_kernel_highlights(cx);
+            });
+        }));
     }
 
     pub(super) fn apply_kernel_highlights(&mut self, cx: &mut Context<Self>) {

@@ -97,6 +97,32 @@ impl FamilyMask {
     pub const DISCOURSE: Self = Self(1 << 10);
     pub const ALL: Self =
         Self(Self::ENTITIES.0 | Self::STRUCTURE.0 | Self::FACTS.0 | Self::DISCOURSE.0);
+
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    #[must_use]
+    pub const fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    #[must_use]
+    pub const fn toggled(self, other: Self) -> Self {
+        Self(self.0 ^ other.0)
+    }
+
+    #[must_use]
+    pub const fn is_valid_selection(self) -> bool {
+        self.0 != 0 && self.0 & !Self::ALL.0 == 0
+    }
+}
+
+impl Default for FamilyMask {
+    fn default() -> Self {
+        Self::ALL
+    }
 }
 
 impl GraphLens {
@@ -162,16 +188,24 @@ pub enum RelationFamily {
     Causal,
     Temporal,
     Structural,
+    Identity,
+    Relationship,
+    Event,
+    MemoryState,
 }
 
 impl RelationFamily {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 10] = [
         Self::CoOccurrence,
         Self::Observation,
         Self::Communication,
         Self::Causal,
         Self::Temporal,
         Self::Structural,
+        Self::Identity,
+        Self::Relationship,
+        Self::Event,
+        Self::MemoryState,
     ];
 
     #[must_use]
@@ -208,6 +242,12 @@ impl RelationMask {
 pub struct GraphViewState {
     pub authority: SceneAuthority,
     pub surface: GraphSurface,
+    /// Combined topology lanes selected by the Style Hub.
+    ///
+    /// `lens` remains as a compatibility name for a preferred lane, but it no
+    /// longer owns visibility. The renderer consumes this mask directly.
+    #[serde(default)]
+    pub families: FamilyMask,
     pub lens: GraphLens,
     pub scope: GraphScope,
     pub reviews: ReviewMask,
@@ -221,6 +261,7 @@ impl GraphViewState {
         Self {
             authority: SceneAuthority::Unavailable,
             surface: GraphSurface::Entities,
+            families: FamilyMask::ALL,
             lens: GraphLens::Entities,
             scope: GraphScope::Global,
             reviews: ReviewMask::VISIBLE,
@@ -249,7 +290,7 @@ impl GraphViewState {
     pub const fn family_mask(self) -> FamilyMask {
         match self.surface {
             GraphSurface::Entities => FamilyMask::ENTITIES,
-            GraphSurface::Atlas => self.lens.family_mask(),
+            GraphSurface::Atlas => self.families,
         }
     }
 
@@ -265,7 +306,9 @@ impl GraphViewState {
 
     #[must_use]
     pub const fn is_valid(self) -> bool {
-        self.reviews.is_visible_selection() && self.relations.is_valid_selection()
+        self.families.is_valid_selection()
+            && self.reviews.is_visible_selection()
+            && self.relations.is_valid_selection()
     }
 }
 
@@ -296,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn atlas_lenses_are_disjoint_named_bits() {
+    fn atlas_lenses_are_disjoint_named_bits_and_combine_without_allocation() {
         let masks = [
             GraphLens::Entities.family_mask(),
             GraphLens::Structure.family_mask(),
@@ -308,6 +351,13 @@ mod tests {
                 assert_eq!(mask.0 & other.0, 0);
             }
         }
+        let combined = FamilyMask::STRUCTURE
+            .toggled(FamilyMask::FACTS)
+            .toggled(FamilyMask::ENTITIES);
+        assert!(combined.contains(FamilyMask::STRUCTURE));
+        assert!(combined.contains(FamilyMask::FACTS));
+        assert!(combined.intersects(FamilyMask::ENTITIES));
+        assert!(combined.is_valid_selection());
     }
 
     #[test]

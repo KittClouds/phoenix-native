@@ -7,14 +7,18 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+aho-corasick.workspace = true
 blake3.workspace = true
 bytemuck.workspace = true
 hashbrown.workspace = true
+memchr.workspace = true
 memmap2.workspace = true
 phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
 phoenix-document-producer = { path = "../phoenix-document-producer" }
 phoenix-entity-producer = { path = "../phoenix-entity-producer" }
 phoenix-graph-generation-v2 = { path = "../phoenix-graph-generation-v2" }
+phoenix-memory-contract = { path = "../phoenix-memory-contract" }
+phoenix-memory-coordinator = { path = "../phoenix-memory-coordinator" }
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
 phoenix-scene-compiler = { path = "../phoenix-scene-compiler" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }

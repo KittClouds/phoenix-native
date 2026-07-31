@@ -1,0 +1,118 @@
+{
+  "contract": "phoenix.memory.qps-concurrency-release-lock/v1",
+  "frozen_at": "2026-07-30",
+  "disposition": "qualified_for_bounded_multi_worker_use",
+  "runtime_architecture": "immutable_qps_indexes_plus_sharded_bounded_queues_plus_worker_local_scratch",
+  "producer": {
+    "git_head": "abaa35ff9bfbeae73a7ab598adff363346fae3f6",
+    "branch": "codex/phoenix-native-cleanroom-cut3",
+    "source_file_count": 20,
+    "source_tree_hash_algorithm": "sha256(sorted(normalized_relative_path || 0x00 || file_bytes || 0xff))",
+    "source_tree_sha256": "11093b36666fbebaa428ded882c74679d0c2cdf143fc1e2740e1d067a80190bb",
+    "binary_path": "C:\\phoenix-bin\\qps-concurrency-qualified\\phoenix-memory-lock.exe",
+    "binary_bytes": 854528,
+    "binary_sha256": "2bfd5b83437e12916bedbef9568778ab56588b8b3475303e7bf8364856595c4f"
+  },
+  "machine": {
+    "cpu": "AMD Ryzen 7 5800X3D 8-Core Processor",
+    "logical_processors": 16,
+    "physical_memory_gib": 31.9
+  },
+  "mixed_source_sweep": {
+    "suite_path": "memory-lock\\qps-mixed-qualification-v1.json",
+    "suite_sha256": "17400c9d9f3cc93ee5db225caf25a13ce62bf62cfe09f53c89133f56fbfbd4e9",
+    "receipt_path": "C:\\benchmarks\\phoenix-qps-concurrency-qualification-20260730\\concurrency-mixed-release.json",
+    "receipt_sha256": "a37c81a35d3f5bc23fd1ead00dee420b1df5216e2786bd22038395cc24dd89dc",
+    "workers": [1, 2, 4, 8, 16],
+    "operations_per_worker_per_phase": 8192,
+    "phases": 2,
+    "batch_size": 16,
+    "queue_batches_per_worker": 1,
+    "one_worker_queries_per_second": 810848.2628922103,
+    "peak_queries_per_second": 6560652.701654279,
+    "peak_workers": 16,
+    "peak_speedup": 8.091097930275046,
+    "sixteen_worker_engine_p99_nanos": 2300,
+    "sixteen_worker_end_to_end_p99_nanos": 76600,
+    "scratch_capacity_growths": 0,
+    "determinism_failures": 0,
+    "steady_private_growth_bytes": 0
+  },
+  "longmemeval_sweep": {
+    "workload_path": "C:\\benchmarks\\phoenix-qps-v201-release-lock-20260730\\longmemeval-small.plmw",
+    "workload_artifact_sha256": "8935a6aa862237dea65d777aa9c964caf9add88b6a5084660b62bf426451b46e",
+    "source_dataset_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+    "receipt_path": "C:\\benchmarks\\phoenix-qps-concurrency-qualification-20260730\\concurrency-longmemeval-release.json",
+    "receipt_sha256": "547f0d14be6debd848d0c1db023ff982a972e60e3dceffbfbfb1eec85612bcfb",
+    "cases": 500,
+    "indexes": 500,
+    "documents": 23867,
+    "positions": 40156285,
+    "estimated_index_bytes": 481149484,
+    "maximum_documents_per_index": 62,
+    "workers": [1, 2, 4, 8, 16],
+    "operations_per_worker_per_phase": 4096,
+    "phases": 2,
+    "batch_size": 1,
+    "queue_batches_per_worker": 1,
+    "one_worker_queries_per_second": 3567.041304701092,
+    "peak_queries_per_second": 27173.186314409802,
+    "peak_workers": 16,
+    "peak_speedup": 7.617850199434917,
+    "sixteen_worker_engine_p99_nanos": 773500,
+    "sixteen_worker_end_to_end_p99_nanos": 1947000,
+    "sixteen_worker_private_usage_bytes": 1129050112,
+    "scratch_capacity_growths": 0,
+    "determinism_failures": 0,
+    "steady_private_growth_bytes": 0
+  },
+  "queue_depth_refinement": {
+    "workers": 16,
+    "batch_size": 1,
+    "depth_1": {
+      "queries_per_second": 27492.3,
+      "end_to_end_p99_nanos": 1909600
+    },
+    "depth_2": {
+      "queries_per_second": 27288.7,
+      "end_to_end_p99_nanos": 2644000
+    },
+    "depth_4": {
+      "queries_per_second": 27931.2,
+      "end_to_end_p99_nanos": 3940200
+    },
+    "depth_8": {
+      "queries_per_second": 29997.5,
+      "end_to_end_p99_nanos": 6233900
+    },
+    "selected_default_depth": 1,
+    "decision": "retain_about_92_percent_of_depth_8_throughput_while_cutting_p99_about_69_percent"
+  },
+  "engine_regression_fixed": {
+    "symptom": "reusing one SearchScratch across a smaller index after a larger index could panic while draining touched document IDs",
+    "cause": "prepare resized document arrays downward before begin_query cleared touched IDs",
+    "contract": "SearchScratch storage is grow-only across heterogeneous immutable indexes",
+    "regression_test": "scratch_reuse_across_different_index_sizes_is_grow_only_and_safe"
+  },
+  "hard_gates": {
+    "one_qps_engine_no_bm25_runtime_arm": true,
+    "immutable_indexes_are_send_and_sync": true,
+    "worker_local_scratch": true,
+    "bounded_sharded_queues": true,
+    "fixed_size_dispatch_batches": true,
+    "engine_p99_at_most_one_millisecond": true,
+    "mixed_end_to_end_p99_at_most_two_milliseconds": true,
+    "longmemeval_end_to_end_p99_at_most_ten_milliseconds": true,
+    "peak_speedup_at_least_1_5x": true,
+    "zero_scratch_capacity_growth": true,
+    "zero_determinism_failures": true,
+    "stable_private_memory": true,
+    "qualified_for_bounded_multi_worker_use": true
+  },
+  "limits": {
+    "longmemeval_stress_keeps_500_independent_case_indexes_resident": true,
+    "longmemeval_private_usage_is_not_a_single_production_index_budget": true,
+    "cross_process_or_distributed_scaling_evaluated": false,
+    "bm25_turbo_is_benchmark_only": true
+  }
+}

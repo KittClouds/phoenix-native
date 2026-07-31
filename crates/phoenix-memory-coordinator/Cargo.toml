@@ -1,0 +1,20 @@
+[package]
+name = "phoenix-memory-coordinator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+blake3.workspace = true
+hashbrown.workspace = true
+memchr.workspace = true
+phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
+phoenix-memory-contract = { path = "../phoenix-memory-contract" }
+phoenix-lexical-qps = { path = "../phoenix-lexical-qps" }
+phoenix-workspace = { path = "../phoenix-workspace" }
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3.20"

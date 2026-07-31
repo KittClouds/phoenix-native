@@ -483,6 +483,13 @@ pub(super) fn publish_nli_artifact(
         promotion_count: publication.artifact.promotion_count,
         stages: publication.stages,
     };
+    let lease = state
+        .active_document_lease
+        .as_ref()
+        .map(Arc::clone)
+        .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+    let memory_analysis = Arc::clone(&publication.analysis);
+    let memory_structural = Arc::clone(&publication.structural);
     state.nli_analysis = Some(publication.artifact);
     state.document_analysis = Some(publication.analysis);
     state.structural_analysis = Some(publication.structural);
@@ -493,6 +500,9 @@ pub(super) fn publish_nli_artifact(
     state.revision = checked_revision(state.revision)?;
     let kernel_revision = state.revision;
     drop(state);
+    shared
+        .resident_memory
+        .publish_document(lease, &memory_structural, &memory_analysis)?;
     push_event(
         shared,
         KernelEvent {

@@ -122,7 +122,7 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
         structural_edge(101, 10, 20),
         structural_edge(102, 20, 30),
         structural_edge(103, 30, 40),
-        structural_edge(104, 40, 50),
+        structural_edge(104, 10, 50),
     ];
     let source_generation = write_generation_new(
         &generation_path,
@@ -176,7 +176,12 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
         source_generation.header().generation_hash
     );
     assert_eq!(compiled.publication.identities[0].id, 10);
-    assert!(compiled.publication.edges.iter().any(|edge| edge.id == 101));
+    assert!(compiled.publication.edges.iter().any(|edge| edge.id == 104));
+    assert!(!compiled
+        .publication
+        .identities
+        .iter()
+        .any(|node| matches!(node.id, 20 | 30 | 40)));
     assert!(!compiled
         .publication
         .node_products
@@ -188,7 +193,7 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
         .publish(compiled.publication)
         .expect("publish V2 scene");
     assert_eq!(published.scene.generation(), GraphGeneration(41));
-    assert_eq!(published.scene.inventory().node_count, 7);
+    assert_eq!(published.scene.inventory().node_count, 4);
     assert_eq!(
         published
             .product_index
@@ -213,7 +218,7 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
             .scene
             .activate_manifold(manifold)
             .expect("activate prepared manifold");
-        assert_eq!(active.pages.positions.len(), 7);
+        assert_eq!(active.pages.positions.len(), 4);
         assert!(active.guides.is_some());
         assert!(active.prepared_paths.is_some());
         assert!(published

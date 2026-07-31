@@ -1,0 +1,25 @@
+[package]
+name = "phoenix-memory-lock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-channel.workspace = true
+blake3.workspace = true
+hashbrown.workspace = true
+memmap2.workspace = true
+phoenix-lexical-qps = { path = "../../crates/phoenix-lexical-qps" }
+phoenix-app-core = { path = "../../crates/phoenix-app-core" }
+phoenix-memory-contract = { path = "../../crates/phoenix-memory-contract" }
+phoenix-memory-coordinator = { path = "../../crates/phoenix-memory-coordinator" }
+postcard.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+windows.workspace = true
+
+[dev-dependencies]
+tempfile = "3.20"

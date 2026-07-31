@@ -1,11 +1,13 @@
 use super::drawer::{ACCENT, ACCENT_DIM};
 use super::graph_controls::surface_segment;
+use super::style_hub::GraphSidebarPanel;
 use super::{PhoenixShell, BORDER, TEXT, TEXT_MUTED};
 use gpui::{
     div, linear_color_stop, linear_gradient, prelude::*, px, rgb, uniform_list, Context,
     IntoElement, SharedString,
 };
 use gpui_component::input::Input;
+use gpui_component::scroll::ScrollableElement;
 use gpui_component::{Sizable, StyledExt};
 use phoenix_app_core::{AtlasEntity, AtlasRegistry, GraphSelectionCommand, KernelCommand};
 use phoenix_scene_contract::{EntityKind, GraphViewState, HighlightPalette};
@@ -33,6 +35,31 @@ impl PhoenixShell {
             .as_ref()
             .map(|snapshot| snapshot.graph_view)
             .unwrap_or_default();
+        let panel = self.graph_sidebar_panel;
+        let shell = div()
+            .size_full()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .border_r_1()
+            .border_color(rgb(BORDER))
+            .bg(linear_gradient(
+                155.,
+                linear_color_stop(rgb(0x092820), 0.),
+                linear_color_stop(rgb(0x101211), 1.),
+            ))
+            .child(atlas_header(&atlas, graph_view, panel, cx));
+
+        if panel == GraphSidebarPanel::StyleHub {
+            return shell.child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .child(self.render_style_hub(snapshot.as_ref(), cx)),
+            );
+        }
+
         let query = self.atlas_search.read(cx).value().trim().to_string();
         let visible = atlas
             .entities
@@ -68,19 +95,7 @@ impl PhoenixShell {
         )
         .h_full();
 
-        div()
-            .size_full()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .border_r_1()
-            .border_color(rgb(BORDER))
-            .bg(linear_gradient(
-                155.,
-                linear_color_stop(rgb(0x092820), 0.),
-                linear_color_stop(rgb(0x101211), 1.),
-            ))
-            .child(atlas_header(&atlas, graph_view, cx))
+        shell
             .child(
                 div()
                     .px_2()
@@ -139,6 +154,7 @@ impl PhoenixShell {
 fn atlas_header(
     atlas: &AtlasRegistry,
     graph_view: GraphViewState,
+    panel: GraphSidebarPanel,
     cx: &mut Context<PhoenixShell>,
 ) -> impl IntoElement {
     div()
@@ -161,15 +177,46 @@ fn atlas_header(
                 )
                 .child(
                     div()
-                        .min_w(px(28.))
-                        .px_2()
-                        .py(px(2.))
-                        .rounded_full()
-                        .bg(rgb(ACCENT_DIM))
-                        .text_xs()
-                        .text_center()
-                        .text_color(rgb(ACCENT))
-                        .child(atlas.entities.len().to_string()),
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            div()
+                                .min_w(px(28.))
+                                .px_2()
+                                .py(px(2.))
+                                .rounded_full()
+                                .bg(rgb(ACCENT_DIM))
+                                .text_xs()
+                                .text_center()
+                                .text_color(rgb(ACCENT))
+                                .child(atlas.entities.len().to_string()),
+                        )
+                        .child(
+                            div()
+                                .id("graph-sidebar-panel-toggle")
+                                .px_2()
+                                .py(px(3.))
+                                .rounded_md()
+                                .border_1()
+                                .border_color(rgb(0x35675a))
+                                .bg(rgb(0x12211d))
+                                .cursor_pointer()
+                                .text_xs()
+                                .font_semibold()
+                                .text_color(rgb(ACCENT))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.graph_sidebar_panel = match this.graph_sidebar_panel {
+                                        GraphSidebarPanel::Registry => GraphSidebarPanel::StyleHub,
+                                        GraphSidebarPanel::StyleHub => GraphSidebarPanel::Registry,
+                                    };
+                                    cx.notify();
+                                }))
+                                .child(match panel {
+                                    GraphSidebarPanel::Registry => "STYLE HUB",
+                                    GraphSidebarPanel::StyleHub => "REGISTRY",
+                                }),
+                        ),
                 ),
         )
         .child(

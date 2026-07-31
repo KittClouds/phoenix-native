@@ -1,0 +1,16 @@
+[package]
+name = "phoenix-memory-embed-proof"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+blake3.workspace = true
+phoenix-embed = { path = "../../../rust-native/phoenix/crates/phoenix-embed" }
+phoenix-memory-contract = { path = "../../crates/phoenix-memory-contract" }
+phoenix-memory-embeddings = { path = "../../crates/phoenix-memory-embeddings" }
+serde.workspace = true
+serde_json.workspace = true

@@ -78,7 +78,7 @@ pub(super) fn render(
                 .mt_4()
                 .w_full()
                 .grid()
-                .grid_cols(3)
+                .grid_cols(4)
                 .gap_3()
                 .child(runtime_lane(
                     "DYNAMIC NER",
@@ -102,6 +102,11 @@ pub(super) fn render(
                     "NATIVE SCENE",
                     "PhoenixGraphGenerationV2 -> PSA/PSPI".to_owned(),
                     true,
+                ))
+                .child(runtime_lane(
+                    "RESIDENT MEMORY",
+                    memory_runtime(control),
+                    control.memory.generation_hash.is_some(),
                 )),
         )
         .when_some(control.last_run.as_ref(), |page, receipt| {
@@ -148,6 +153,19 @@ pub(super) fn render(
             )
         })
         .into_any_element()
+}
+
+fn memory_runtime(control: &AtlasControlSnapshot) -> String {
+    if control.memory.generation_hash.is_none() {
+        return "No V3 publication".to_owned();
+    }
+    format!(
+        "{} notes · {} chats · {} turns · {} proposed",
+        control.memory.document_count,
+        control.memory.conversation_count,
+        control.memory.turn_count,
+        control.memory.proposed_candidates
+    )
 }
 
 fn stage_card(index: usize, stage: &phoenix_app_core::AtlasStageSummary) -> impl IntoElement {

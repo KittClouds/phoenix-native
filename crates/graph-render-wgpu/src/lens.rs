@@ -111,24 +111,21 @@ const fn split_u64(value: u64) -> [u32; 2] {
 mod tests {
     use super::*;
     use phoenix_scene_contract::{
-        GraphLens, GraphScope, GraphSurface, RelationMask, ReviewMask, ScopeMask,
+        FamilyMask, GraphScope, GraphSurface, RelationMask, ReviewMask, ScopeMask,
     };
 
     #[test]
     fn view_masks_split_without_losing_high_bits() {
         let view = GraphViewState {
             surface: GraphSurface::Atlas,
-            lens: GraphLens::Discourse,
+            families: FamilyMask::DISCOURSE,
             scope: GraphScope::Note,
             relations: RelationMask(0xaaaa_bbbb_cccc_dddd),
             reviews: ReviewMask::PROPOSED,
             ..GraphViewState::default()
         };
         let uniform = GraphLensUniform::from_view(view, true);
-        assert_eq!(
-            uniform.family_mask,
-            [GraphLens::Discourse.family_mask().0 as u32, 0]
-        );
+        assert_eq!(uniform.family_mask, [FamilyMask::DISCOURSE.0 as u32, 0]);
         assert_eq!(uniform.scope_mask, [ScopeMask::NOTE.0 as u32, 0]);
         assert_eq!(uniform.relation_mask, [0xcccc_dddd, 0xaaaa_bbbb]);
         assert_eq!(uniform.review_mask, 2);

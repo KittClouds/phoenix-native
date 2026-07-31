@@ -3,7 +3,7 @@ use phoenix_scene_archive::{
     EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PositionRecord, TopologyRecord,
 };
 use phoenix_scene_contract::{EntityFamily, SceneSource};
-use phoenix_scene_contract::{GraphLens, GraphSurface, GraphViewState};
+use phoenix_scene_contract::{FamilyMask, GraphSurface, GraphViewState};
 use phoenix_scene_product_index::{EntityNodeMappingRecord, ProductReferenceRecord};
 use phoenix_scene_publisher::{
     NativeScenePublication, PublishedScene, SceneEdgeProduct, SceneNodeProduct,
@@ -20,7 +20,7 @@ pub(super) fn configure_restored_graph_view(
 ) {
     if receipt.is_some_and(|receipt| receipt.kind == ScenePublicationKind::Full) {
         view.surface = GraphSurface::Atlas;
-        view.lens = GraphLens::Structure;
+        view.families = FamilyMask::ALL;
     }
 }
 
@@ -32,13 +32,14 @@ fn reconcile_published_graph_view(
     published.manifold = previous.manifold;
     if previous_was_full {
         published.surface = previous.surface;
+        published.families = previous.families;
         published.lens = previous.lens;
         published.scope = previous.scope;
         published.reviews = previous.reviews;
         published.relations = previous.relations;
     } else {
         published.surface = GraphSurface::Atlas;
-        published.lens = GraphLens::Structure;
+        published.families = FamilyMask::ALL;
     }
     published
 }
@@ -421,30 +422,34 @@ mod graph_view_contract_tests {
 
     #[test]
     fn registry_to_full_publication_opens_the_structural_atlas() {
-        let mut previous = GraphViewState::default();
-        previous.manifold = Manifold::Caps;
+        let previous = GraphViewState {
+            manifold: Manifold::Caps,
+            ..GraphViewState::default()
+        };
 
         let reconciled = reconcile_published_graph_view(previous, false, GraphViewState::default());
 
         assert_eq!(reconciled.surface, GraphSurface::Atlas);
-        assert_eq!(reconciled.lens, GraphLens::Structure);
+        assert_eq!(reconciled.families, FamilyMask::ALL);
         assert_eq!(reconciled.manifold, Manifold::Caps);
     }
 
     #[test]
     fn full_republication_preserves_the_active_visual_contract() {
-        let mut previous = GraphViewState::default();
-        previous.surface = GraphSurface::Atlas;
-        previous.lens = GraphLens::Facts;
-        previous.scope = GraphScope::Note;
-        previous.reviews = ReviewMask::PROPOSED;
-        previous.relations = RelationMask(0x24);
-        previous.manifold = Manifold::Siegel;
+        let previous = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::FACTS,
+            scope: GraphScope::Note,
+            reviews: ReviewMask::PROPOSED,
+            relations: RelationMask(0x24),
+            manifold: Manifold::Siegel,
+            ..GraphViewState::default()
+        };
 
         let reconciled = reconcile_published_graph_view(previous, true, GraphViewState::default());
 
         assert_eq!(reconciled.surface, previous.surface);
-        assert_eq!(reconciled.lens, previous.lens);
+        assert_eq!(reconciled.families, previous.families);
         assert_eq!(reconciled.scope, previous.scope);
         assert_eq!(reconciled.reviews, previous.reviews);
         assert_eq!(reconciled.relations, previous.relations);

@@ -1,0 +1,145 @@
+{
+  "contract": "phoenix.memory.qps-v201-release-lock/v1",
+  "frozen_at": "2026-07-30",
+  "disposition": "shadow_only_no_go_primary_retrieval",
+  "reason": "held-out cleaned-small MRR regressed and both full positional latency gates failed",
+  "source": {
+    "variant": "longmemeval-cleaned-small",
+    "bytes": 277383467,
+    "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+  },
+  "typed_artifacts": {
+    "workload": {
+      "path": "C:\\benchmarks\\phoenix-qps-v201-release-lock-20260730\\longmemeval-small.plmw",
+      "bytes": 248083612,
+      "sha256": "8935a6aa862237dea65d777aa9c964caf9add88b6a5084660b62bf426451b46e"
+    },
+    "gold": {
+      "path": "C:\\benchmarks\\phoenix-qps-v201-release-lock-20260730\\longmemeval-small.plmg",
+      "bytes": 59149,
+      "sha256": "e5778ddfcf565c68c2fab67ccd50cbaf589c62270807da3e2d1bea4aa65f4375"
+    }
+  },
+  "producer": {
+    "git_head": "abaa35ff9bfbeae73a7ab598adff363346fae3f6",
+    "branch": "codex/phoenix-native-cleanroom-cut3",
+    "source_file_count": 17,
+    "source_tree_sha256": "72f761e524063a077216980610bb1315f47a1ee85ae085c4fac1c29ac8b5860c",
+    "binary_path": "C:\\phoenix-bin\\qps-v201-release-lock\\phoenix-memory-lock.exe",
+    "binary_bytes": 688128,
+    "binary_sha256": "c45442837b58557543331be7660a81e3d2517221227a9871a5572e102eb73466"
+  },
+  "configuration": {
+    "path_id": "qps/v2.01/shadow",
+    "profile": "full",
+    "top_k": 10,
+    "rerank_pool": 160,
+    "repetitions_per_case": 32,
+    "cases": 500,
+    "bm25_comparator": "precomputed-impact-csc-equivalent/v1",
+    "maximum_query_groups": 128,
+    "max_query_groups_observed": 57
+  },
+  "retrieval_artifacts": {
+    "bm25": {
+      "path": "C:\\benchmarks\\phoenix-qps-v201-release-lock-20260730\\bm25.plmr",
+      "sha256": "f0de0d1c3187f052e0cc6d58566303d2b30c135cb9b082e96751e36aedaf5c06"
+    },
+    "qps_full": {
+      "path": "C:\\benchmarks\\phoenix-qps-v201-release-lock-20260730\\qps-full-turbo-final.plmr",
+      "sha256": "9927f0673e5933a5c6bead22f581020a1ac0705b36dfc1322468537aee010b3e"
+    },
+    "qps_lexical_ablation": {
+      "path": "C:\\benchmarks\\phoenix-qps-v201-release-lock-20260730\\qps-lexical-turbo-final.plmr",
+      "sha256": "4fc244e4d6275da6d77920ba9961935cc7c67f579b0e6aead252eff98ce52bf0"
+    }
+  },
+  "quality": {
+    "bm25": {
+      "hit_at_10": 0.982,
+      "mrr": 0.9073714285714285
+    },
+    "qps_full": {
+      "hit_at_10": 0.98,
+      "mrr": 0.8910047619047616,
+      "delta_hit_at_10": -0.002,
+      "delta_mrr": -0.0163666666666669
+    },
+    "qps_no_coverage_diagnostic": {
+      "hit_at_10": 0.984,
+      "mrr": 0.9054460317460318,
+      "delta_hit_at_10": 0.002,
+      "delta_mrr": -0.0019253968253967,
+      "production_profile": false
+    }
+  },
+  "warm_latency_nanos": {
+    "bm25_turbo": {
+      "median": 2300,
+      "p95": 4800,
+      "p99": 6100
+    },
+    "qps_full": {
+      "median": 207200,
+      "p95": 420300,
+      "p99": 528700
+    },
+    "paired_full": {
+      "median": 204700,
+      "p95": 416500,
+      "p99": 523100
+    },
+    "qps_lexical_ablation": {
+      "median": 3600,
+      "p95": 7200,
+      "p99": 9300
+    },
+    "paired_lexical_ablation": {
+      "median": 2000,
+      "p95": 4200,
+      "p99": 5800
+    }
+  },
+  "query_group_p99_nanos": {
+    "2-4": {
+      "qps": 129400,
+      "paired": 127600
+    },
+    "5-8": {
+      "qps": 256400,
+      "paired": 253600
+    },
+    "9-16": {
+      "qps": 348000,
+      "paired": 345600
+    },
+    "17-32": {
+      "qps": 542500,
+      "paired": 538100
+    },
+    "33-64": {
+      "qps": 592500,
+      "paired": 586600
+    }
+  },
+  "invariants": {
+    "rerank_pool_unchanged": true,
+    "max_candidates": 62,
+    "max_reranked": 60,
+    "scratch_capacity_growths": 0,
+    "retrieval_output_deterministic": true,
+    "gold_retrieval_exit_code": 2,
+    "gold_retrieval_output_created": false,
+    "gold_firewall": true,
+    "authority": "none-shadow-artifact-only"
+  },
+  "gates": {
+    "positive_mrr_delta": false,
+    "aggregate_p99_overhead_at_most_100us": false,
+    "paired_p99_overhead_at_most_150us": false,
+    "zero_warm_scratch_growth": true,
+    "gold_firewall": true,
+    "deterministic_output": true,
+    "promotion_allowed": false
+  }
+}

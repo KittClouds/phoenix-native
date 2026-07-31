@@ -1,16 +1,15 @@
 use super::*;
 use hashbrown::HashMap;
+use memchr::memmem;
 use phoenix_scene_contract::{AnchorCandidate, AnchorSource};
 use phoenix_workspace::{commit_document, EntityRegistry, EntityTag};
 
-pub(super) fn registry_anchors(
-    registry: &EntityRegistry,
-    lease: Option<&DocumentLease>,
-) -> Result<Option<Arc<VerifiedDocumentAnchors>>, KernelError> {
-    registry_anchors_with_base(registry, lease, None)
-}
+const UNMAPPED_SOURCE_OFFSET: u32 = u32::MAX;
+const SOURCE_ALIGNMENT_LOOKAHEAD: usize = 16 * 1024;
+const SOURCE_ALIGNMENT_ANCHOR: usize = 16;
 
-fn registry_anchors_with_base(
+pub(super) fn registry_anchors_with_base(
+    index: &entity_highlights::EntityHighlightIndex,
     registry: &EntityRegistry,
     lease: Option<&DocumentLease>,
     base: Option<&VerifiedDocumentAnchors>,
@@ -18,6 +17,9 @@ fn registry_anchors_with_base(
     let Some(lease) = lease else {
         return Ok(None);
     };
+    if index.registry_revision() != registry.revision() {
+        return Err(KernelError::AnalysisAuthorityMismatch);
+    }
     let entity_slots = registry
         .entities()
         .iter()
@@ -84,6 +86,14 @@ fn registry_anchors_with_base(
     }
     let preserved_base = !candidates.is_empty();
     candidates.extend(manual_candidates);
+    let mut reserved = candidates
+        .iter()
+        .map(|candidate| (candidate.start, candidate.end))
+        .collect::<Vec<_>>();
+    reserved.sort_unstable();
+    let before_registry_projection = candidates.len();
+    index.append_matches(&lease.content, &reserved, &mut candidates)?;
+    let projected_registry = candidates.len() > before_registry_projection;
     if candidates.is_empty() {
         return Ok(None);
     }
@@ -92,7 +102,7 @@ fn registry_anchors_with_base(
         lease.revision.0,
         lease.content_hash.0,
         None,
-        if preserved_base {
+        if preserved_base || projected_registry {
             AnchorSource::CanonicalRegistry
         } else {
             AnchorSource::ManualRegistry
@@ -106,18 +116,141 @@ const fn ranges_overlap(left_start: u32, left_end: u32, right_start: u32, right_
     left_start < right_end && right_start < left_end
 }
 
+fn rebind_verified_anchors(
+    anchors: Option<&VerifiedDocumentAnchors>,
+    previous: &DocumentLease,
+    committed: &DocumentLease,
+) -> Result<Option<VerifiedDocumentAnchors>, KernelError> {
+    let Some(anchors) = anchors.filter(|anchors| {
+        anchors.document() == DocumentId(previous.entry_id.0)
+            && anchors.document_revision() == previous.revision.0
+            && anchors.content_hash() == previous.content_hash.0
+            && previous.entry_id == committed.entry_id
+    }) else {
+        return Ok(None);
+    };
+    let alignment = align_source_offsets(previous.content.as_bytes(), committed.content.as_bytes());
+    let mut candidates = Vec::with_capacity(anchors.anchors().len());
+    for anchor in anchors.anchors() {
+        let old_start =
+            usize::try_from(anchor.start).map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
+        let old_end =
+            usize::try_from(anchor.end).map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
+        let surface = previous
+            .content
+            .get(old_start..old_end)
+            .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+        let Some((start, end)) = aligned_range(old_start, old_end, &alignment) else {
+            continue;
+        };
+        if committed.content.get(start..end) != Some(surface) {
+            continue;
+        }
+        candidates.push(AnchorCandidate {
+            start: u32::try_from(start).map_err(|_| KernelError::AnalysisAuthorityMismatch)?,
+            end: u32::try_from(end).map_err(|_| KernelError::AnalysisAuthorityMismatch)?,
+            node_id: anchor.node_id,
+            entity_slot: anchor.entity_slot,
+            family: anchor.family,
+            surface: surface.to_owned(),
+        });
+    }
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(VerifiedDocumentAnchors::verify(
+        DocumentId(committed.entry_id.0),
+        committed.revision.0,
+        committed.content_hash.0,
+        anchors.graph_generation(),
+        AnchorSource::CanonicalRegistry,
+        &committed.content,
+        candidates,
+    )?))
+}
+
+fn aligned_range(start: usize, end: usize, alignment: &[u32]) -> Option<(usize, usize)> {
+    let start = *alignment.get(start)?;
+    let end = *alignment.get(end)?;
+    if start == UNMAPPED_SOURCE_OFFSET || end == UNMAPPED_SOURCE_OFFSET {
+        return None;
+    }
+    let start = usize::try_from(start).ok()?;
+    let end = usize::try_from(end).ok()?;
+    (start < end).then_some((start, end))
+}
+
+fn align_source_offsets(authoritative: &[u8], edited: &[u8]) -> Vec<u32> {
+    let mut offsets = vec![UNMAPPED_SOURCE_OFFSET; authoritative.len().saturating_add(1)];
+    let mut source_index = 0usize;
+    let mut edited_index = 0usize;
+    offsets[0] = 0;
+    while source_index < authoritative.len() && edited_index < edited.len() {
+        if authoritative[source_index] == edited[edited_index] {
+            source_index += 1;
+            edited_index += 1;
+            offsets[source_index] = u32::try_from(edited_index).unwrap_or(UNMAPPED_SOURCE_OFFSET);
+            continue;
+        }
+        let edited_skip =
+            find_alignment_anchor(&edited[edited_index..], &authoritative[source_index..]);
+        let source_skip =
+            find_alignment_anchor(&authoritative[source_index..], &edited[edited_index..]);
+        match (edited_skip, source_skip) {
+            (Some(inserted), Some(deleted)) if inserted <= deleted => {
+                edited_index += inserted;
+                offsets[source_index] =
+                    u32::try_from(edited_index).unwrap_or(UNMAPPED_SOURCE_OFFSET);
+            }
+            (Some(inserted), None) => {
+                edited_index += inserted;
+                offsets[source_index] =
+                    u32::try_from(edited_index).unwrap_or(UNMAPPED_SOURCE_OFFSET);
+            }
+            (_, Some(deleted)) => {
+                source_index += deleted;
+                offsets[source_index] =
+                    u32::try_from(edited_index).unwrap_or(UNMAPPED_SOURCE_OFFSET);
+            }
+            (None, None) => {
+                source_index += 1;
+                edited_index += 1;
+                offsets[source_index] =
+                    u32::try_from(edited_index).unwrap_or(UNMAPPED_SOURCE_OFFSET);
+            }
+        }
+    }
+    if source_index == authoritative.len() {
+        offsets[source_index] = u32::try_from(edited.len()).unwrap_or(UNMAPPED_SOURCE_OFFSET);
+    }
+    offsets
+}
+
+fn find_alignment_anchor(haystack: &[u8], authority: &[u8]) -> Option<usize> {
+    let anchor_len = SOURCE_ALIGNMENT_ANCHOR.min(authority.len());
+    if anchor_len == 0 {
+        return None;
+    }
+    let search_len = haystack
+        .len()
+        .min(SOURCE_ALIGNMENT_LOOKAHEAD.saturating_add(anchor_len));
+    memmem::find(&haystack[..search_len], &authority[..anchor_len]).filter(|offset| *offset > 0)
+}
+
 pub(super) fn save_document(
     shared: &KernelShared,
     sequence: u64,
     lease: DocumentLeaseToken,
     content: Arc<str>,
 ) -> Result<CommandReceipt, KernelError> {
-    let (workspace, active_lease, mut registry) = {
+    let (workspace, active_lease, mut registry, highlight_index, previous_anchors) = {
         let state = read_state(shared)?;
         (
             Arc::clone(&state.workspace),
             state.active_document_lease.as_ref().map(Arc::clone),
             (*state.entity_registry).clone(),
+            Arc::clone(&state.entity_highlights),
+            state.document_anchors.as_ref().map(Arc::clone),
         )
     };
     let active_lease = active_lease.ok_or(KernelError::DocumentLeaseNotActive)?;
@@ -138,7 +271,18 @@ pub(super) fn save_document(
         }
     }
     let registry = Arc::new(registry);
-    let anchors = registry_anchors(&registry, Some(&committed))?;
+    let highlight_index = if registry_changed {
+        entity_highlights::EntityHighlightIndex::build(&registry)?
+    } else {
+        highlight_index
+    };
+    let rebound = rebind_verified_anchors(previous_anchors.as_deref(), &active_lease, &committed)?;
+    let anchors = registry_anchors_with_base(
+        &highlight_index,
+        &registry,
+        Some(&committed),
+        rebound.as_ref(),
+    )?;
     let atlas = Arc::new(AtlasRegistry::from_registry(&registry));
     let palette = *read_state(shared)?.highlight_palette;
     let published = if registry_changed {
@@ -149,10 +293,13 @@ pub(super) fn save_document(
     let (revision, scene_publication) = install_committed_document(
         shared,
         Arc::clone(&committed),
-        Some((registry, atlas)),
+        Some((registry, atlas, highlight_index)),
         anchors,
         published,
     )?;
+    shared
+        .resident_memory
+        .mark_document_pending(committed.entry_id.0)?;
     let document = DocumentId(committed.entry_id.0);
     push_event(
         shared,
@@ -223,7 +370,7 @@ pub(super) fn tag_selection(
             &content,
         )?)
     } else {
-        active_lease
+        Arc::clone(&active_lease)
     };
     if committed.token() != prospective.token() {
         install_committed_document(shared, Arc::clone(&committed), None, None, None)?;
@@ -235,14 +382,17 @@ pub(super) fn tag_selection(
     }
 
     let registry = Arc::new(registry);
+    let highlight_index = entity_highlights::EntityHighlightIndex::build(&registry)?;
+    let rebound = if content_changed {
+        rebind_verified_anchors(previous_anchors.as_deref(), &active_lease, &committed)?
+    } else {
+        previous_anchors.as_deref().cloned()
+    };
     let anchors = registry_anchors_with_base(
+        &highlight_index,
         &registry,
         Some(&committed),
-        if content_changed {
-            None
-        } else {
-            previous_anchors.as_deref()
-        },
+        rebound.as_ref(),
     )?;
     let atlas = Arc::new(AtlasRegistry::from_registry(&registry));
     let palette = *read_state(shared)?.highlight_palette;
@@ -250,10 +400,15 @@ pub(super) fn tag_selection(
     let (revision, scene_publication) = install_committed_document(
         shared,
         Arc::clone(&committed),
-        Some((registry, atlas)),
+        Some((registry, atlas, highlight_index)),
         anchors,
         published,
     )?;
+    if content_changed {
+        shared
+            .resident_memory
+            .mark_document_pending(committed.entry_id.0)?;
+    }
     let document = DocumentId(committed.entry_id.0);
     push_event(
         shared,
@@ -278,7 +433,11 @@ pub(super) fn tag_selection(
 fn install_committed_document(
     shared: &KernelShared,
     committed: Arc<DocumentLease>,
-    registry: Option<(Arc<EntityRegistry>, Arc<AtlasRegistry>)>,
+    registry: Option<(
+        Arc<EntityRegistry>,
+        Arc<AtlasRegistry>,
+        Arc<entity_highlights::EntityHighlightIndex>,
+    )>,
     anchors: Option<Arc<VerifiedDocumentAnchors>>,
     published: Option<phoenix_scene_publisher::PublishedScene>,
 ) -> Result<(u64, Option<ScenePublicationReceipt>), KernelError> {
@@ -291,9 +450,10 @@ fn install_committed_document(
     state.graph_generation_v2 = None;
     state.review_catalog_v2 = None;
     state.analysis_publication = None;
-    if let Some((registry, atlas)) = registry {
+    if let Some((registry, atlas, highlight_index)) = registry {
         state.atlas_registry = atlas;
         state.entity_registry = registry;
+        state.entity_highlights = highlight_index;
     }
     let scene_publication = published
         .map(|published| scene_publication::install_published_scene_state(&mut state, published))

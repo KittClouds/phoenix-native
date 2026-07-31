@@ -132,13 +132,29 @@ pub(super) fn publish_ner_batch(
     registry.save_atomic(&shared.workspace_path)?;
     let registry = Arc::new(registry);
     let atlas = Arc::new(AtlasRegistry::from_registry(&registry));
+    let highlight_index = entity_highlights::EntityHighlightIndex::build(&registry)?;
     let canonical_entities = atlas.entities.len();
-    let palette = *read_state(shared)?.highlight_palette;
+    let (palette, active_lease, base_anchors) = {
+        let state = read_state(shared)?;
+        (
+            *state.highlight_palette,
+            state.active_document_lease.as_ref().map(Arc::clone),
+            state.document_anchors.as_ref().map(Arc::clone),
+        )
+    };
+    let document_anchors = entity_tags::registry_anchors_with_base(
+        &highlight_index,
+        &registry,
+        active_lease.as_deref(),
+        base_anchors.as_deref(),
+    )?;
     let published = scene_publication::refresh_registry_scene(shared, &atlas, palette)?;
 
     let mut state = write_state(shared)?;
     state.entity_registry = registry;
     state.atlas_registry = atlas;
+    state.entity_highlights = highlight_index;
+    state.document_anchors = document_anchors;
     let scene_publication = published
         .map(|published| scene_publication::install_published_scene_state(&mut state, published))
         .transpose()?;

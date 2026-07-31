@@ -98,7 +98,27 @@ pub struct AtlasControlSnapshot {
     pub last_run: Option<AtlasRunReceiptV1>,
     pub last_run_hash: Option<[u8; 32]>,
     pub last_run_restored: bool,
+    pub memory: AtlasMemorySummary,
     pub last_error: Option<Arc<str>>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AtlasMemorySummary {
+    pub generation_hash: Option<[u8; 32]>,
+    pub source_count: u64,
+    pub document_count: u64,
+    pub conversation_count: u64,
+    pub turn_count: u64,
+    pub proposed_candidates: u64,
+    pub accepted_candidates: u64,
+    pub rejected_candidates: u64,
+    pub deferred_candidates: u64,
+    pub supported_producers: u64,
+    pub unsupported_producers: u64,
+    pub indexed_items: u64,
+    pub pending_document_count: u64,
+    pub active_scope_hash: [u8; 32],
+    pub queue_high_water: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -318,6 +338,7 @@ impl PhoenixKernel {
             generation_id,
             failed,
         );
+        let resident_memory = self.shared.resident_memory.snapshot()?;
         Ok(AtlasControlSnapshot {
             contract: ATLAS_CONTROL_CONTRACT,
             kernel_revision: state.revision,
@@ -345,6 +366,7 @@ impl PhoenixKernel {
             last_run: runtime.last_run.clone(),
             last_run_hash: runtime.last_run_hash,
             last_run_restored: runtime.last_run_restored,
+            memory: memory_summary(&resident_memory)?,
             last_error: runtime.last_error.clone(),
         })
     }
@@ -464,6 +486,72 @@ impl PhoenixKernel {
             candidates: candidates.into(),
         }))
     }
+}
+
+fn memory_summary(
+    resident: &crate::ResidentMemorySnapshot,
+) -> Result<AtlasMemorySummary, crate::ResidentMemoryError> {
+    let mut summary = AtlasMemorySummary {
+        indexed_items: u64::from(resident.recall_indexes.indexed_items),
+        pending_document_count: u64::from(resident.pending_document_count),
+        active_scope_hash: resident.active_scope.fingerprint(),
+        queue_high_water: resident.commands.queue_high_water,
+        ..AtlasMemorySummary::default()
+    };
+    let Some(publication) = resident.publication.as_ref() else {
+        return Ok(summary);
+    };
+    summary.generation_hash = Some(publication.receipt.generation_hash);
+    summary.source_count = publication.receipt.source_count;
+    summary.document_count = publication.receipt.document_count;
+    summary.conversation_count = publication.receipt.conversation_count;
+    summary.turn_count = publication.receipt.turn_count;
+    let candidates = publication
+        .graph
+        .typed_page::<phoenix_memory_contract::SemanticCandidateRecordV3>(
+            phoenix_memory_contract::PageKindV3::SemanticCandidates,
+        )
+        .map_err(phoenix_memory_coordinator::CoordinatorError::from)?;
+    for candidate in candidates {
+        match phoenix_memory_contract::CandidateStatus::from_raw(candidate.status) {
+            Some(phoenix_memory_contract::CandidateStatus::Proposed) => {
+                summary.proposed_candidates += 1
+            }
+            Some(phoenix_memory_contract::CandidateStatus::Accepted) => {
+                summary.accepted_candidates += 1
+            }
+            Some(phoenix_memory_contract::CandidateStatus::Rejected) => {
+                summary.rejected_candidates += 1
+            }
+            Some(phoenix_memory_contract::CandidateStatus::Deferred) => {
+                summary.deferred_candidates += 1
+            }
+            Some(phoenix_memory_contract::CandidateStatus::Superseded) | None => {}
+        }
+    }
+    let capabilities = publication
+        .graph
+        .typed_page::<phoenix_memory_contract::ProducerCapabilityRecordV3>(
+            phoenix_memory_contract::PageKindV3::ProducerCapabilitiesV3,
+        )
+        .map_err(phoenix_memory_coordinator::CoordinatorError::from)?;
+    for capability in capabilities {
+        match phoenix_memory_contract::ProducerStateV3::from_raw(capability.state) {
+            Some(phoenix_memory_contract::ProducerStateV3::Unsupported) => {
+                summary.unsupported_producers += 1
+            }
+            Some(
+                phoenix_memory_contract::ProducerStateV3::Produced
+                | phoenix_memory_contract::ProducerStateV3::DurableVerified,
+            ) => summary.supported_producers += 1,
+            Some(
+                phoenix_memory_contract::ProducerStateV3::Cancelled
+                | phoenix_memory_contract::ProducerStateV3::Failed,
+            )
+            | None => {}
+        }
+    }
+    Ok(summary)
 }
 
 const fn candidate_kind_label(kind: NliCandidateKind) -> &'static str {

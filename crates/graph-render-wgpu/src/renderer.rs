@@ -363,7 +363,7 @@ impl GraphRenderer {
         let authority_changed = self.active_view.authority != view.authority;
         let framing_changed = authority_changed
             || self.active_view.surface != view.surface
-            || self.active_view.lens != view.lens
+            || self.active_view.families != view.families
             || self.active_view.scope != view.scope
             || self.active_view.reviews != view.reviews
             || self.active_view.manifold != view.manifold;

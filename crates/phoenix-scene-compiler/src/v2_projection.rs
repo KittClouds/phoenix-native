@@ -93,6 +93,10 @@ impl ProjectionBuilder {
         Ok(())
     }
 
+    pub(crate) fn contains_node(&self, node_id: u64) -> bool {
+        self.node_ids.contains(&node_id)
+    }
+
     pub(crate) fn push_edge(&mut self, edge: EdgeDraft) -> Result<(), NativeSceneCompilerError> {
         if self.edges.len() >= MAX_SCENE_EDGES {
             return Err(NativeSceneCompilerError::EdgeLimit(MAX_SCENE_EDGES));

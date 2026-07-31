@@ -1,4 +1,5 @@
 use super::*;
+use phoenix_scene_contract::FamilyMask;
 
 #[test]
 fn graph_view_is_kernel_owned_and_preserves_resident_arrays(
@@ -25,7 +26,7 @@ fn graph_view_is_kernel_owned_and_preserves_resident_arrays(
     ));
     let mut view = initial.graph_view;
     view.surface = GraphSurface::Atlas;
-    view.lens = GraphLens::Facts;
+    view.families = FamilyMask::FACTS;
     view.scope = GraphScope::Compare;
     view.reviews = ReviewMask::ACCEPTED;
     view.relations = RelationFamily::Causal.mask();
@@ -57,7 +58,7 @@ fn graph_view_rejects_missing_or_stale_product_authority() -> Result<(), Box<dyn
     let kernel = PhoenixKernel::start(path.clone(), Some(scene))?;
     let mut filtered = kernel.snapshot()?.graph_view;
     filtered.surface = GraphSurface::Atlas;
-    filtered.lens = GraphLens::Structure;
+    filtered.families = FamilyMask::STRUCTURE;
     assert!(matches!(
         kernel.execute(KernelCommand::SetGraphView(Box::new(filtered))),
         Err(KernelError::ProductIndexRequiredForFilteredView)
@@ -106,6 +107,12 @@ fn graph_controls_are_bounded_sequenced_kernel_commands() -> Result<(), Box<dyn 
 fn graph_view_rejects_empty_visible_control_sets() -> Result<(), Box<dyn std::error::Error>> {
     let path = path();
     let kernel = PhoenixKernel::start(path.clone(), None)?;
+    let mut view = kernel.snapshot()?.graph_view;
+    view.families = FamilyMask(0);
+    assert!(matches!(
+        kernel.execute(KernelCommand::SetGraphView(Box::new(view))),
+        Err(KernelError::InvalidGraphView)
+    ));
     let mut view = kernel.snapshot()?.graph_view;
     view.reviews = ReviewMask(0);
     assert!(matches!(

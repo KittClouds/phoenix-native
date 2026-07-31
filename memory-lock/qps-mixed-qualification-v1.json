@@ -1,0 +1,423 @@
+{
+  "contract": "phoenix.memory.qps-mixed-qualification/v1",
+  "documents": [
+    {
+      "stable_id": "doc-camera-axis",
+      "source": "document",
+      "title": "Central axis graph camera",
+      "body": "The native graph rotates around its central axis. Pointer drag changes yaw and pitch without making the scene orbit around an external planet."
+    },
+    {
+      "stable_id": "doc-orbital-mechanics",
+      "source": "document",
+      "title": "Orbital mechanics notes",
+      "body": "A satellite follows an elliptical orbit around a planet. Central gravity changes the orbital path while the planet rotates."
+    },
+    {
+      "stable_id": "doc-dynamic-chunks",
+      "source": "document",
+      "title": "Authoritative dynamic chunk boundaries",
+      "body": "The compiler consumes exact dynamic chunk records from structural analysis. It never reconstructs paragraphs or guesses chunk boundaries downstream."
+    },
+    {
+      "stable_id": "doc-editor-layout",
+      "source": "document",
+      "title": "Editor paragraph layout",
+      "body": "The editor lays out visible paragraphs lazily while preserving the complete document. Presentation paragraphs do not redefine retrieval chunks."
+    },
+    {
+      "stable_id": "doc-corrections",
+      "source": "document",
+      "title": "Correction and supersession policy",
+      "body": "Corrections preserve old evidence and create explicit supersession chains. Changed facts remain auditable instead of silently deleting history."
+    },
+    {
+      "stable_id": "doc-causal-evidence",
+      "source": "document",
+      "title": "Causal evidence requirements",
+      "body": "A causal candidate must cite exact evidence spans. Correlation and weak co-occurrence cannot automatically become an accepted causal relationship."
+    },
+    {
+      "stable_id": "doc-caps-shells",
+      "source": "document",
+      "title": "CAPS semantic shell projection",
+      "body": "CAPS assigns semantic regions to nested hyperbolic shells. Structural anchors occupy dedicated depth bands while identities remain stable."
+    },
+    {
+      "stable_id": "doc-siegel-hierarchy",
+      "source": "document",
+      "title": "Siegel hierarchy projection",
+      "body": "Siegel emphasizes hierarchy through layered vertical structure. It is distinct from the CAPS semantic shell projection."
+    },
+    {
+      "stable_id": "doc-diskann",
+      "source": "document",
+      "title": "DiskANN mmap index",
+      "body": "The native ANN uses immutable mmap pages, bounded beam search, stable vector IDs, and disk-ready neighbor records."
+    },
+    {
+      "stable_id": "doc-hnsw",
+      "source": "document",
+      "title": "HNSW graph construction",
+      "body": "The construction graph maintains hierarchical neighbor layers and bounded candidate queues before compact publication."
+    },
+    {
+      "stable_id": "doc-palette",
+      "source": "document",
+      "title": "Phthalo green palette",
+      "body": "The shared palette uses rich phthalo green for the sidebar and saturated entity colors for editor highlights and graph nodes."
+    },
+    {
+      "stable_id": "doc-release-lock",
+      "source": "document",
+      "title": "Immutable release manifest",
+      "body": "A release lock records source, binary, model, configuration, artifact hashes, performance gates, and the final authority decision."
+    },
+    {
+      "stable_id": "chat-tea-market",
+      "source": "conversation",
+      "title": "Tea order in Rome",
+      "body": "User: Where did we buy tea? Assistant: You ordered jasmine green tea from the covered market in Rome on Saturday morning."
+    },
+    {
+      "stable_id": "chat-coffee-station",
+      "source": "conversation",
+      "title": "Coffee near the station",
+      "body": "User: Remember my coffee stop. Assistant: You bought an espresso beside the train station before sunrise."
+    },
+    {
+      "stable_id": "chat-engine-repair",
+      "source": "conversation",
+      "title": "Motorcycle engine repair",
+      "body": "User: What did Bob fix? Assistant: Bob repaired the motorcycle engine after work and replaced the cracked fuel hose."
+    },
+    {
+      "stable_id": "chat-bicycle-tire",
+      "source": "conversation",
+      "title": "Bicycle tire repair",
+      "body": "User: Did Mira finish the bicycle? Assistant: Mira patched the rear tire but left the chain adjustment for Sunday."
+    },
+    {
+      "stable_id": "chat-color-preference",
+      "source": "conversation",
+      "title": "Interface color preference",
+      "body": "User: Keep this preference. Assistant: You prefer phthalo green accents over purple gradients in the application sidebar."
+    },
+    {
+      "stable_id": "chat-food-preference",
+      "source": "conversation",
+      "title": "Dinner preference",
+      "body": "User: Remember dinner choices. Assistant: You prefer spicy ramen and avoid sweet tomato sauce."
+    },
+    {
+      "stable_id": "chat-meeting-correction",
+      "source": "conversation",
+      "title": "Corrected project meeting",
+      "body": "User: The meeting moved. Assistant: Correction recorded: the Phoenix review is Thursday at three, superseding Tuesday at noon."
+    },
+    {
+      "stable_id": "chat-flight-correction",
+      "source": "conversation",
+      "title": "Corrected flight time",
+      "body": "User: Update the flight. Assistant: The flight now departs Friday evening, replacing the earlier Saturday schedule."
+    },
+    {
+      "stable_id": "chat-backup-commitment",
+      "source": "conversation",
+      "title": "Nightly backup commitment",
+      "body": "User: What did I promise? Assistant: You committed to verify the encrypted backup every night before shutting down."
+    },
+    {
+      "stable_id": "chat-garden-goal",
+      "source": "conversation",
+      "title": "Community garden goal",
+      "body": "User: Save my spring goal. Assistant: You plan to build three raised garden beds and plant herbs in April."
+    },
+    {
+      "stable_id": "chat-soup-procedure",
+      "source": "conversation",
+      "title": "Miso soup procedure",
+      "body": "User: How should I finish the soup? Assistant: Dissolve the miso after lowering the heat, then add scallions without boiling."
+    },
+    {
+      "stable_id": "chat-bread-procedure",
+      "source": "conversation",
+      "title": "Sourdough bread procedure",
+      "body": "User: Keep the baking steps. Assistant: Fold the dough, rest it overnight, and preheat the covered oven before baking."
+    }
+  ],
+  "queries": [
+    {
+      "stable_id": "ordinary-doc-camera",
+      "shape": "ordinary",
+      "query": "graph camera central axis rotation",
+      "expected": "doc-camera-axis"
+    },
+    {
+      "stable_id": "ordinary-doc-chunks",
+      "shape": "ordinary",
+      "query": "authoritative dynamic chunk records compiler",
+      "expected": "doc-dynamic-chunks"
+    },
+    {
+      "stable_id": "ordinary-doc-corrections",
+      "shape": "ordinary",
+      "query": "corrections preserve evidence supersession",
+      "expected": "doc-corrections"
+    },
+    {
+      "stable_id": "ordinary-doc-causal",
+      "shape": "ordinary",
+      "query": "causal candidate exact evidence spans",
+      "expected": "doc-causal-evidence"
+    },
+    {
+      "stable_id": "ordinary-doc-diskann",
+      "shape": "ordinary",
+      "query": "mmap disk ready neighbor index",
+      "expected": "doc-diskann"
+    },
+    {
+      "stable_id": "ordinary-doc-release",
+      "shape": "ordinary",
+      "query": "release manifest binary model artifact hashes",
+      "expected": "doc-release-lock"
+    },
+    {
+      "stable_id": "ordinary-chat-tea",
+      "shape": "ordinary",
+      "query": "where jasmine green tea was ordered",
+      "expected": "chat-tea-market"
+    },
+    {
+      "stable_id": "ordinary-chat-engine",
+      "shape": "ordinary",
+      "query": "Bob repaired motorcycle engine fuel hose",
+      "expected": "chat-engine-repair"
+    },
+    {
+      "stable_id": "ordinary-chat-preference",
+      "shape": "ordinary",
+      "query": "preferred interface sidebar color",
+      "expected": "chat-color-preference"
+    },
+    {
+      "stable_id": "ordinary-chat-meeting",
+      "shape": "ordinary",
+      "query": "corrected Phoenix review meeting time",
+      "expected": "chat-meeting-correction"
+    },
+    {
+      "stable_id": "ordinary-chat-backup",
+      "shape": "ordinary",
+      "query": "commitment verify encrypted backup nightly",
+      "expected": "chat-backup-commitment"
+    },
+    {
+      "stable_id": "ordinary-chat-soup",
+      "shape": "ordinary",
+      "query": "miso soup lower heat scallions",
+      "expected": "chat-soup-procedure"
+    },
+    {
+      "stable_id": "phrase-doc-camera",
+      "shape": "phrase",
+      "query": "rotates around its central axis",
+      "expected": "doc-camera-axis"
+    },
+    {
+      "stable_id": "phrase-doc-chunks",
+      "shape": "phrase",
+      "query": "exact dynamic chunk records",
+      "expected": "doc-dynamic-chunks"
+    },
+    {
+      "stable_id": "phrase-doc-corrections",
+      "shape": "phrase",
+      "query": "explicit supersession chains",
+      "expected": "doc-corrections"
+    },
+    {
+      "stable_id": "phrase-doc-caps",
+      "shape": "phrase",
+      "query": "nested hyperbolic shells",
+      "expected": "doc-caps-shells"
+    },
+    {
+      "stable_id": "phrase-chat-tea",
+      "shape": "phrase",
+      "query": "jasmine green tea",
+      "expected": "chat-tea-market"
+    },
+    {
+      "stable_id": "phrase-chat-meeting",
+      "shape": "phrase",
+      "query": "Thursday at three",
+      "expected": "chat-meeting-correction"
+    },
+    {
+      "stable_id": "phrase-chat-backup",
+      "shape": "phrase",
+      "query": "encrypted backup every night",
+      "expected": "chat-backup-commitment"
+    },
+    {
+      "stable_id": "phrase-chat-soup",
+      "shape": "phrase",
+      "query": "add scallions without boiling",
+      "expected": "chat-soup-procedure"
+    },
+    {
+      "stable_id": "fuzzy-doc-palette",
+      "shape": "fuzzy",
+      "query": "ftalo pallete",
+      "groups": [
+        [
+          { "term": "ftalo", "quality": 1.0 },
+          { "term": "phthalo", "quality": 0.92 }
+        ],
+        [
+          { "term": "pallete", "quality": 1.0 },
+          { "term": "palette", "quality": 0.92 }
+        ]
+      ],
+      "expected": "doc-palette"
+    },
+    {
+      "stable_id": "fuzzy-doc-diskann",
+      "shape": "fuzzy",
+      "query": "neigbor mmapp",
+      "groups": [
+        [
+          { "term": "neigbor", "quality": 1.0 },
+          { "term": "neighbor", "quality": 0.90 }
+        ],
+        [
+          { "term": "mmapp", "quality": 1.0 },
+          { "term": "mmap", "quality": 0.90 }
+        ]
+      ],
+      "expected": "doc-diskann"
+    },
+    {
+      "stable_id": "fuzzy-doc-causal",
+      "shape": "fuzzy",
+      "query": "causel evidnce",
+      "groups": [
+        [
+          { "term": "causel", "quality": 1.0 },
+          { "term": "causal", "quality": 0.90 }
+        ],
+        [
+          { "term": "evidnce", "quality": 1.0 },
+          { "term": "evidence", "quality": 0.90 }
+        ]
+      ],
+      "expected": "doc-causal-evidence"
+    },
+    {
+      "stable_id": "fuzzy-doc-siegel",
+      "shape": "fuzzy",
+      "query": "seigel heirarchy",
+      "groups": [
+        [
+          { "term": "seigel", "quality": 1.0 },
+          { "term": "siegel", "quality": 0.88 }
+        ],
+        [
+          { "term": "heirarchy", "quality": 1.0 },
+          { "term": "hierarchy", "quality": 0.88 }
+        ]
+      ],
+      "expected": "doc-siegel-hierarchy"
+    },
+    {
+      "stable_id": "fuzzy-chat-tea",
+      "shape": "fuzzy",
+      "query": "jassmine markt",
+      "groups": [
+        [
+          { "term": "jassmine", "quality": 1.0 },
+          { "term": "jasmine", "quality": 0.90 }
+        ],
+        [
+          { "term": "markt", "quality": 1.0 },
+          { "term": "market", "quality": 0.90 }
+        ]
+      ],
+      "expected": "chat-tea-market"
+    },
+    {
+      "stable_id": "fuzzy-chat-engine",
+      "shape": "fuzzy",
+      "query": "motercycle engin",
+      "groups": [
+        [
+          { "term": "motercycle", "quality": 1.0 },
+          { "term": "motorcycle", "quality": 0.90 }
+        ],
+        [
+          { "term": "engin", "quality": 1.0 },
+          { "term": "engine", "quality": 0.90 }
+        ]
+      ],
+      "expected": "chat-engine-repair"
+    },
+    {
+      "stable_id": "fuzzy-chat-preference",
+      "shape": "fuzzy",
+      "query": "purpel gradent",
+      "groups": [
+        [
+          { "term": "purpel", "quality": 1.0 },
+          { "term": "purple", "quality": 0.90 }
+        ],
+        [
+          { "term": "gradent", "quality": 1.0 },
+          { "term": "gradients", "quality": 0.86 }
+        ]
+      ],
+      "expected": "chat-color-preference"
+    },
+    {
+      "stable_id": "fuzzy-chat-backup",
+      "shape": "fuzzy",
+      "query": "encripted bakup",
+      "groups": [
+        [
+          { "term": "encripted", "quality": 1.0 },
+          { "term": "encrypted", "quality": 0.90 }
+        ],
+        [
+          { "term": "bakup", "quality": 1.0 },
+          { "term": "backup", "quality": 0.90 }
+        ]
+      ],
+      "expected": "chat-backup-commitment"
+    },
+    {
+      "stable_id": "no-result-quantum",
+      "shape": "no_result",
+      "query": "quantum zeppelin marmalade",
+      "expected": null
+    },
+    {
+      "stable_id": "no-result-archaeology",
+      "shape": "no_result",
+      "query": "mesopotamian cuneiform excavation",
+      "expected": null
+    },
+    {
+      "stable_id": "no-result-marine",
+      "shape": "no_result",
+      "query": "bioluminescent cuttlefish migration",
+      "expected": null
+    },
+    {
+      "stable_id": "no-result-finance",
+      "shape": "no_result",
+      "query": "municipal bond amortization",
+      "expected": null
+    }
+  ]
+}

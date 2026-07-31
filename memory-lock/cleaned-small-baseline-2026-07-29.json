@@ -1,0 +1,61 @@
+{
+  "contract": "phoenix.memory.longmemeval-baseline-receipt/v1",
+  "freeze_id": "longmemeval-cleaned-2026-07-29",
+  "executed_at": "2026-07-29",
+  "source": {
+    "variant": "small",
+    "cases": 500,
+    "bytes": 277383467,
+    "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442"
+  },
+  "binary": {
+    "path": "C:\\phoenix-bin\\phoenix-memory-lock-cut0.exe",
+    "bytes": 550400,
+    "sha256": "08fd5f94637de7366df07ecfc34170d4264da2bced42ef25dfc1b2e24997f65f",
+    "target": "D:\\phoenix-target-memory-cut0"
+  },
+  "artifacts": {
+    "workload": {
+      "magic": "PHXLMW01",
+      "bytes": 248083612,
+      "sha256": "8935a6aa862237dea65d777aa9c964caf9add88b6a5084660b62bf426451b46e"
+    },
+    "gold": {
+      "magic": "PHXLMG01",
+      "bytes": 59149,
+      "sha256": "e5778ddfcf565c68c2fab67ccd50cbaf589c62270807da3e2d1bea4aa65f4375"
+    },
+    "retrieval": {
+      "magic": "PHXLMR01",
+      "bytes": 119280,
+      "sha256": "f0de0d1c3187f052e0cc6d58566303d2b30c135cb9b082e96751e36aedaf5c06"
+    }
+  },
+  "baseline": {
+    "engine": "phoenix-bm25-session-v1",
+    "top_k": 10,
+    "first_elapsed_ms": 1972,
+    "repeat_elapsed_ms": 1932,
+    "repeated_output_byte_identical": true,
+    "hit_at_k": 0.982,
+    "mean_reciprocal_rank": 0.9073714285714285
+  },
+  "gold_firewall": {
+    "gold_as_workload_exit_code": 2,
+    "failure": "artifact type mismatch",
+    "retrieval_output_created": false
+  },
+  "verification": {
+    "unit_tests_passed": 3,
+    "clippy_warnings_denied": true,
+    "manifest_release_smoke": true,
+    "mentedb_in_cargo_tree": false,
+    "reader_executed": false,
+    "judge_executed": false
+  },
+  "limits": [
+    "Retrieval metrics are not LongMemEval answer accuracy.",
+    "External provider model IDs are frozen, but provider-managed weights are not independently hashable.",
+    "The medium and oracle datasets are identity-locked but were not downloaded or executed in Cut 0."
+  ]
+}

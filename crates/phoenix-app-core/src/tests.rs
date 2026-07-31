@@ -8,7 +8,7 @@ use phoenix_scene_archive::{
     PhoenixSceneArchiveBuilderV1, PhoenixSceneArchiveV1, PositionRecord, TopologyRecord,
 };
 use phoenix_scene_contract::{
-    AnchorCandidate, AnchorSource, EntityFamily, EntityKind, GraphAction, GraphLens, GraphScope,
+    AnchorCandidate, AnchorSource, EntityFamily, EntityKind, FamilyMask, GraphAction, GraphScope,
     GraphSurface, HighlightMode, RelationFamily, ReviewMask, SceneAuthority, SceneContractError,
     VerifiedDocumentAnchors,
 };
@@ -98,6 +98,118 @@ fn path() -> PathBuf {
             std::process::id()
         ))
         .join("workspace.json")
+}
+
+#[test]
+fn kernel_memory_commands_share_one_typed_generation_and_scope(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use phoenix_memory_contract::ParticipantRole;
+    use phoenix_memory_coordinator::{
+        CommittedTurn, ConversationKey, IngestTurn, IngestionOrigin, MemoryScope, PendingTurn,
+        RecallTurn,
+    };
+
+    let path = path();
+    let kernel = PhoenixKernel::start(path.clone(), None)?;
+    let session: Arc<[u8]> = Arc::from(&b"product-session"[..]);
+    let conversation = ConversationKey {
+        external_id: Arc::clone(&session),
+        started_at_millis: 1_722_117_600_000,
+    };
+    let receipt = kernel.execute(KernelCommand::IngestMemoryTurn(Box::new(IngestTurn {
+        conversation: conversation.clone(),
+        committed_turn: CommittedTurn {
+            external_id: Arc::from(&b"product-session/0"[..]),
+            ordinal: 0,
+            role: ParticipantRole::User,
+            event_time_millis: conversation.started_at_millis,
+            reply_to_ordinal: None,
+            actor_entity_id: 91,
+            model_identity_index: None,
+            content: Arc::from("The phoenix was seen in Rome."),
+            origin: IngestionOrigin::ExternalConversation,
+        },
+    })))?;
+    let generation_hash = match receipt.outcome {
+        KernelOutcome::MemoryGenerationPublished(receipt) => receipt.generation_hash,
+        other => return Err(format!("unexpected memory publication outcome: {other:?}").into()),
+    };
+
+    kernel.execute(KernelCommand::SetMemoryScope(MemoryScope::Conversation(
+        Arc::clone(&session),
+    )))?;
+    let recall = kernel.execute(KernelCommand::RecallMemory(Box::new(RecallTurn {
+        conversation: ConversationKey {
+            external_id: Arc::from(&b"assistant/current"[..]),
+            started_at_millis: conversation.started_at_millis + 1,
+        },
+        pending_turn: PendingTurn {
+            external_id: Arc::from(&b"assistant/current/0"[..]),
+            ordinal: 0,
+            role: ParticipantRole::User,
+            event_time_millis: conversation.started_at_millis + 1,
+            reply_to_ordinal: None,
+            content: Arc::from("Where was the phoenix seen?"),
+            origin: IngestionOrigin::ExternalConversation,
+        },
+        scope: MemoryScope::Workspace,
+    })))?;
+    match recall.outcome {
+        KernelOutcome::MemoryRecalled(receipt) => {
+            assert_eq!(receipt.generation_hash, Some(generation_hash));
+            assert_eq!(
+                receipt.scope_hash,
+                MemoryScope::Conversation(Arc::clone(&session)).fingerprint()
+            );
+            assert_eq!(receipt.returned_items, 1);
+        }
+        other => return Err(format!("unexpected memory recall outcome: {other:?}").into()),
+    }
+
+    let snapshot = kernel.snapshot()?;
+    let publication = snapshot
+        .resident_memory
+        .publication
+        .as_ref()
+        .ok_or("resident memory publication missing")?;
+    assert_eq!(publication.receipt.generation_hash, generation_hash);
+    assert_eq!(publication.receipt.conversation_count, 1);
+    assert_eq!(publication.receipt.turn_count, 1);
+    assert_eq!(snapshot.resident_memory.commands.queue_high_water, 1);
+    let context_item = &snapshot
+        .resident_memory
+        .last_context
+        .as_ref()
+        .ok_or("resident context missing")?
+        .items[0];
+    assert_eq!(
+        context_item.content.as_ref(),
+        "The phoenix was seen in Rome."
+    );
+    kernel.execute(KernelCommand::SelectMemoryContext {
+        source_id: context_item.source_id.0,
+        content_id: context_item.content_id,
+    })?;
+    let selected = kernel
+        .snapshot()?
+        .memory_context_selection
+        .ok_or("typed memory context selection missing")?;
+    assert_eq!(selected.resident_generation_hash, generation_hash);
+    assert_eq!(selected.source_id, context_item.source_id.0);
+    assert_eq!(selected.content_id, context_item.content_id);
+    assert_eq!(selected.locator, context_item.locator);
+    let atlas = kernel.atlas_control_snapshot()?;
+    assert_eq!(atlas.memory.generation_hash, Some(generation_hash));
+    assert_eq!(atlas.memory.source_count, 1);
+    assert_eq!(atlas.memory.conversation_count, 1);
+    assert_eq!(atlas.memory.turn_count, 1);
+    assert_eq!(atlas.memory.indexed_items, 1);
+    assert!(atlas.memory.supported_producers > 0);
+    assert!(atlas.memory.unsupported_producers > 0);
+    kernel.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
 }
 
 #[test]
@@ -360,6 +472,184 @@ fn document_save_is_kernel_owned_and_restart_durable() -> Result<(), Box<dyn std
         .ok_or("reopened document lease missing")?;
     assert_eq!(lease.revision, DocumentRevision(1));
     assert_eq!(lease.content.as_ref(), "# Durable\n\nKernel-owned.");
+    reopened.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn saving_a_dirty_document_then_selecting_another_loads_the_other_lease(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start(path.clone(), None)?;
+    let first = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("initial document lease missing")?;
+    kernel.execute(KernelCommand::SaveDocument {
+        lease: first.token(),
+        content: Arc::from("first note, initial"),
+    })?;
+    let first_id = first.entry_id;
+
+    let created = kernel.execute(KernelCommand::CreateEntry {
+        kind: EntryKind::Note,
+        name: "Second note".into(),
+    })?;
+    let second_id = match created.outcome {
+        KernelOutcome::EntryCreated(id) => id,
+        other => return Err(format!("unexpected create outcome: {other:?}").into()),
+    };
+    kernel.execute(KernelCommand::SelectEntry(second_id))?;
+    let second = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("second document lease missing")?;
+    kernel.execute(KernelCommand::SaveDocument {
+        lease: second.token(),
+        content: Arc::from("second note"),
+    })?;
+
+    kernel.execute(KernelCommand::SelectEntry(first_id))?;
+    let dirty_first = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("first document lease missing after reselect")?;
+    kernel.execute(KernelCommand::SaveDocument {
+        lease: dirty_first.token(),
+        content: Arc::from("first note, autosaved before switch"),
+    })?;
+    kernel.execute(KernelCommand::SelectEntry(second_id))?;
+    let selected = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("selected second document lease missing")?;
+    assert_eq!(selected.entry_id, second_id);
+    assert_eq!(selected.content.as_ref(), "second note");
+
+    kernel.execute(KernelCommand::SelectEntry(first_id))?;
+    let restored = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("restored first document lease missing")?;
+    assert_eq!(
+        restored.content.as_ref(),
+        "first note, autosaved before switch"
+    );
+
+    kernel.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn canonical_registry_entities_paint_every_matching_note_without_graph_execution(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start(path.clone(), None)?;
+    let first = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("initial document lease missing")?;
+    kernel.execute(KernelCommand::SaveDocument {
+        lease: first.token(),
+        content: Arc::from("Ryan entered New Rome."),
+    })?;
+    let first_id = first.entry_id;
+    kernel.execute(KernelCommand::PublishNerEntities(test_ner_batch(
+        &kernel,
+        1,
+        vec![
+            NerEntityRecord {
+                stable_id: 41,
+                label: "Ryan".into(),
+                kind: EntityKind::Character,
+                custom_kind: None,
+                mention_count: 1,
+            },
+            NerEntityRecord {
+                stable_id: 42,
+                label: "New Rome".into(),
+                kind: EntityKind::Location,
+                custom_kind: None,
+                mention_count: 1,
+            },
+        ],
+    )?))?;
+    let first_anchors = kernel
+        .snapshot()?
+        .document_anchors
+        .ok_or("first note registry highlights missing")?;
+    assert_eq!(
+        first_anchors
+            .anchors()
+            .iter()
+            .map(|anchor| (anchor.start, anchor.end, anchor.node_id))
+            .collect::<Vec<_>>(),
+        vec![(0, 4, 41), (13, 21, 42)]
+    );
+
+    let created = kernel.execute(KernelCommand::CreateEntry {
+        kind: EntryKind::Note,
+        name: "Second registry note".into(),
+    })?;
+    let second_id = match created.outcome {
+        KernelOutcome::EntryCreated(id) => id,
+        other => return Err(format!("unexpected create outcome: {other:?}").into()),
+    };
+    kernel.execute(KernelCommand::SelectEntry(second_id))?;
+    let second = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("second document lease missing")?;
+    kernel.execute(KernelCommand::SaveDocument {
+        lease: second.token(),
+        content: Arc::from("New Rome remembered Ryan."),
+    })?;
+    let second_anchors = kernel
+        .snapshot()?
+        .document_anchors
+        .ok_or("second note registry highlights missing")?;
+    assert_eq!(
+        second_anchors
+            .anchors()
+            .iter()
+            .map(|anchor| (anchor.start, anchor.end, anchor.node_id))
+            .collect::<Vec<_>>(),
+        vec![(0, 8, 42), (20, 24, 41)]
+    );
+
+    kernel.execute(KernelCommand::SelectEntry(first_id))?;
+    let restored = kernel
+        .snapshot()?
+        .document_anchors
+        .ok_or("registry highlights were not restored on note switch")?;
+    assert_eq!(
+        restored
+            .anchors()
+            .iter()
+            .map(|anchor| (anchor.start, anchor.end, anchor.node_id))
+            .collect::<Vec<_>>(),
+        vec![(0, 4, 41), (13, 21, 42)]
+    );
+
+    kernel.shutdown()?;
+    drop(kernel);
+    let reopened = PhoenixKernel::start(path.clone(), None)?;
+    let reopened_anchors = reopened
+        .snapshot()?
+        .document_anchors
+        .ok_or("registry highlights were not restored after restart")?;
+    assert_eq!(
+        reopened_anchors
+            .anchors()
+            .iter()
+            .map(|anchor| (anchor.start, anchor.end, anchor.node_id))
+            .collect::<Vec<_>>(),
+        vec![(0, 4, 41), (13, 21, 42)]
+    );
     reopened.shutdown()?;
     let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);
@@ -820,16 +1110,16 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
         KernelOutcome::GraphRebuilt(receipt) => receipt,
         other => return Err(format!("unexpected rebuild outcome: {other:?}").into()),
     };
-    assert_eq!(receipt.compile.node_count, 9);
-    assert_eq!(receipt.compile.edge_count, 8);
+    assert_eq!(receipt.compile.node_count, 6);
+    assert_eq!(receipt.compile.edge_count, 5);
     assert_eq!(receipt.compile.verified_mentions, 2);
     assert_eq!(receipt.publication.kind, ScenePublicationKind::Full);
-    assert_eq!(receipt.publication.node_count, 9);
-    assert_eq!(receipt.publication.edge_count, 8);
+    assert_eq!(receipt.publication.node_count, 6);
+    assert_eq!(receipt.publication.edge_count, 5);
 
     let snapshot = kernel.snapshot()?;
     assert_eq!(snapshot.graph_view.surface, GraphSurface::Atlas);
-    assert_eq!(snapshot.graph_view.lens, GraphLens::Structure);
+    assert_eq!(snapshot.graph_view.families, FamilyMask::ALL);
     let generation_hash = snapshot
         .graph_generation_v2
         .as_deref()
@@ -844,8 +1134,8 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
     assert_eq!(review_authority.source_generation_hash, generation_hash);
     let scene = snapshot.resident_scene.as_ref().ok_or("scene missing")?;
     assert_eq!(scene.source(), phoenix_scene_contract::SceneSource::Backend);
-    assert_eq!(scene.inventory().node_count, 9);
-    assert_eq!(scene.inventory().edge_count, 8);
+    assert_eq!(scene.inventory().node_count, 6);
+    assert_eq!(scene.inventory().edge_count, 5);
     let anchors = snapshot
         .document_anchors
         .as_ref()
@@ -870,7 +1160,7 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
     let reopened = PhoenixKernel::start_production(path.clone())?;
     let reopened_snapshot = reopened.snapshot()?;
     assert_eq!(reopened_snapshot.graph_view.surface, GraphSurface::Atlas);
-    assert_eq!(reopened_snapshot.graph_view.lens, GraphLens::Structure);
+    assert_eq!(reopened_snapshot.graph_view.families, FamilyMask::ALL);
     assert_eq!(
         reopened_snapshot.scene_publication,
         Some(receipt.publication)
@@ -1412,7 +1702,7 @@ fn semantic_producer_cancellation_is_explicit_and_bounded() -> Result<(), Box<dy
 }
 
 #[test]
-fn verified_anchors_are_kernel_owned_and_invalidated_by_save(
+fn verified_anchors_are_kernel_owned_and_exactly_rebound_by_save(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = path();
     let kernel = PhoenixKernel::start(path.clone(), None)?;
@@ -1428,6 +1718,17 @@ fn verified_anchors_are_kernel_owned_and_invalidated_by_save(
         .snapshot()?
         .active_document_lease
         .ok_or("saved lease missing")?;
+    kernel.execute(KernelCommand::PublishNerEntities(test_ner_batch(
+        &kernel,
+        1,
+        vec![NerEntityRecord {
+            stable_id: 41,
+            label: "Ryan".into(),
+            kind: EntityKind::Character,
+            custom_kind: None,
+            mention_count: 1,
+        }],
+    )?))?;
     let anchors = Arc::new(VerifiedDocumentAnchors::verify(
         DocumentId(lease.entry_id.0),
         lease.revision.0,
@@ -1454,9 +1755,29 @@ fn verified_anchors_are_kernel_owned_and_invalidated_by_save(
 
     kernel.execute(KernelCommand::SaveDocument {
         lease: lease.token(),
-        content: Arc::from("Ryan left New Rome."),
+        content: Arc::from("# Draft\n\nRyan entered New Rome."),
     })?;
-    assert!(kernel.snapshot()?.document_anchors.is_none());
+    let rebound = kernel
+        .snapshot()?
+        .document_anchors
+        .ok_or("exactly rebound anchors missing")?;
+    assert_eq!(rebound.document_revision(), lease.revision.0 + 1);
+    assert_eq!(rebound.anchors().len(), 1);
+    assert_eq!(rebound.anchors()[0].start, 9);
+    assert_eq!(rebound.anchors()[0].end, 13);
+
+    let rebound_lease = kernel
+        .snapshot()?
+        .active_document_lease
+        .ok_or("rebound document lease missing")?;
+    kernel.execute(KernelCommand::SaveDocument {
+        lease: rebound_lease.token(),
+        content: Arc::from("# Draft\n\nMiri entered New Rome."),
+    })?;
+    assert!(
+        kernel.snapshot()?.document_anchors.is_none(),
+        "an anchor whose exact surface changed must fail closed"
+    );
     kernel.shutdown()?;
     let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);

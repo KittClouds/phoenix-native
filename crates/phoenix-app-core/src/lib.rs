@@ -5,12 +5,14 @@ mod atlas;
 mod atlas_control;
 mod atlas_review;
 mod atlas_run;
+mod entity_highlights;
 mod entity_tags;
 mod graph_selection;
 mod graph_view;
 mod metrics;
 mod protocol;
 mod release_lock;
+mod resident_memory;
 mod scene_authority_v2;
 mod scene_compiler_authority;
 mod scene_publication;
@@ -23,7 +25,7 @@ pub use analysis::{
 pub use atlas::{AtlasEntity, AtlasRegistry, NerEntityBatch};
 pub use atlas_control::{
     AtlasAnalysisSummary, AtlasBuildState, AtlasControlSnapshot, AtlasDecisionApplicability,
-    AtlasPrimaryAction, AtlasReviewCandidateState, AtlasReviewCandidateSummary,
+    AtlasMemorySummary, AtlasPrimaryAction, AtlasReviewCandidateState, AtlasReviewCandidateSummary,
     AtlasReviewSnapshot, AtlasStage, AtlasStageState, AtlasStageSummary, ATLAS_CONTROL_CONTRACT,
 };
 pub use atlas_review::{
@@ -50,6 +52,10 @@ pub use protocol::*;
 pub use release_lock::{
     PhoenixReleaseManifestV1, ReleaseCohortAuthorityV1, ReleaseCohortCountsV1,
     ReleaseCohortDigestsV1, ReleaseGateTargetsV1, ReleaseLockError, RELEASE_MANIFEST_CONTRACT,
+};
+pub use resident_memory::{
+    ResidentMemory, ResidentMemoryError, ResidentMemorySnapshot, ResidentRecallIndexes,
+    VerifiedMemoryPublication,
 };
 pub use scene_rebuild::NativeScenePublishCommand;
 use state::*;
@@ -105,6 +111,8 @@ pub struct KernelSnapshot {
     pub graph_generation_v2: Option<Arc<VerifiedGraphGenerationV2>>,
     pub review_catalog_v2: Option<Arc<ReviewCatalog>>,
     pub analysis_publication: Option<AnalysisPublicationReceipt>,
+    pub resident_memory: ResidentMemorySnapshot,
+    pub memory_context_selection: Option<MemoryContextSelection>,
     pub resident_scene: Option<Arc<ResidentScene>>,
     pub scene_product_index: Option<Arc<PhoenixSceneProductIndexV1>>,
     pub scene_publication: Option<ScenePublicationReceipt>,
@@ -145,6 +153,8 @@ pub enum KernelError {
     InvalidStyle,
     #[error("document anchor snapshot does not match the active document lease")]
     DocumentAnchorsNotActive,
+    #[error("canonical entity highlight index could not be built: {0}")]
+    EntityHighlightIndex(String),
     #[error("scene product index requires a resident archive")]
     ProductIndexWithoutScene,
     #[error("native scene publication is unavailable in fixture/recovery mode")]
@@ -225,6 +235,8 @@ pub enum KernelError {
     Highlight(#[from] HighlightContractError),
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
+    #[error(transparent)]
+    ResidentMemory(#[from] ResidentMemoryError),
     #[error("kernel worker thread panicked")]
     WorkerPanicked,
 }
@@ -237,6 +249,7 @@ struct KernelState {
     active_document_lease: Option<Arc<DocumentLease>>,
     entity_registry: Arc<EntityRegistry>,
     atlas_registry: Arc<AtlasRegistry>,
+    entity_highlights: Arc<entity_highlights::EntityHighlightIndex>,
     document_analysis: Option<Arc<PhoenixDocumentAnalysisV1>>,
     structural_analysis: Option<Arc<PhoenixStructuralSubstrateV1>>,
     nli_analysis: Option<Arc<PhoenixNliArtifactV1>>,
@@ -250,6 +263,7 @@ struct KernelState {
     document_anchors: Option<Arc<VerifiedDocumentAnchors>>,
     graph_view: GraphViewState,
     graph_selection: GraphSelectionState,
+    memory_context_selection: Option<MemoryContextSelection>,
     graph_review_overlay: GraphReviewOverlay,
     style: StyleState,
     highlight_palette: Arc<HighlightPalette>,
@@ -264,6 +278,7 @@ struct KernelShared {
     publisher: Option<Arc<ScenePublicationStore>>,
     graph_build: Mutex<atlas_control::GraphBuildRuntime>,
     atlas_review: Mutex<atlas_review::AtlasReviewLedger>,
+    resident_memory: Arc<ResidentMemory>,
     producer_cancel: AtomicBool,
     metrics: KernelMetricAtoms,
 }
@@ -355,6 +370,7 @@ impl PhoenixKernel {
             .map(Arc::new);
         let entity_registry = Arc::new(EntityRegistry::load_or_empty(&workspace_path)?);
         let atlas_registry = Arc::new(AtlasRegistry::from_registry(&entity_registry));
+        let entity_highlights = entity_highlights::EntityHighlightIndex::build(&entity_registry)?;
         let highlight_palette = Arc::new(load_highlight_palette_or_default(&workspace_path)?);
         let restored_analysis = analysis::restore_active_analysis(
             &workspace_path,
@@ -362,6 +378,19 @@ impl PhoenixKernel {
             entity_registry.revision(),
         )?;
         let atlas_review = atlas_review::AtlasReviewLedger::open(&workspace_path)?;
+        let resident_memory = Arc::new(ResidentMemory::open(
+            &workspace_path,
+            entity_registry.revision(),
+        )?);
+        if let (Some(restored), Some(lease)) =
+            (restored_analysis.as_ref(), active_document_lease.as_ref())
+        {
+            resident_memory.publish_document(
+                Arc::clone(lease),
+                &restored.structural,
+                &restored.analysis,
+            )?;
+        }
         let mut scene_publication = None;
         if let Some(publisher) = publisher.as_ref() {
             let published = scene_publication::initial_production_scene(
@@ -401,15 +430,21 @@ impl PhoenixKernel {
             .transpose()?
             .unwrap_or_default();
         scene_publication::configure_restored_graph_view(&mut graph_view, scene_publication);
-        let document_anchors = match (restored_analysis.as_ref(), active_document_lease.as_deref())
+        let restored_anchors = match (restored_analysis.as_ref(), active_document_lease.as_deref())
         {
-            (Some(restored), Some(lease)) => Some(Arc::new(analysis::verified_analysis_anchors(
+            (Some(restored), Some(lease)) => Some(analysis::verified_analysis_anchors(
                 &restored.analysis.ner,
                 lease,
                 &entity_registry,
-            )?)),
-            _ => entity_tags::registry_anchors(&entity_registry, active_document_lease.as_deref())?,
+            )?),
+            _ => None,
         };
+        let document_anchors = entity_tags::registry_anchors_with_base(
+            &entity_highlights,
+            &entity_registry,
+            active_document_lease.as_deref(),
+            restored_anchors.as_ref(),
+        )?;
         let mut state = KernelState {
             revision: 1,
             workspace,
@@ -418,6 +453,7 @@ impl PhoenixKernel {
             active_document_lease,
             entity_registry,
             atlas_registry,
+            entity_highlights,
             document_analysis: restored_analysis
                 .as_ref()
                 .map(|restored| Arc::clone(&restored.analysis)),
@@ -443,6 +479,7 @@ impl PhoenixKernel {
             document_anchors,
             graph_view,
             graph_selection: GraphSelectionState::default(),
+            memory_context_selection: None,
             graph_review_overlay: GraphReviewOverlay::default(),
             style: StyleState::default(),
             highlight_palette,
@@ -459,6 +496,7 @@ impl PhoenixKernel {
                 restored_atlas_run,
             )),
             atlas_review: Mutex::new(atlas_review),
+            resident_memory,
             producer_cancel: AtomicBool::new(false),
             metrics: KernelMetricAtoms::default(),
         });
@@ -498,6 +536,8 @@ impl PhoenixKernel {
             graph_generation_v2: state.graph_generation_v2.as_ref().map(Arc::clone),
             review_catalog_v2: state.review_catalog_v2.as_ref().map(Arc::clone),
             analysis_publication: state.analysis_publication,
+            resident_memory: self.shared.resident_memory.snapshot()?,
+            memory_context_selection: state.memory_context_selection.clone(),
             resident_scene: state.resident_scene.as_ref().map(Arc::clone),
             scene_product_index: state.scene_product_index.as_ref().map(Arc::clone),
             scene_publication: state.scene_publication,
@@ -735,6 +775,19 @@ fn apply_command(
         KernelCommand::PublishDocumentAnchors(anchors) => {
             publish_document_anchors(shared, sequence, anchors)
         }
+        KernelCommand::SetMemoryScope(scope) => {
+            resident_memory::set_memory_scope(shared, sequence, scope)
+        }
+        KernelCommand::RecallMemory(request) => {
+            resident_memory::recall_memory(shared, sequence, *request)
+        }
+        KernelCommand::IngestMemoryTurn(request) => {
+            resident_memory::ingest_memory_turn(shared, sequence, *request)
+        }
+        KernelCommand::SelectMemoryContext {
+            source_id,
+            content_id,
+        } => resident_memory::select_memory_context(shared, sequence, source_id, content_id),
         KernelCommand::SetManifold(manifold) => {
             graph_view::set_manifold(shared, sequence, manifold)
         }
@@ -769,11 +822,12 @@ fn select_entry(
     sequence: u64,
     id: EntryId,
 ) -> Result<CommandReceipt, KernelError> {
-    let (workspace, entity_registry) = {
+    let (workspace, entity_registry, entity_highlights) = {
         let state = read_state(shared)?;
         (
             Arc::clone(&state.workspace),
             Arc::clone(&state.entity_registry),
+            Arc::clone(&state.entity_highlights),
         )
     };
     let kind = workspace
@@ -809,14 +863,29 @@ fn select_entry(
         )?),
         _ => None,
     };
-    let document_anchors = match (restored_analysis.as_ref(), active_document_lease.as_deref()) {
-        (Some(restored), Some(lease)) => Some(Arc::new(analysis::verified_analysis_anchors(
+    let restored_anchors = match (restored_analysis.as_ref(), active_document_lease.as_deref()) {
+        (Some(restored), Some(lease)) => Some(analysis::verified_analysis_anchors(
             &restored.analysis.ner,
             lease,
             &entity_registry,
-        )?)),
-        _ => entity_tags::registry_anchors(&entity_registry, active_document_lease.as_deref())?,
+        )?),
+        _ => None,
     };
+    let document_anchors = entity_tags::registry_anchors_with_base(
+        &entity_highlights,
+        &entity_registry,
+        active_document_lease.as_deref(),
+        restored_anchors.as_ref(),
+    )?;
+    if let (Some(restored), Some(lease)) =
+        (restored_analysis.as_ref(), active_document_lease.as_ref())
+    {
+        shared.resident_memory.publish_document(
+            Arc::clone(lease),
+            &restored.structural,
+            &restored.analysis,
+        )?;
+    }
     let mut state = write_state(shared)?;
     state.workspace = remembered_workspace;
     state.active_entry = id;
@@ -960,6 +1029,7 @@ fn publish_document_anchors(
 
 fn mark_shutting_down(shared: &KernelShared) -> Result<(), KernelError> {
     ensure_event_space(shared)?;
+    shared.resident_memory.cancel();
     let mut state = write_state(shared)?;
     state.shutting_down = true;
     state.revision = checked_revision(state.revision)?;

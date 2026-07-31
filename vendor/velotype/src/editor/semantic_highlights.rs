@@ -476,6 +476,33 @@ mod tests {
     }
 
     #[gpui::test]
+    fn verified_projection_can_be_restored_after_an_unsaved_edit(cx: &mut TestAppContext) {
+        let authoritative = "Ryan entered New Rome.";
+        let edited = "Today, Ryan entered New Rome.";
+        let editor = cx.new(|cx| Editor::embedded_from_markdown(cx, authoritative.into()));
+        editor.update(cx, |editor, cx| {
+            editor.replace_embedded_document(edited.to_owned(), cx);
+            editor.mark_dirty(cx);
+            let receipt = editor
+                .project_semantic_highlights_from_source(
+                    12,
+                    editor.document_revision(),
+                    authoritative,
+                    SemanticHighlightMode::Vivid,
+                    vec![span(authoritative, "Ryan"), span(authoritative, "New Rome")],
+                    cx,
+                )
+                .expect("verified anchors should align across an insertion");
+            assert_eq!(receipt.requested, 2);
+            assert_eq!(receipt.applied, 2);
+            assert_eq!(receipt.unmapped, 0);
+            assert_eq!(editor.semantic_highlight_revision(), 12);
+            assert_eq!(editor.host_document_text(cx), edited);
+            assert!(editor.is_dirty());
+        });
+    }
+
+    #[gpui::test]
     fn verified_projection_reports_unrendered_markdown_without_blanket_failure(
         cx: &mut TestAppContext,
     ) {

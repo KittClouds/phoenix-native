@@ -3,6 +3,7 @@ use crate::{
     AtlasDecisionStatus, NativeSceneCompileReceipt, NativeScenePublishCommand, NerEntityBatch,
     NliPublication, ScenePublicationReceipt,
 };
+use phoenix_memory_coordinator::{IngestTurn, MemoryScope, MemorySourceLocator, RecallTurn};
 use phoenix_scene_contract::{
     DocumentId, GraphAction, GraphReviewOverride, GraphViewState, HighlightPalette, Manifold,
     SceneSource, StyleState, VerifiedDocumentAnchors,
@@ -37,6 +38,13 @@ pub enum KernelCommand {
     PublishReviewedDecisions,
     PublishNativeScene(Box<NativeScenePublishCommand>),
     PublishDocumentAnchors(Arc<VerifiedDocumentAnchors>),
+    SetMemoryScope(MemoryScope),
+    RecallMemory(Box<RecallTurn>),
+    IngestMemoryTurn(Box<IngestTurn>),
+    SelectMemoryContext {
+        source_id: u64,
+        content_id: u64,
+    },
     SetManifold(Manifold),
     SetGraphView(Box<GraphViewState>),
     DispatchGraphAction(GraphAction),
@@ -126,6 +134,36 @@ pub struct GraphProvenanceReceipt {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MemoryGenerationReceipt {
+    pub generation_hash: [u8; 32],
+    pub source_count: u64,
+    pub document_count: u64,
+    pub conversation_count: u64,
+    pub turn_count: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MemoryRecallReceipt {
+    pub pending_turn_hash: [u8; 32],
+    pub scope_hash: [u8; 32],
+    pub generation_hash: Option<[u8; 32]>,
+    pub returned_items: u16,
+    pub returned_candidates: u16,
+    pub returned_bytes: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MemoryContextSelection {
+    pub resident_generation_hash: [u8; 32],
+    pub source_id: u64,
+    pub content_id: u64,
+    pub locator: MemorySourceLocator,
+    pub source_start: u32,
+    pub source_end: u32,
+    pub content_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum KernelOutcome {
     StateChanged,
     EntryCreated(EntryId),
@@ -140,6 +178,9 @@ pub enum KernelOutcome {
     GraphActionQueued(GraphAction),
     GraphProvenance(Option<GraphProvenanceReceipt>),
     DocumentAnchorsPublished(usize),
+    MemoryScopeChanged,
+    MemoryRecalled(MemoryRecallReceipt),
+    MemoryGenerationPublished(MemoryGenerationReceipt),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -192,6 +233,17 @@ pub enum KernelEventKind {
     },
     NliCandidatesCommitted {
         receipt: AnalysisPublicationReceipt,
+    },
+    MemoryScopeChanged {
+        scope_hash: [u8; 32],
+    },
+    MemoryRecalled {
+        receipt: MemoryRecallReceipt,
+    },
+    MemoryContextSelected(MemoryContextSelection),
+    MemoryGenerationPublished {
+        generation_hash: [u8; 32],
+        source_count: u64,
     },
     AtlasRunCancellationRequested,
     AtlasCandidateReviewed {

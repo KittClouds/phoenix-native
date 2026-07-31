@@ -9,8 +9,8 @@ use gpui_component::popover::Popover;
 use gpui_component::{Disableable, Sizable};
 use phoenix_app_core::{GraphProvenanceReceipt, KernelCommand, KernelOutcome};
 use phoenix_scene_contract::{
-    GraphAction, GraphLens, GraphScope, GraphSurface, GraphViewState, Manifold, RelationFamily,
-    ReviewMask, SceneSource,
+    GraphAction, GraphScope, GraphSurface, GraphViewState, Manifold, RelationFamily, ReviewMask,
+    SceneSource,
 };
 
 const CONTROL_BG: u32 = 0x111514;
@@ -55,7 +55,6 @@ impl PhoenixShell {
             .gap_1()
             .px_2();
         row = row
-            .child(self.lens_popover(view, cx))
             .child(review_toggle("ACCEPTED", ReviewMask::ACCEPTED, view, cx))
             .child(review_toggle("PROPOSED", ReviewMask::PROPOSED, view, cx))
             .child(self.relation_popover(view, cx))
@@ -104,46 +103,6 @@ impl PhoenixShell {
                         this.start_native_scene_rebuild(window, cx);
                     })),
             )
-    }
-
-    fn lens_popover(&self, view: GraphViewState, cx: &mut Context<Self>) -> impl IntoElement {
-        let shell = cx.entity();
-        Popover::new("graph-lens-popover")
-            .anchor(Corner::BottomLeft)
-            .appearance(false)
-            .trigger(
-                Button::new("graph-lens-trigger")
-                    .label(format!("LENS / {}", lens_label(view.lens)))
-                    .small()
-                    .ghost(),
-            )
-            .content(move |state, window, popover_cx| {
-                let popover = popover_cx.entity();
-                let mut menu = popover_card("LENS", "Changes one GPU mask - never topology.");
-                for lens in [
-                    GraphLens::Entities,
-                    GraphLens::Structure,
-                    GraphLens::Facts,
-                    GraphLens::Discourse,
-                ] {
-                    let shell = shell.clone();
-                    let popover = popover.clone();
-                    menu = menu.child(popover_option(
-                        ("lens-option", lens as usize),
-                        lens_label(lens),
-                        lens == view.lens,
-                        move |window, cx| {
-                            shell.update(cx, |this, cx| {
-                                this.mutate_graph_view(|next| next.lens = lens, "LENS", cx);
-                            });
-                            popover.update(cx, |state, cx| state.dismiss(window, cx));
-                        },
-                    ));
-                }
-                let _ = state;
-                let _ = window;
-                menu
-            })
     }
 
     fn relation_popover(&self, view: GraphViewState, cx: &mut Context<Self>) -> impl IntoElement {
@@ -258,7 +217,7 @@ impl PhoenixShell {
             .content(move |_, _, _| provenance_card(publication))
     }
 
-    fn mutate_graph_view(
+    pub(super) fn mutate_graph_view(
         &mut self,
         mutate: impl FnOnce(&mut GraphViewState),
         label: &'static str,
@@ -588,15 +547,6 @@ fn short_hash(hash: [u8; 32]) -> String {
     value
 }
 
-const fn lens_label(lens: GraphLens) -> &'static str {
-    match lens {
-        GraphLens::Entities => "ENTITIES",
-        GraphLens::Structure => "STRUCTURE",
-        GraphLens::Facts => "FACTS",
-        GraphLens::Discourse => "DISCOURSE",
-    }
-}
-
 const fn scope_label(scope: GraphScope) -> &'static str {
     match scope {
         GraphScope::Global => "GLOBAL",
@@ -614,6 +564,10 @@ const fn relation_label(family: RelationFamily) -> &'static str {
         RelationFamily::Causal => "Causal",
         RelationFamily::Temporal => "Temporal",
         RelationFamily::Structural => "Structural",
+        RelationFamily::Identity => "Identity",
+        RelationFamily::Relationship => "Relationship",
+        RelationFamily::Event => "Event",
+        RelationFamily::MemoryState => "Memory/state",
     }
 }
 

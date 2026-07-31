@@ -183,7 +183,7 @@ pub(super) fn render_full(
             div()
                 .mt_3()
                 .grid()
-                .grid_cols(2)
+                .grid_cols(3)
                 .gap_3()
                 .child(summary_card(
                     "REVIEW",
@@ -208,6 +208,21 @@ pub(super) fn render_full(
                     }
                     .to_owned(),
                     BLUE,
+                ))
+                .child(summary_card(
+                    "MEMORY AUTHORITY",
+                    memory_hash(control),
+                    format!(
+                        "{} sources · {} indexed · queue {}",
+                        control.memory.source_count,
+                        control.memory.indexed_items,
+                        control.memory.queue_high_water
+                    ),
+                    if control.memory.generation_hash.is_some() {
+                        READY
+                    } else {
+                        ATTENTION
+                    },
                 )),
         )
         .when_some(control.last_error.as_ref(), |page, error| {
@@ -230,6 +245,19 @@ pub(super) fn render_full(
             )
         })
         .into_any_element()
+}
+
+fn memory_hash(control: &AtlasControlSnapshot) -> String {
+    control
+        .memory
+        .generation_hash
+        .map(|hash| {
+            format!(
+                "{:02x}{:02x}{:02x}{:02x}",
+                hash[0], hash[1], hash[2], hash[3]
+            )
+        })
+        .unwrap_or_else(|| "NONE".to_owned())
 }
 
 fn compact_progress(control: &AtlasControlSnapshot) -> impl IntoElement {

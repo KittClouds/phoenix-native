@@ -908,9 +908,7 @@ fn edge_product_visible(
 #[cfg(test)]
 mod visibility_tests {
     use super::*;
-    use phoenix_scene_contract::{
-        FamilyMask, GraphLens, GraphSurface, RelationFamily, ReviewMask, ScopeMask,
-    };
+    use phoenix_scene_contract::{FamilyMask, GraphSurface, RelationFamily, ReviewMask, ScopeMask};
 
     const fn node(family: FamilyMask) -> NodeProductGpu {
         NodeProductGpu {
@@ -946,7 +944,7 @@ mod visibility_tests {
     fn structure_lens_keeps_edge_when_both_endpoints_are_structure() {
         let view = GraphViewState {
             surface: GraphSurface::Atlas,
-            lens: GraphLens::Structure,
+            families: phoenix_scene_contract::FamilyMask::STRUCTURE,
             ..GraphViewState::default()
         };
         assert!(edge_product_visible(

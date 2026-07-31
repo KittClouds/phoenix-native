@@ -1,0 +1,16 @@
+[package]
+name = "phoenix-memory-semantics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+blake3.workspace = true
+hashbrown.workspace = true
+phoenix-memory-contract = { path = "../phoenix-memory-contract" }
+phoenix-memory-coordinator = { path = "../phoenix-memory-coordinator" }
+smallvec.workspace = true
+thiserror.workspace = true

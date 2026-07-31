@@ -2,15 +2,16 @@ use crate::v2_projection::{projection_id, EdgeDraft, NodeDraft, ProjectionBuilde
 use crate::{NativeSceneCompilerError, VerifiedStructuralSource};
 use hashbrown::HashMap;
 use phoenix_graph_generation_v2::{
-    CandidateId, CandidateStatus, DecisionAction, DecisionRecord, EntityRecord, EpisodeMemberKind,
-    EpisodeMembershipRecord, EpisodeRecord, EventRecord, EvidenceRecord, IdentityCandidateRecord,
-    MemoryStateCandidateRecord, PageKind, PublicationReceiptRecord, StructuralEdgeRecord,
-    TemporalCandidateRecord, TypedRelationshipCandidateRecord, VerifiedGraphGenerationV2,
+    CandidateId, CandidateStatus, ChunkRecord, DecisionAction, DecisionRecord, EntityRecord,
+    EpisodeMemberKind, EpisodeMembershipRecord, EpisodeRecord, EventRecord, EvidenceRecord,
+    IdentityCandidateRecord, MemoryStateCandidateRecord, PageKind, PublicationReceiptRecord,
+    StructuralEdgeRecord, TemporalCandidateRecord, TypedRelationshipCandidateRecord,
+    VerifiedGraphGenerationV2,
 };
 use phoenix_scene_contract::{
     CapsRole, EntityFamily, EntityKind, FamilyMask, HighlightPalette, RelationFamily, ReviewMask,
-    ScopeMask, CHAPTER_NODE_KIND, CHUNK_NODE_KIND, DOCUMENT_NODE_KIND, EPISODE_NODE_KIND,
-    EVENT_NODE_KIND, EVIDENCE_NODE_KIND, PARAGRAPH_NODE_KIND, SENTENCE_NODE_KIND,
+    ScopeMask, CHUNK_NODE_KIND, DOCUMENT_NODE_KIND, EPISODE_NODE_KIND, EVENT_NODE_KIND,
+    EVIDENCE_NODE_KIND,
 };
 use phoenix_scene_product_index::ProductReferenceRecord;
 use phoenix_scene_publisher::NativeScenePublication;
@@ -18,11 +19,11 @@ use phoenix_semantic_review::{ReviewCandidate, ReviewCatalog, ReviewPage};
 use std::sync::Arc;
 use std::time::Instant;
 
-const STRUCTURAL_COLOR: [f32; 4] = [0.37, 0.68, 0.88, 0.72];
-const CANDIDATE_COLOR: [f32; 4] = [0.64, 0.36, 0.94, 0.58];
-const ACCEPTED_COLOR: [f32; 4] = [0.24, 0.84, 0.66, 0.78];
-const REJECTED_COLOR: [f32; 4] = [0.88, 0.27, 0.35, 0.35];
-const DEFERRED_COLOR: [f32; 4] = [0.91, 0.66, 0.22, 0.42];
+const DOCUMENT_COLOR: [f32; 4] = [0.24, 0.55, 0.95, 0.92];
+const CHUNK_COLOR: [f32; 4] = [0.94, 0.28, 0.52, 0.82];
+const EVIDENCE_EDGE_COLOR: [f32; 4] = [0.22, 0.73, 0.78, 0.34];
+const EPISODE_COLOR: [f32; 4] = [0.72, 0.32, 0.94, 0.82];
+const EVENT_COLOR: [f32; 4] = [0.98, 0.43, 0.15, 0.84];
 const SCOPE: u64 = ScopeMask::NOTE.0 | ScopeMask::NARRATIVE.0;
 
 pub struct NativeSceneCompilerV2Input<'a> {
@@ -247,10 +248,10 @@ pub fn compile_graph_generation_v2(
         .collect::<Result<Vec<_>, _>>()?;
     let accepted_memberships = accepted_membership_parents(memberships, &membership_statuses)?;
 
+    // Chapters, paragraphs, and sentences remain exact source authority pages.
+    // They are not graph products. The canvas projects the semantic read model:
+    // document, dynamic chunks, evidence, entities, and real semantic records.
     let node_capacity = 1
-        + structural.chapters().len()
-        + structural.paragraphs().len()
-        + structural.sentences().len()
         + structural.chunks().len()
         + entities.len()
         + evidence.len()
@@ -260,6 +261,7 @@ pub fn compile_graph_generation_v2(
     let edge_capacity = structural
         .structural_edges()
         .len()
+        .saturating_add(structural.chunks().len())
         .saturating_add(evidence.len().saturating_mul(2))
         .saturating_add(candidate_edge_capacity);
     let document = structural.document();
@@ -300,6 +302,12 @@ pub fn compile_graph_generation_v2(
         evidence,
         &accepted_memberships,
         document.id,
+    )?;
+    add_chunk_membership_edges(
+        &mut builder,
+        document.id,
+        structural.chunks(),
+        structural.structural_edges(),
     )?;
     add_source_edges(&mut builder, structural.structural_edges())?;
     add_evidence_projection_edges(&mut builder, evidence)?;
@@ -366,7 +374,7 @@ fn add_structural_nodes(
         family_mask: FamilyMask::STRUCTURE.0,
         scope_mask: SCOPE,
         review_mask: ReviewMask::ACCEPTED.0,
-        color: STRUCTURAL_COLOR,
+        color: DOCUMENT_COLOR,
         base_radius: 1.25,
         flags: 0,
         caps_role: CapsRole::Document,
@@ -381,43 +389,8 @@ fn add_structural_nodes(
         kind: 1,
         flags: 0,
     });
-    for chapter in source.chapters() {
-        push_structure(
-            builder,
-            chapter.id,
-            text(generation, chapter.title)?,
-            CHAPTER_NODE_KIND,
-            CapsRole::Episode,
-            Some(document.id),
-        )?;
-    }
-    for paragraph in source.paragraphs() {
-        push_structure(
-            builder,
-            paragraph.id,
-            Arc::from(format!("Paragraph {}", paragraph.ordinal + 1)),
-            PARAGRAPH_NODE_KIND,
-            CapsRole::Chunk,
-            Some(paragraph.chapter_id),
-        )?;
-    }
-    for sentence in source.sentences() {
-        push_structure(
-            builder,
-            sentence.id,
-            Arc::from(format!("Sentence {}", sentence.ordinal + 1)),
-            SENTENCE_NODE_KIND,
-            CapsRole::Evidence,
-            Some(sentence.paragraph_id),
-        )?;
-    }
     for chunk in source.chunks() {
-        let parent = memberships.get(&chunk.id).copied().or_else(|| {
-            source
-                .chapters()
-                .get(chunk.chapter_index as usize)
-                .map(|chapter| chapter.id)
-        });
+        let parent = memberships.get(&chunk.id).copied();
         push_structure(
             builder,
             chunk.id,
@@ -445,7 +418,7 @@ fn push_structure(
         family_mask: FamilyMask::STRUCTURE.0,
         scope_mask: SCOPE,
         review_mask: ReviewMask::ACCEPTED.0,
-        color: STRUCTURAL_COLOR,
+        color: CHUNK_COLOR,
         base_radius: 0.74,
         flags: 0,
         caps_role,
@@ -542,7 +515,7 @@ fn add_episode_nodes(
             family_mask: FamilyMask::STRUCTURE.0,
             scope_mask: SCOPE,
             review_mask: status.mask,
-            color: status_color(*status),
+            color: color_for_status(EPISODE_COLOR, *status),
             base_radius: 0.96,
             flags: episode.flags as u16,
             caps_role: CapsRole::Episode,
@@ -574,7 +547,7 @@ fn add_event_nodes(
             family_mask: FamilyMask::FACTS.0,
             scope_mask: SCOPE,
             review_mask: status.mask,
-            color: status_color(*status),
+            color: color_for_status(EVENT_COLOR, *status),
             base_radius: 0.78,
             flags: event.flags as u16,
             caps_role: CapsRole::Event,
@@ -595,6 +568,9 @@ fn add_source_edges(
     edges: &[StructuralEdgeRecord],
 ) -> Result<(), NativeSceneCompilerError> {
     for edge in edges {
+        if !builder.contains_node(edge.source_id) || !builder.contains_node(edge.target_id) {
+            continue;
+        }
         builder.push_edge(EdgeDraft {
             id: edge.id,
             source: edge.source_id,
@@ -603,10 +579,47 @@ fn add_source_edges(
             scope_mask: SCOPE,
             relation_mask: RelationFamily::Structural.mask().0,
             review_mask: ReviewMask::ACCEPTED.0,
-            color: STRUCTURAL_COLOR,
+            color: [0.28, 0.58, 0.84, 0.34],
             width: f32::from_bits(edge.weight_bits).max(0.3),
             kind: edge.relation,
             flags: edge.flags,
+            inspector_ref: 0,
+            provenance_ref: 0,
+        })?;
+    }
+    Ok(())
+}
+
+fn add_chunk_membership_edges(
+    builder: &mut ProjectionBuilder,
+    document_id: u64,
+    chunks: &[ChunkRecord],
+    source_edges: &[StructuralEdgeRecord],
+) -> Result<(), NativeSceneCompilerError> {
+    for chunk in chunks {
+        if source_edges
+            .iter()
+            .any(|edge| edge.source_id == document_id && edge.target_id == chunk.id)
+        {
+            continue;
+        }
+        let document_bytes = document_id.to_le_bytes();
+        let chunk_bytes = chunk.id.to_le_bytes();
+        builder.push_edge(EdgeDraft {
+            id: projection_id(
+                b"document-chunk-membership",
+                &[&document_bytes, &chunk_bytes],
+            ),
+            source: document_id,
+            target: chunk.id,
+            family_mask: FamilyMask::STRUCTURE.0,
+            scope_mask: SCOPE,
+            relation_mask: RelationFamily::Structural.mask().0,
+            review_mask: ReviewMask::ACCEPTED.0,
+            color: [0.28, 0.58, 0.84, 0.34],
+            width: 0.42,
+            kind: 0,
+            flags: 0,
             inspector_ref: 0,
             provenance_ref: 0,
         })?;
@@ -628,7 +641,7 @@ fn add_evidence_projection_edges(
             scope_mask: SCOPE,
             relation_mask: RelationFamily::Observation.mask().0,
             review_mask: ReviewMask::ACCEPTED.0,
-            color: [0.23, 0.72, 0.78, 0.38],
+            color: EVIDENCE_EDGE_COLOR,
             width: 0.32,
             kind: 0,
             flags: 0,
@@ -680,7 +693,7 @@ fn add_candidate_edges(
             source,
             event.id,
             FamilyMask::FACTS.0,
-            RelationFamily::Observation,
+            RelationFamily::Event,
             event.kind,
             f32::from_bits(event.confidence_bits),
             b"event-candidate",
@@ -741,7 +754,7 @@ fn add_candidate_edges(
             record.left_entity_id,
             record.right_entity_id,
             FamilyMask::DISCOURSE.0,
-            RelationFamily::Communication,
+            RelationFamily::Identity,
             record.kind,
             f32::from_bits(record.confidence_bits),
             accepted_count,
@@ -814,7 +827,7 @@ fn add_candidate_edges(
             record.subject_id,
             record.context_id,
             FamilyMask::FACTS.0,
-            RelationFamily::Observation,
+            RelationFamily::MemoryState,
             record.kind,
             f32::from_bits(record.confidence_bits),
             accepted_count,
@@ -907,7 +920,7 @@ fn push_candidate_with_domain(
         scope_mask: SCOPE,
         relation_mask: relation.mask().0,
         review_mask: status.mask,
-        color: status_color(status),
+        color: color_for_status(relation_color(relation), status),
         width: confidence.clamp(0.22, 1.0) * 0.62,
         kind,
         flags: 0,
@@ -968,28 +981,54 @@ fn candidate_edge_count(
     })
 }
 
-fn status_color(status: ProjectedStatus) -> [f32; 4] {
-    match status.mask {
-        value if value == ReviewMask::ACCEPTED.0 => ACCEPTED_COLOR,
-        value if value == ReviewMask::REJECTED.0 => REJECTED_COLOR,
-        value if value == ReviewMask::DEFERRED.0 => DEFERRED_COLOR,
-        _ => CANDIDATE_COLOR,
+fn color_for_status(mut color: [f32; 4], status: ProjectedStatus) -> [f32; 4] {
+    color[3] *= match status.mask {
+        value if value == ReviewMask::ACCEPTED.0 => 1.0,
+        value if value == ReviewMask::REJECTED.0 => 0.18,
+        value if value == ReviewMask::DEFERRED.0 => 0.32,
+        value if value == ReviewMask::SUPERSEDED.0 => 0.12,
+        _ => 0.52,
+    };
+    color
+}
+
+const fn relation_color(relation: RelationFamily) -> [f32; 4] {
+    match relation {
+        RelationFamily::CoOccurrence => [0.42, 0.58, 0.56, 0.38],
+        RelationFamily::Observation => [0.24, 0.76, 0.86, 0.52],
+        RelationFamily::Communication => [0.32, 0.58, 0.96, 0.56],
+        RelationFamily::Causal => [0.94, 0.28, 0.34, 0.62],
+        RelationFamily::Temporal => [0.94, 0.76, 0.16, 0.58],
+        RelationFamily::Structural => [0.34, 0.62, 0.88, 0.48],
+        RelationFamily::Identity => [0.61, 0.38, 0.96, 0.58],
+        RelationFamily::Relationship => [0.94, 0.32, 0.62, 0.58],
+        RelationFamily::Event => [0.98, 0.43, 0.15, 0.58],
+        RelationFamily::MemoryState => [0.28, 0.82, 0.52, 0.56],
     }
 }
 
 fn relation_for(family: u16) -> RelationFamily {
     match phoenix_graph_generation_v2::SemanticFamily::from_raw(family) {
+        Some(phoenix_graph_generation_v2::SemanticFamily::Relationship)
+        | Some(phoenix_graph_generation_v2::SemanticFamily::GenericRelated) => {
+            RelationFamily::Relationship
+        }
+        Some(phoenix_graph_generation_v2::SemanticFamily::Event)
+        | Some(phoenix_graph_generation_v2::SemanticFamily::Episode) => RelationFamily::Event,
         Some(phoenix_graph_generation_v2::SemanticFamily::Causal) => RelationFamily::Causal,
         Some(phoenix_graph_generation_v2::SemanticFamily::Temporal) => RelationFamily::Temporal,
+        Some(phoenix_graph_generation_v2::SemanticFamily::MemoryState) => {
+            RelationFamily::MemoryState
+        }
         Some(phoenix_graph_generation_v2::SemanticFamily::ContextualCoOccurrence) => {
             RelationFamily::CoOccurrence
         }
         Some(phoenix_graph_generation_v2::SemanticFamily::Identity)
         | Some(phoenix_graph_generation_v2::SemanticFamily::Alias)
         | Some(phoenix_graph_generation_v2::SemanticFamily::Coreference) => {
-            RelationFamily::Communication
+            RelationFamily::Identity
         }
-        _ => RelationFamily::Observation,
+        None => RelationFamily::Observation,
     }
 }
 

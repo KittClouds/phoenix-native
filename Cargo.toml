@@ -7,6 +7,11 @@ members = [
     "crates/phoenix-analysis-contract",
     "crates/phoenix-graph-generation",
     "crates/phoenix-graph-generation-v2",
+    "crates/phoenix-memory-contract",
+    "crates/phoenix-memory-coordinator",
+    "crates/phoenix-memory-embeddings",
+    "crates/phoenix-memory-semantics",
+    "crates/phoenix-lexical-qps",
     "crates/phoenix-document-producer",
     "crates/phoenix-entity-producer",
     "crates/phoenix-semantic-lens",
@@ -21,6 +26,8 @@ members = [
     "crates/phoenix-workspace",
     "apps/graph-demo",
     "apps/phoenix-analysis-proof",
+    "apps/phoenix-memory-lock",
+    "apps/phoenix-memory-embed-proof",
     "apps/phoenix-release-lock",
     "apps/phoenix-shell-proof",
     "vendor/velotype",
@@ -32,6 +39,11 @@ default-members = [
     "crates/graph-render-wgpu",
     "crates/phoenix-analysis-contract",
     "crates/phoenix-graph-generation-v2",
+    "crates/phoenix-memory-contract",
+    "crates/phoenix-memory-coordinator",
+    "crates/phoenix-memory-embeddings",
+    "crates/phoenix-memory-semantics",
+    "crates/phoenix-lexical-qps",
     "crates/phoenix-document-producer",
     "crates/phoenix-entity-producer",
     "crates/phoenix-semantic-lens",
@@ -45,6 +57,7 @@ default-members = [
     "crates/phoenix-scene-publisher",
     "crates/phoenix-workspace",
     "apps/phoenix-release-lock",
+    "apps/phoenix-memory-lock",
     "apps/phoenix-shell-proof",
     "vendor/velotype",
 ]
@@ -56,21 +69,25 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.85"
 
 [workspace.dependencies]
+aho-corasick = "1.1"
 anyhow = "1.0"
 async-channel = "=2.5.0"
 bytemuck = { version = "1.21", features = ["derive"] }
 blake3 = "1.8"
 glam = "0.29"
 hashbrown = { version = "0.15", features = ["serde"] }
+compact_str = "0.9"
 memchr = "2.7"
 memmap2 = "0.9"
 gpui = "=0.2.2"
 gpui-component = "=0.5.1"
 pollster = "0.4"
+pulp = "0.22"
 postcard = { version = "1.1", features = ["alloc"] }
 raw-window-handle = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 smallvec = "1.15"
 thiserror = "2.0"
 tracing = "0.1"
