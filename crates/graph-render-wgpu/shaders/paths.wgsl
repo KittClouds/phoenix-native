@@ -47,10 +47,13 @@ struct EdgeGpu {
 
 struct GraphLensUniform {
     family_mask: vec2<u32>,
+    entity_family_mask: vec2<u32>,
+    topology_family_mask: vec2<u32>,
     scope_mask: vec2<u32>,
     relation_mask: vec2<u32>,
     review_mask: u32,
     product_index_enabled: u32,
+    _padding: vec4<u32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -80,9 +83,26 @@ fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
     return ((left.x & right.x) | (left.y & right.y)) != 0u;
 }
 
+fn entity_lane_visible(product_mask: vec2<u32>) -> bool {
+    let product_lanes = product_mask.x & 0x00ff0000u;
+    return product_lanes == 0u
+        || (product_lanes & lens.entity_family_mask.x) != 0u;
+}
+
+fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
+    let product_lanes = vec2<u32>(
+        product_mask.x & 0xff000000u,
+        product_mask.y & 0x0000003fu,
+    );
+    return (product_lanes.x | product_lanes.y) == 0u
+        || intersects(product_lanes, lens.topology_family_mask);
+}
+
 fn node_visible(product: NodeProductGpu) -> bool {
     return product.enabled != 0u
         && intersects(product.family_mask, lens.family_mask)
+        && entity_lane_visible(product.family_mask)
+        && topology_lane_visible(product.family_mask)
         && intersects(product.scope_mask, lens.scope_mask)
         && (product.review_mask & lens.review_mask) != 0u;
 }
@@ -95,6 +115,8 @@ fn visible(segment: PreparedSegmentGpu) -> bool {
     let edge = edges[segment.edge_slot];
     return product.enabled != 0u
         && intersects(product.family_mask, lens.family_mask)
+        && entity_lane_visible(product.family_mask)
+        && topology_lane_visible(product.family_mask)
         && intersects(product.scope_mask, lens.scope_mask)
         && intersects(product.relation_mask, lens.relation_mask)
         && (product.review_mask & lens.review_mask) != 0u

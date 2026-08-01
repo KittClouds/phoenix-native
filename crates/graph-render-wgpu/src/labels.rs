@@ -5,7 +5,7 @@ use glyphon::{
 };
 use graph_model::NodeId;
 use phoenix_scene_archive::LabelPriorityRecord;
-use phoenix_scene_contract::GraphViewState;
+use phoenix_scene_contract::{FamilyMask, GraphViewState};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::sync::Arc;
 
@@ -193,6 +193,8 @@ impl LabelLayer {
         let generation = self.collision_generation;
         let matrix = camera.view_projection_matrix();
         let family_mask = view.family_mask().0;
+        let entity_family_mask = view.entity_families.0;
+        let topology_family_mask = view.topology_families.0;
         let scope_mask = view.scope_mask().0;
         let hover_slot = focus.hover.and_then(|id| scene.node_slot(id));
         let selected_slot = focus.selected.and_then(|id| scene.node_slot(id));
@@ -200,7 +202,11 @@ impl LabelLayer {
             if Some(entry.node_slot) != hover_slot && Some(entry.node_slot) != selected_slot {
                 continue;
             }
+            let entity_lanes = entry.family_mask & FamilyMask::ENTITY_LANES.0;
+            let topology_lanes = entry.family_mask & FamilyMask::TOPOLOGY_LANES.0;
             if entry.family_mask & family_mask == 0
+                || (entity_lanes != 0 && entity_lanes & entity_family_mask == 0)
+                || (topology_lanes != 0 && topology_lanes & topology_family_mask == 0)
                 || entry.scope_mask & scope_mask == 0
                 || entry.review_mask & view.reviews.0 == 0
             {

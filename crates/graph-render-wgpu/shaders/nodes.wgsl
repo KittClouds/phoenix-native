@@ -27,10 +27,13 @@ struct NodeProductGpu {
 
 struct GraphLensUniform {
     family_mask: vec2<u32>,
+    entity_family_mask: vec2<u32>,
+    topology_family_mask: vec2<u32>,
     scope_mask: vec2<u32>,
     relation_mask: vec2<u32>,
     review_mask: u32,
     product_index_enabled: u32,
+    _padding: vec4<u32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -50,9 +53,72 @@ struct VertexOutput {
 // Screen-space geometry contract. Semantic radius may grow for hubs, centroids,
 // and medoids, but line width is governed independently in the edge shaders.
 const NODE_SCREEN_SCALE: f32 = 1.3662;
+const NODE_DIAMETER_SCALE: f32 = 2.02;
+const NODE_MIN_DIAMETER_PX: f32 = 3.50;
+const NODE_MAX_DIAMETER_PX: f32 = 34.0;
+const VISUAL_ROLE_MASK: u32 = 3840u;
+const VISUAL_ROLE_SHIFT: u32 = 8u;
+
+fn visual_role(flags: u32) -> u32 {
+    return (flags & VISUAL_ROLE_MASK) >> VISUAL_ROLE_SHIFT;
+}
+
+fn role_scale(role: u32) -> f32 {
+    switch role {
+        case 1u: { return 1.72; } // root/document or episode
+        case 2u: { return 1.22; } // anchor/entity or evidence
+        case 3u: { return 1.48; } // deterministic high-degree hub
+        case 4u: { return 1.95; } // producer-provided medoid
+        case 5u: { return 1.82; } // producer-provided centroid
+        default: { return 1.0; }
+    }
+}
+
+fn role_aura_strength(role: u32) -> f32 {
+    switch role {
+        case 1u: { return 0.24; }
+        case 2u: { return 0.20; }
+        case 3u: { return 0.23; }
+        case 4u: { return 0.28; }
+        case 5u: { return 0.26; }
+        default: { return 0.14; }
+    }
+}
 
 fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
     return ((left.x & right.x) | (left.y & right.y)) != 0u;
+}
+
+fn entity_lane_visible(product_mask: vec2<u32>) -> bool {
+    let product_lanes = product_mask.x & 0x00ff0000u;
+    return product_lanes == 0u
+        || (product_lanes & lens.entity_family_mask.x) != 0u;
+}
+
+fn family_visible(product_mask: vec2<u32>) -> bool {
+    let selected = lens.family_mask;
+    if ((product_mask.x & selected.x) | (product_mask.y & selected.y)) != 0u {
+        return true;
+    }
+    let entity_detail = (product_mask.x & 0x00ff0000u) != 0u
+        && (selected.x & 0x000000ffu) != 0u;
+    let structure_detail = (product_mask.x & 0x7f000000u) != 0u
+        && (selected.x & 0x00000100u) != 0u;
+    let fact_detail = ((product_mask.x & 0x80000000u) != 0u
+        || (product_mask.y & 0x0000001fu) != 0u)
+        && (selected.x & 0x00000200u) != 0u;
+    let discourse_detail = (product_mask.y & 0x00000030u) != 0u
+        && (selected.x & 0x00000400u) != 0u;
+    return entity_detail || structure_detail || fact_detail || discourse_detail;
+}
+
+fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
+    let product_lanes = vec2<u32>(
+        product_mask.x & 0xff000000u,
+        product_mask.y & 0x0000003fu,
+    );
+    return (product_lanes.x | product_lanes.y) == 0u
+        || intersects(product_lanes, lens.topology_family_mask);
 }
 
 fn node_visible(product: NodeProductGpu) -> bool {
@@ -60,7 +126,9 @@ fn node_visible(product: NodeProductGpu) -> bool {
         return true;
     }
     return product.enabled != 0u
-        && intersects(product.family_mask, lens.family_mask)
+        && family_visible(product.family_mask)
+        && entity_lane_visible(product.family_mask)
+        && topology_lane_visible(product.family_mask)
         && intersects(product.scope_mask, lens.scope_mask)
         && (product.review_mask & lens.review_mask) != 0u;
 }
@@ -104,8 +172,12 @@ fn vs_main(
     );
     let uv = corners[vertex_index] * 1.24;
     let flags = node.kind_flags & 0xffffu;
-    let diameter_pixels = clamp(node.position_radius.w * 1.75, 1.5, 22.0)
-        * NODE_SCREEN_SCALE;
+    let role = visual_role(flags);
+    let diameter_pixels = clamp(
+        node.position_radius.w * NODE_DIAMETER_SCALE * role_scale(role),
+        NODE_MIN_DIAMETER_PX,
+        NODE_MAX_DIAMETER_PX,
+    ) * NODE_SCREEN_SCALE;
     let view_back = cross(camera.view_right.xyz, camera.view_up.xyz);
     let view_depth = max(
         dot(camera.eye_position.xyz - node.position_radius.xyz, view_back),
@@ -163,6 +235,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let derivative = max(fwidth(distance), 0.0001);
     let circle = 1.0 - smoothstep(1.0 - derivative, 1.0 + derivative, distance);
     let aura = 1.0 - smoothstep(0.92, 1.52, distance);
+    let role = visual_role(input.flags);
     let hovered = (input.flags & 4096u) != 0u;
     let selected = (input.flags & 8192u) != 0u;
     let neighbor = (input.flags & 16384u) != 0u;
@@ -185,7 +258,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         vec3<f32>(1.0),
     );
     let aura_rgb = mix(color.rgb, type_aura(input.kind, color.rgb), 0.34);
-    let halo_alpha = color.a * aura * 0.16;
+    let halo_alpha = color.a * aura * role_aura_strength(role);
     color = vec4<f32>(mix(aura_rgb, sphere_rgb, circle), max(color.a * circle, halo_alpha));
     if (route) {
         let glow = 1.0 - smoothstep(0.55, 1.15, distance);

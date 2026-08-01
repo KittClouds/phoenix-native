@@ -7,7 +7,7 @@ use phoenix_scene_archive::{
     RelationMaskRecord,
 };
 use phoenix_scene_contract::{
-    CapsRole, CHUNK_NODE_KIND, EPISODE_NODE_KIND, GUIDE_FLAG_CAP_BOUNDARY,
+    visual_role, CapsRole, CHUNK_NODE_KIND, EPISODE_NODE_KIND, GUIDE_FLAG_CAP_BOUNDARY,
     GUIDE_FLAG_CONCENTRATION_AXIS, GUIDE_FLAG_SHELL,
 };
 use std::f32::consts::TAU;
@@ -74,9 +74,14 @@ fn label_priorities(
 ) -> Result<Vec<LabelPriorityRecord>, ScenePublicationError> {
     let mut slots = (0..publication.styles.len()).collect::<Vec<_>>();
     slots.sort_unstable_by(|left, right| {
-        publication.styles[*right]
-            .radius
-            .total_cmp(&publication.styles[*left].radius)
+        visual_role(publication.styles[*right].flags)
+            .priority()
+            .cmp(&visual_role(publication.styles[*left].flags).priority())
+            .then_with(|| {
+                publication.styles[*right]
+                    .radius
+                    .total_cmp(&publication.styles[*left].radius)
+            })
             .then_with(|| {
                 publication.identities[*left]
                     .id

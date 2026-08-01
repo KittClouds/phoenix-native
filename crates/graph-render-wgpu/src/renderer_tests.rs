@@ -51,11 +51,18 @@ fn v3_screen_space_node_and_pick_contracts_are_locked() {
     let picking = include_str!("../shaders/picking.wgsl");
 
     assert!(nodes.contains("const NODE_SCREEN_SCALE: f32 = 1.3662"));
+    assert!(nodes.contains("const NODE_DIAMETER_SCALE: f32 = 2.02"));
+    assert!(nodes.contains("fn visual_role(flags: u32) -> u32"));
+    assert!(nodes.contains("role_scale(role)"));
+    assert!(nodes.contains("role_aura_strength(role)"));
     assert!(nodes.contains("* NODE_SCREEN_SCALE"));
     assert!(nodes.contains("let sphere_normal = normalize(vec3<f32>(sphere_xy, sphere_z))"));
     assert!(nodes.contains("let specular = pow(max(dot(sphere_normal, half_direction), 0.0)"));
     assert!(nodes.contains("view_depth * 0.8284271 / max(camera.viewport_size.y, 1.0)"));
     assert!(picking.contains("const NODE_SCREEN_SCALE: f32 = 1.3662"));
+    assert!(picking.contains("const NODE_DIAMETER_SCALE: f32 = 2.02"));
+    assert!(picking.contains("fn visual_role(flags: u32) -> u32"));
+    assert!(picking.contains("role_scale(visual_role(flags))"));
     assert!(picking.contains("* NODE_SCREEN_SCALE"));
     assert!(picking.contains("clamp(visual_diameter * 0.7 + 6.0, 7.0, 18.0)"));
 }

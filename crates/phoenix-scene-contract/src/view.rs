@@ -114,7 +114,48 @@ impl FamilyMask {
             | Self::CONCEPTS.0
             | Self::OTHER_ENTITIES.0,
     );
-    pub const ENTITIES: Self = Self(((1 << 8) - 1) | Self::ENTITY_LANES.0);
+    // Native topology-detail lanes. These bits describe what a product is,
+    // independently of the broad renderer lane above. They let the Style Hub
+    // and shaders address real compiler products without inferring semantics
+    // from colors, labels, or node kinds at interaction time.
+    pub const DOCUMENTS: Self = Self(1 << 24);
+    pub const EPISODES: Self = Self(1 << 25);
+    pub const CHUNKS: Self = Self(1 << 26);
+    pub const EVIDENCE: Self = Self(1 << 27);
+    pub const CHAPTERS: Self = Self(1 << 28);
+    pub const PARAGRAPHS: Self = Self(1 << 29);
+    pub const SENTENCES: Self = Self(1 << 30);
+    pub const EVENT_FACTS: Self = Self(1 << 31);
+    pub const RELATIONSHIP_FACTS: Self = Self(1 << 32);
+    pub const TEMPORAL_FACTS: Self = Self(1 << 33);
+    pub const CAUSAL_FACTS: Self = Self(1 << 34);
+    pub const MEMORY_STATE_FACTS: Self = Self(1 << 35);
+    pub const IDENTITY_DISCOURSE: Self = Self(1 << 36);
+    pub const CONTEXTUAL_DISCOURSE: Self = Self(1 << 37);
+    pub const STRUCTURE_LANES: Self = Self(
+        Self::DOCUMENTS.0
+            | Self::EPISODES.0
+            | Self::CHUNKS.0
+            | Self::EVIDENCE.0
+            | Self::CHAPTERS.0
+            | Self::PARAGRAPHS.0
+            | Self::SENTENCES.0,
+    );
+    pub const FACT_LANES: Self = Self(
+        Self::EVENT_FACTS.0
+            | Self::RELATIONSHIP_FACTS.0
+            | Self::TEMPORAL_FACTS.0
+            | Self::CAUSAL_FACTS.0
+            | Self::MEMORY_STATE_FACTS.0,
+    );
+    pub const DISCOURSE_LANES: Self =
+        Self(Self::IDENTITY_DISCOURSE.0 | Self::CONTEXTUAL_DISCOURSE.0);
+    pub const TOPOLOGY_LANES: Self =
+        Self(Self::STRUCTURE_LANES.0 | Self::FACT_LANES.0 | Self::DISCOURSE_LANES.0);
+    // Broad topology selection and granular entity-kind selection are two
+    // independent axes.  Do not fold `ENTITY_LANES` into this mask: doing so
+    // makes the broad Entities toggle invert individual kind choices.
+    pub const ENTITIES: Self = Self((1 << 8) - 1);
     pub const STRUCTURE: Self = Self(1 << 8);
     pub const FACTS: Self = Self(1 << 9);
     pub const DISCOURSE: Self = Self(1 << 10);
@@ -154,6 +195,16 @@ impl FamilyMask {
     #[must_use]
     pub const fn is_valid_selection(self) -> bool {
         self.0 != 0 && self.0 & !Self::ALL.0 == 0
+    }
+
+    #[must_use]
+    pub const fn is_valid_entity_selection(self) -> bool {
+        self.0 != 0 && self.0 & !Self::ENTITY_LANES.0 == 0
+    }
+
+    #[must_use]
+    pub const fn is_valid_topology_selection(self) -> bool {
+        self.0 != 0 && self.0 & !Self::TOPOLOGY_LANES.0 == 0
     }
 }
 
@@ -286,6 +337,16 @@ pub struct GraphViewState {
     /// longer owns visibility. The renderer consumes this mask directly.
     #[serde(default)]
     pub families: FamilyMask,
+    /// Entity-kind lanes are an orthogonal refinement of the broad topology
+    /// lanes. Keeping this separate prevents a kind click from changing the
+    /// active Entities/Atlas surface or disabling unrelated structure.
+    #[serde(default = "default_entity_families")]
+    pub entity_families: FamilyMask,
+    /// Structure, fact, and discourse product subtypes selected by the Style
+    /// Hub. Products from older archives carry no detail bits and therefore
+    /// remain readable; verified V2 publications carry exact subtype lanes.
+    #[serde(default = "default_topology_families")]
+    pub topology_families: FamilyMask,
     pub lens: GraphLens,
     pub scope: GraphScope,
     pub reviews: ReviewMask,
@@ -300,6 +361,8 @@ impl GraphViewState {
             authority: SceneAuthority::Unavailable,
             surface: GraphSurface::Entities,
             families: FamilyMask::ALL,
+            entity_families: FamilyMask::ENTITY_LANES,
+            topology_families: FamilyMask::TOPOLOGY_LANES,
             lens: GraphLens::Entities,
             scope: GraphScope::Global,
             reviews: ReviewMask::VISIBLE,
@@ -345,9 +408,32 @@ impl GraphViewState {
     #[must_use]
     pub const fn is_valid(self) -> bool {
         self.families.is_valid_selection()
+            && self.entity_families.is_valid_entity_selection()
+            && self.topology_families.is_valid_topology_selection()
             && self.reviews.is_visible_selection()
             && self.relations.is_valid_selection()
     }
+
+    /// Migrates the short-lived shell-state encoding that placed granular
+    /// entity bits in the broad `families` field.  Published scene authority
+    /// is unaffected; this only repairs persisted view preferences.
+    pub fn normalize_legacy_family_masks(&mut self) {
+        let legacy_entity_lanes = self.families.0 & FamilyMask::ENTITY_LANES.0;
+        if legacy_entity_lanes != 0 {
+            self.entity_families = FamilyMask(
+                (self.entity_families.0 | legacy_entity_lanes) & FamilyMask::ENTITY_LANES.0,
+            );
+            self.families = FamilyMask(self.families.0 & FamilyMask::ALL.0);
+        }
+    }
+}
+
+const fn default_entity_families() -> FamilyMask {
+    FamilyMask::ENTITY_LANES
+}
+
+const fn default_topology_families() -> FamilyMask {
+    FamilyMask::TOPOLOGY_LANES
 }
 
 impl Default for GraphViewState {
@@ -372,6 +458,8 @@ mod tests {
         let view = GraphViewState::default();
         assert_eq!(view.surface, GraphSurface::Entities);
         assert_eq!(view.family_mask(), FamilyMask::ENTITIES);
+        assert_eq!(view.entity_families, FamilyMask::ENTITY_LANES);
+        assert_eq!(view.topology_families, FamilyMask::TOPOLOGY_LANES);
         assert_eq!(view.authority, SceneAuthority::Unavailable);
         assert!(view.is_valid());
     }
@@ -399,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn granular_entity_lanes_are_disjoint_and_part_of_entities() {
+    fn granular_entity_lanes_are_disjoint_from_broad_entities() {
         let lanes = [
             FamilyMask::CHARACTERS,
             FamilyMask::LOCATIONS,
@@ -408,7 +496,7 @@ mod tests {
             FamilyMask::NPCS,
         ];
         for (index, lane) in lanes.iter().enumerate() {
-            assert!(FamilyMask::ENTITIES.contains(*lane));
+            assert!(!FamilyMask::ENTITIES.intersects(*lane));
             for other in &lanes[index + 1..] {
                 assert!(!lane.intersects(*other));
             }
@@ -433,6 +521,58 @@ mod tests {
             FamilyMask::entity_lane(crate::EntityFamily::Npc),
             FamilyMask::NPCS
         );
+        assert!(FamilyMask::ENTITY_LANES.is_valid_entity_selection());
+        assert!(!FamilyMask::ALL.is_valid_entity_selection());
+    }
+
+    #[test]
+    fn legacy_entity_bits_migrate_out_of_the_broad_family_mask() {
+        let mut view = GraphViewState {
+            families: FamilyMask(
+                FamilyMask::ENTITIES.0
+                    | FamilyMask::STRUCTURE.0
+                    | FamilyMask::CHARACTERS.0
+                    | FamilyMask::LOCATIONS.0,
+            ),
+            entity_families: FamilyMask::NPCS,
+            ..GraphViewState::default()
+        };
+
+        view.normalize_legacy_family_masks();
+
+        assert_eq!(
+            view.families,
+            FamilyMask(FamilyMask::ENTITIES.0 | FamilyMask::STRUCTURE.0)
+        );
+        assert!(view.entity_families.contains(FamilyMask::CHARACTERS));
+        assert!(view.entity_families.contains(FamilyMask::LOCATIONS));
+        assert!(view.entity_families.contains(FamilyMask::NPCS));
+        assert!(view.is_valid());
+    }
+
+    #[test]
+    fn topology_detail_lanes_are_disjoint_and_complete() {
+        let lanes = [
+            FamilyMask::DOCUMENTS,
+            FamilyMask::EPISODES,
+            FamilyMask::CHUNKS,
+            FamilyMask::EVIDENCE,
+            FamilyMask::EVENT_FACTS,
+            FamilyMask::RELATIONSHIP_FACTS,
+            FamilyMask::TEMPORAL_FACTS,
+            FamilyMask::CAUSAL_FACTS,
+            FamilyMask::MEMORY_STATE_FACTS,
+            FamilyMask::IDENTITY_DISCOURSE,
+            FamilyMask::CONTEXTUAL_DISCOURSE,
+        ];
+        for (slot, lane) in lanes.iter().enumerate() {
+            assert!(FamilyMask::TOPOLOGY_LANES.contains(*lane));
+            for other in lanes.iter().skip(slot + 1) {
+                assert!(!lane.intersects(*other));
+            }
+        }
+        assert!(FamilyMask::TOPOLOGY_LANES.is_valid_topology_selection());
+        assert!(!FamilyMask::ALL.is_valid_topology_selection());
     }
 
     #[test]

@@ -33,6 +33,8 @@ fn reconcile_published_graph_view(
     if previous_was_full {
         published.surface = previous.surface;
         published.families = previous.families;
+        published.entity_families = previous.entity_families;
+        published.topology_families = previous.topology_families;
         published.lens = previous.lens;
         published.scope = previous.scope;
         published.reviews = previous.reviews;

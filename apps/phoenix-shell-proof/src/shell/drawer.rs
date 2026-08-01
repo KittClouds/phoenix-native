@@ -290,7 +290,10 @@ impl PhoenixShell {
                     Err(KernelError::AnalysisProducerCancelled) => {
                         this.status = "PIPELINE CANCELLED / PREVIOUS GENERATION PRESERVED".into();
                     }
-                    Err(error) => this.status = format!("PIPELINE BLOCKED / {error}").into(),
+                    Err(error) => {
+                        eprintln!("PHOENIX_NATIVE_PIPELINE_FAILED {error:#}");
+                        this.status = format!("PIPELINE BLOCKED / {error}").into();
+                    }
                 }
                 cx.notify();
             }) {

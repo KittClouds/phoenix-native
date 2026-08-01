@@ -70,29 +70,38 @@ impl From<&EdgeProductRecord> for EdgeProductGpu {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Pod, Zeroable)]
 pub struct GraphLensUniform {
     pub family_mask: [u32; 2],
+    pub entity_family_mask: [u32; 2],
+    pub topology_family_mask: [u32; 2],
     pub scope_mask: [u32; 2],
     pub relation_mask: [u32; 2],
     pub review_mask: u32,
     pub product_index_enabled: u32,
+    pub _padding: [u32; 4],
 }
 
 impl GraphLensUniform {
     pub const UNFILTERED: Self = Self {
         family_mask: [u32::MAX; 2],
+        entity_family_mask: [u32::MAX; 2],
+        topology_family_mask: [u32::MAX; 2],
         scope_mask: [u32::MAX; 2],
         relation_mask: [u32::MAX; 2],
         review_mask: u32::MAX,
         product_index_enabled: 0,
+        _padding: [0; 4],
     };
 
     #[must_use]
     pub fn from_view(view: GraphViewState, product_index_enabled: bool) -> Self {
         Self {
             family_mask: split_u64(view.family_mask().0),
+            entity_family_mask: split_u64(view.entity_families.0),
+            topology_family_mask: split_u64(view.topology_families.0),
             scope_mask: split_u64(view.scope_mask().0),
             relation_mask: split_u64(view.relations.0),
             review_mask: view.reviews.0,
             product_index_enabled: u32::from(product_index_enabled),
+            _padding: [0; 4],
         }
     }
 }
@@ -100,7 +109,7 @@ impl GraphLensUniform {
 const _: () = {
     assert!(size_of::<NodeProductGpu>() == 32);
     assert!(size_of::<EdgeProductGpu>() == 32);
-    assert!(size_of::<GraphLensUniform>() == 32);
+    assert!(size_of::<GraphLensUniform>() == 64);
 };
 
 const fn split_u64(value: u64) -> [u32; 2] {
@@ -126,6 +135,17 @@ mod tests {
         };
         let uniform = GraphLensUniform::from_view(view, true);
         assert_eq!(uniform.family_mask, [FamilyMask::DISCOURSE.0 as u32, 0]);
+        assert_eq!(
+            uniform.entity_family_mask,
+            [FamilyMask::ENTITY_LANES.0 as u32, 0]
+        );
+        assert_eq!(
+            uniform.topology_family_mask,
+            [
+                FamilyMask::TOPOLOGY_LANES.0 as u32,
+                (FamilyMask::TOPOLOGY_LANES.0 >> 32) as u32,
+            ]
+        );
         assert_eq!(uniform.scope_mask, [ScopeMask::NOTE.0 as u32, 0]);
         assert_eq!(uniform.relation_mask, [0xcccc_dddd, 0xaaaa_bbbb]);
         assert_eq!(uniform.review_mask, 2);

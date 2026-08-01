@@ -180,6 +180,16 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
     );
     assert_eq!(compiled.publication.identities[0].id, 10);
     assert!(compiled.publication.edges.iter().any(|edge| edge.id == 104));
+    let entity_slot = compiled
+        .publication
+        .identities
+        .iter()
+        .position(|node| node.id == 60)
+        .expect("entity node");
+    assert_eq!(
+        compiled.publication.node_products[entity_slot].family_mask,
+        FamilyMask::ENTITIES.0 | FamilyMask::CHARACTERS.0
+    );
     assert!(!compiled
         .publication
         .identities
@@ -441,7 +451,7 @@ fn accepted_status_without_receipt_fails_closed() {
     let fact = &compiled.publication.node_products[fact_slot];
     assert_eq!(
         fact.family_mask,
-        FamilyMask::FACTS.0 | FamilyMask::CHARACTERS.0
+        FamilyMask::FACTS.0 | FamilyMask::RELATIONSHIP_FACTS.0 | FamilyMask::CHARACTERS.0
     );
     assert_eq!(fact.review_mask, ReviewMask::PROPOSED.0);
     drop(proposed);

@@ -158,6 +158,17 @@ impl PhoenixKernel {
             .source_document_id
             .clone()
             .unwrap_or_else(|| format!("native:{:016x}", lease.entry_id.0));
+        let directory = analysis_directory(&self.shared.workspace_path)?;
+        fs::create_dir_all(&directory).map_err(|error| {
+            KernelError::AnalysisProducerFailed(format!("create {}: {error}", directory.display()))
+        })?;
+        let generation = first_free_analysis_generation(
+            &directory,
+            lease.entry_id.0,
+            lease.revision.0,
+            lease.content_hash.0,
+            generation,
+        )?;
         let request = PhoenixAnalysisRequestV1 {
             schema: ANALYSIS_CONTRACT.to_owned(),
             binding: DocumentAnalysisRequestBinding {
@@ -177,10 +188,6 @@ impl PhoenixKernel {
         request
             .validate()
             .map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
-        let directory = analysis_directory(&self.shared.workspace_path)?;
-        fs::create_dir_all(&directory).map_err(|error| {
-            KernelError::AnalysisProducerFailed(format!("create {}: {error}", directory.display()))
-        })?;
         let stem = artifact_stem(&request.binding);
         let request_path = directory.join(format!("{stem}.request.{ANALYSIS_ARTIFACT_EXTENSION}"));
         let output_path = directory.join(format!("{stem}.analysis.{ANALYSIS_ARTIFACT_EXTENSION}"));
@@ -796,16 +803,57 @@ fn producer_coordinator_path_for(analysis_path: &Path) -> PathBuf {
 }
 
 fn artifact_stem(binding: &DocumentAnalysisRequestBinding) -> String {
-    let hash = binding
-        .content_hash
+    artifact_stem_parts(
+        binding.native_document_id,
+        binding.document_revision,
+        binding.analysis_generation,
+        binding.content_hash,
+    )
+}
+
+fn artifact_stem_parts(
+    native_document_id: u64,
+    document_revision: u64,
+    analysis_generation: u64,
+    content_hash: [u8; 32],
+) -> String {
+    let hash = content_hash
         .iter()
         .take(8)
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     format!(
         "{:016x}-r{}-g{}-{hash}",
-        binding.native_document_id, binding.document_revision, binding.analysis_generation
+        native_document_id, document_revision, analysis_generation
     )
+}
+
+fn first_free_analysis_generation(
+    directory: &Path,
+    native_document_id: u64,
+    document_revision: u64,
+    content_hash: [u8; 32],
+    mut generation: u64,
+) -> Result<u64, KernelError> {
+    for _ in 0..MAX_RESTORE_FILES {
+        let stem = artifact_stem_parts(
+            native_document_id,
+            document_revision,
+            generation,
+            content_hash,
+        );
+        let request = directory.join(format!("{stem}.request.{ANALYSIS_ARTIFACT_EXTENSION}"));
+        if !request.exists() {
+            return Ok(generation);
+        }
+        generation = generation
+            .checked_add(1)
+            .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+    }
+    Err(KernelError::AnalysisProducerFailed(format!(
+        "no free analysis generation within {} reserved artifacts",
+        MAX_RESTORE_FILES
+    )))
 }
 
 fn path_text(path: &Path) -> String {
@@ -825,4 +873,34 @@ fn required_path(name: &'static str) -> Result<PathBuf, KernelError> {
         .filter(|value| !value.is_empty())
         .ok_or(KernelError::AnalysisProducerUnavailable(name))?;
     Ok(PathBuf::from(value))
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use super::*;
+
+    #[test]
+    fn partial_immutable_run_reserves_its_generation() {
+        let directory = std::env::temp_dir().join(format!(
+            "phoenix-analysis-generation-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let hash = [0x5a; 32];
+        let stem = artifact_stem_parts(7, 3, 11, hash);
+        fs::write(
+            directory.join(format!("{stem}.request.{ANALYSIS_ARTIFACT_EXTENSION}")),
+            b"reserved",
+        )
+        .unwrap();
+        assert_eq!(
+            first_free_analysis_generation(&directory, 7, 3, hash, 11).unwrap(),
+            12
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
 }

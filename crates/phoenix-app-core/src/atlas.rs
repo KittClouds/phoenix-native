@@ -1,6 +1,6 @@
 use super::*;
 use hashbrown::HashMap;
-use phoenix_analysis_contract::{PhoenixNerArtifactV1, VerifiedAnalysisArtifact};
+use phoenix_analysis_contract::{AnalysisEntity, PhoenixNerArtifactV1, VerifiedAnalysisArtifact};
 use phoenix_scene_contract::EntityKind;
 use phoenix_workspace::{EntityRegistry, EntitySourceMask, NerEntityRecord};
 
@@ -110,13 +110,7 @@ pub(super) fn publish_ner_batch(
         .artifact
         .entities
         .iter()
-        .map(|entity| NerEntityRecord {
-            stable_id: entity.stable_id,
-            label: entity.label.clone(),
-            kind: analysis::entity_kind(entity.kind),
-            custom_kind: entity.custom_kind.clone(),
-            mention_count: entity.mention_count,
-        })
+        .map(ner_entity_record)
         .collect::<Vec<_>>();
     let ner_revision = batch.artifact.ner_revision;
     drop(current);
@@ -180,4 +174,53 @@ pub(super) fn publish_ner_batch(
         kernel_revision,
         KernelOutcome::NerEntitiesPublished(result),
     ))
+}
+
+fn ner_entity_record(entity: &AnalysisEntity) -> NerEntityRecord {
+    let kind = analysis::entity_kind(entity.kind);
+    NerEntityRecord {
+        stable_id: entity.stable_id,
+        label: entity.label.clone(),
+        kind,
+        // Older producer binaries used `custom_kind` as a classifier trace.
+        // Once the typed kind is known, that trace is cold provenance rather
+        // than a custom entity identity and must not enter the canonical
+        // registry's stricter kind contract.
+        custom_kind: (kind == EntityKind::Custom)
+            .then(|| entity.custom_kind.clone())
+            .flatten(),
+        mention_count: entity.mention_count,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phoenix_analysis_contract::AnalysisEntityKind;
+
+    #[test]
+    fn typed_entity_kind_discards_legacy_classifier_trace() {
+        let record = ner_entity_record(&AnalysisEntity {
+            stable_id: 7,
+            label: "Atlas Collective".into(),
+            kind: AnalysisEntityKind::Network,
+            custom_kind: Some("ENTITY".into()),
+            mention_count: 3,
+        });
+        assert_eq!(record.kind, EntityKind::Network);
+        assert_eq!(record.custom_kind, None);
+    }
+
+    #[test]
+    fn custom_entity_preserves_its_required_kind() {
+        let record = ner_entity_record(&AnalysisEntity {
+            stable_id: 9,
+            label: "Story-specific role".into(),
+            kind: AnalysisEntityKind::Custom,
+            custom_kind: Some("ROLE".into()),
+            mention_count: 1,
+        });
+        assert_eq!(record.kind, EntityKind::Custom);
+        assert_eq!(record.custom_kind.as_deref(), Some("ROLE"));
+    }
 }

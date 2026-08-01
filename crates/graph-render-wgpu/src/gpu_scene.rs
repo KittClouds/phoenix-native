@@ -880,10 +880,23 @@ fn packed_mask(words: [u32; 2]) -> u64 {
 }
 
 fn node_product_visible(product: &NodeProductGpu, view: GraphViewState) -> bool {
+    let family_mask = packed_mask(product.family_mask);
     product.enabled != 0
-        && packed_mask(product.family_mask) & view.family_mask().0 != 0
+        && family_visible(family_mask, view.family_mask())
+        && entity_lane_visible(family_mask, view.entity_families)
+        && topology_lane_visible(family_mask, view.topology_families)
         && packed_mask(product.scope_mask) & view.scope_mask().0 != 0
         && product.review_mask & view.reviews.0 != 0
+}
+
+fn entity_lane_visible(product_mask: u64, selected: phoenix_scene_contract::FamilyMask) -> bool {
+    let product_lanes = product_mask & phoenix_scene_contract::FamilyMask::ENTITY_LANES.0;
+    product_lanes == 0 || product_lanes & selected.0 != 0
+}
+
+fn topology_lane_visible(product_mask: u64, selected: phoenix_scene_contract::FamilyMask) -> bool {
+    let product_lanes = product_mask & phoenix_scene_contract::FamilyMask::TOPOLOGY_LANES.0;
+    product_lanes == 0 || product_lanes & selected.0 != 0
 }
 
 #[cfg(test)]
@@ -896,13 +909,35 @@ fn edge_product_visible(
     let Some((source, target)) = source.zip(target) else {
         return false;
     };
+    let family_mask = packed_mask(product.family_mask);
     product.enabled != 0
-        && packed_mask(product.family_mask) & view.family_mask().0 != 0
+        && family_visible(family_mask, view.family_mask())
+        && entity_lane_visible(family_mask, view.entity_families)
+        && topology_lane_visible(family_mask, view.topology_families)
         && packed_mask(product.scope_mask) & view.scope_mask().0 != 0
         && packed_mask(product.relation_mask) & view.relations.0 != 0
         && product.review_mask & view.reviews.0 != 0
         && node_product_visible(source, view)
         && node_product_visible(target, view)
+}
+
+/// Broad lens bits and their high-bit detail lanes are intentionally separate
+/// in the scene contract. A verified product may carry only its detail bit
+/// (for example `LOCATIONS` or `EVENT_FACTS`), so broad lens selection must
+/// still admit that product without asking the compiler to duplicate masks.
+fn family_visible(product_mask: u64, selected: phoenix_scene_contract::FamilyMask) -> bool {
+    let broad_match = product_mask & selected.0 != 0;
+    let entity_detail = product_mask & phoenix_scene_contract::FamilyMask::ENTITY_LANES.0 != 0
+        && selected.contains(phoenix_scene_contract::FamilyMask::ENTITIES);
+    let structure_detail = product_mask & phoenix_scene_contract::FamilyMask::STRUCTURE_LANES.0
+        != 0
+        && selected.contains(phoenix_scene_contract::FamilyMask::STRUCTURE);
+    let fact_detail = product_mask & phoenix_scene_contract::FamilyMask::FACT_LANES.0 != 0
+        && selected.contains(phoenix_scene_contract::FamilyMask::FACTS);
+    let discourse_detail = product_mask & phoenix_scene_contract::FamilyMask::DISCOURSE_LANES.0
+        != 0
+        && selected.contains(phoenix_scene_contract::FamilyMask::DISCOURSE);
+    broad_match || entity_detail || structure_detail || fact_detail || discourse_detail
 }
 
 #[cfg(test)]
@@ -952,6 +987,38 @@ mod visibility_tests {
             Some(&node(FamilyMask::STRUCTURE)),
             Some(&node(FamilyMask::STRUCTURE)),
             view,
+        ));
+    }
+
+    #[test]
+    fn entity_kind_filter_is_orthogonal_to_the_entities_surface() {
+        let view = GraphViewState {
+            surface: GraphSurface::Entities,
+            entity_families: FamilyMask::LOCATIONS,
+            ..GraphViewState::default()
+        };
+        assert!(node_product_visible(&node(FamilyMask::LOCATIONS), view));
+        assert!(!node_product_visible(&node(FamilyMask::CHARACTERS), view));
+        assert_eq!(view.surface, GraphSurface::Entities);
+    }
+
+    #[test]
+    fn fact_subtype_filter_hides_only_the_unselected_product() {
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::FACTS,
+            topology_families: FamilyMask::EVENT_FACTS,
+            ..GraphViewState::default()
+        };
+        assert!(node_product_visible(
+            &node(FamilyMask(FamilyMask::FACTS.0 | FamilyMask::EVENT_FACTS.0)),
+            view
+        ));
+        assert!(!node_product_visible(
+            &node(FamilyMask(
+                FamilyMask::FACTS.0 | FamilyMask::RELATIONSHIP_FACTS.0
+            )),
+            view
         ));
     }
 }

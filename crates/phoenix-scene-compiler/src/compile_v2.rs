@@ -415,7 +415,7 @@ fn add_structural_nodes(
         id: document.id,
         label: text(generation, document.source_id)?,
         kind: DOCUMENT_NODE_KIND,
-        family_mask: FamilyMask::STRUCTURE.0,
+        family_mask: FamilyMask::STRUCTURE.0 | FamilyMask::DOCUMENTS.0,
         scope_mask: SCOPE,
         review_mask: ReviewMask::ACCEPTED.0,
         color: DOCUMENT_COLOR,
@@ -459,7 +459,7 @@ fn push_structure(
         id,
         label,
         kind,
-        family_mask: FamilyMask::STRUCTURE.0,
+        family_mask: FamilyMask::STRUCTURE.0 | structure_detail_mask(kind),
         scope_mask: SCOPE,
         review_mask: ReviewMask::ACCEPTED.0,
         color: CHUNK_COLOR,
@@ -485,7 +485,7 @@ fn add_entity_nodes(
             id: entity.id,
             label: text(generation, entity.label)?,
             kind: entity.kind,
-            family_mask: entity_family_mask(family),
+            family_mask: entity_node_family_mask(family),
             scope_mask: SCOPE,
             review_mask: ReviewMask::ACCEPTED.0,
             color: palette.for_family(family).primary,
@@ -521,7 +521,9 @@ fn add_evidence_nodes(
             id: record.id,
             label: Arc::from("Evidence"),
             kind: EVIDENCE_NODE_KIND,
-            family_mask: FamilyMask::STRUCTURE.0 | entity_family_mask(family),
+            family_mask: FamilyMask::STRUCTURE.0
+                | FamilyMask::EVIDENCE.0
+                | entity_family_mask(family),
             scope_mask: SCOPE,
             review_mask: ReviewMask::ACCEPTED.0,
             color: palette.for_family(family).secondary,
@@ -556,7 +558,7 @@ fn add_episode_nodes(
             id: episode.id,
             label: text(generation, episode.label)?,
             kind: EPISODE_NODE_KIND,
-            family_mask: FamilyMask::STRUCTURE.0,
+            family_mask: FamilyMask::STRUCTURE.0 | FamilyMask::EPISODES.0,
             scope_mask: SCOPE,
             review_mask: status.mask,
             color: color_for_status(EPISODE_COLOR, *status),
@@ -612,7 +614,7 @@ fn add_event_nodes(
             id: event.id,
             label: text(generation, event.label)?,
             kind: EVENT_NODE_KIND,
-            family_mask: FamilyMask::FACTS.0 | event_lane,
+            family_mask: FamilyMask::FACTS.0 | FamilyMask::EVENT_FACTS.0 | event_lane,
             scope_mask: SCOPE,
             review_mask: status.mask,
             color: color_for_status(EVENT_COLOR, *status),
@@ -805,7 +807,12 @@ fn add_candidate_edges(
             *status,
             source,
             event.id,
-            lane_augmented(FamilyMask::FACTS.0, source, event.id, &entity_lanes),
+            lane_augmented(
+                FamilyMask::FACTS.0 | FamilyMask::EVENT_FACTS.0,
+                source,
+                event.id,
+                &entity_lanes,
+            ),
             RelationFamily::Event,
             event.kind,
             f32::from_bits(event.confidence_bits),
@@ -821,7 +828,7 @@ fn add_candidate_edges(
             *status,
             document_id,
             episode.id,
-            FamilyMask::STRUCTURE.0,
+            FamilyMask::STRUCTURE.0 | FamilyMask::EPISODES.0,
             RelationFamily::Structural,
             episode.family,
             f32::from_bits(episode.confidence_bits),
@@ -846,7 +853,7 @@ fn add_candidate_edges(
             record.source_entity_id,
             record.target_entity_id,
             lane_augmented(
-                FamilyMask::FACTS.0,
+                FamilyMask::FACTS.0 | FamilyMask::RELATIONSHIP_FACTS.0,
                 record.source_entity_id,
                 record.target_entity_id,
                 &entity_lanes,
@@ -876,7 +883,7 @@ fn add_candidate_edges(
             record.left_entity_id,
             record.right_entity_id,
             lane_augmented(
-                FamilyMask::DISCOURSE.0,
+                FamilyMask::DISCOURSE.0 | FamilyMask::IDENTITY_DISCOURSE.0,
                 record.left_entity_id,
                 record.right_entity_id,
                 &entity_lanes,
@@ -899,7 +906,7 @@ fn add_candidate_edges(
             record.episode_id,
             record.member_id,
             lane_augmented(
-                FamilyMask::STRUCTURE.0,
+                FamilyMask::STRUCTURE.0 | FamilyMask::EPISODES.0,
                 record.episode_id,
                 record.member_id,
                 &entity_lanes,
@@ -925,7 +932,7 @@ fn add_candidate_edges(
             record.source_id,
             record.target_id,
             lane_augmented(
-                FamilyMask::FACTS.0,
+                FamilyMask::FACTS.0 | FamilyMask::TEMPORAL_FACTS.0,
                 record.source_id,
                 record.target_id,
                 &entity_lanes,
@@ -951,7 +958,7 @@ fn add_candidate_edges(
             record.cause_id,
             record.effect_id,
             lane_augmented(
-                FamilyMask::FACTS.0,
+                FamilyMask::FACTS.0 | FamilyMask::CAUSAL_FACTS.0,
                 record.cause_id,
                 record.effect_id,
                 &entity_lanes,
@@ -981,7 +988,7 @@ fn add_candidate_edges(
             record.subject_id,
             record.context_id,
             lane_augmented(
-                FamilyMask::FACTS.0,
+                FamilyMask::FACTS.0 | FamilyMask::MEMORY_STATE_FACTS.0,
                 record.subject_id,
                 record.context_id,
                 &entity_lanes,
@@ -1023,7 +1030,7 @@ fn add_candidate_edges(
             record.source_entity_id,
             record.target_entity_id,
             lane_augmented(
-                FamilyMask::DISCOURSE.0,
+                FamilyMask::DISCOURSE.0 | FamilyMask::CONTEXTUAL_DISCOURSE.0,
                 record.source_entity_id,
                 record.target_entity_id,
                 &entity_lanes,
@@ -1335,6 +1342,20 @@ fn entity_kind(raw: u16) -> Result<EntityKind, NativeSceneCompilerError> {
 
 fn entity_family_mask(family: EntityFamily) -> u64 {
     FamilyMask::entity_lane(family).0
+}
+
+fn entity_node_family_mask(family: EntityFamily) -> u64 {
+    FamilyMask::ENTITIES.0 | entity_family_mask(family)
+}
+
+const fn structure_detail_mask(kind: u16) -> u64 {
+    match kind {
+        CHUNK_NODE_KIND => FamilyMask::CHUNKS.0,
+        EVIDENCE_NODE_KIND => FamilyMask::EVIDENCE.0,
+        EPISODE_NODE_KIND => FamilyMask::EPISODES.0,
+        DOCUMENT_NODE_KIND => FamilyMask::DOCUMENTS.0,
+        _ => 0,
+    }
 }
 
 fn text(

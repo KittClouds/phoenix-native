@@ -76,8 +76,9 @@ impl ShellStateV1 {
                 bytes.len()
             );
         }
-        let state: Self =
+        let mut state: Self =
             serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))?;
+        state.graph_view.normalize_legacy_family_masks();
         state.validate()?;
         Ok(Some(state))
     }
@@ -274,6 +275,36 @@ mod tests {
         assert_eq!(actual.drawer_tab, DrawerTab::Graph);
         assert_eq!(actual.graph_view.surface, GraphSurface::Atlas);
         assert_eq!(actual.graph_view.manifold, Manifold::Hopf);
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_entity_lane_bits_are_migrated_when_shell_state_loads() -> Result<()> {
+        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "phoenix-shell-state-legacy-test-{}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root)?;
+        let workspace = root.join("workspace-v1.json");
+        let mut legacy = state();
+        legacy.graph_view.families = phoenix_scene_contract::FamilyMask(
+            phoenix_scene_contract::FamilyMask::ALL.0
+                | phoenix_scene_contract::FamilyMask::CHARACTERS.0,
+        );
+        let path = state_path(&workspace)?;
+        fs::write(&path, serde_json::to_vec_pretty(&legacy)?)?;
+
+        let loaded = ShellStateV1::load(&workspace)?.context("state missing")?;
+        assert_eq!(
+            loaded.graph_view.families,
+            phoenix_scene_contract::FamilyMask::ALL
+        );
+        assert!(loaded
+            .graph_view
+            .entity_families
+            .contains(phoenix_scene_contract::FamilyMask::CHARACTERS));
         fs::remove_dir_all(root)?;
         Ok(())
     }

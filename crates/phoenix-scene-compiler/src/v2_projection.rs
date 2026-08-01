@@ -3,7 +3,9 @@ use hashbrown::{HashMap, HashSet};
 use phoenix_scene_archive::{
     EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PositionRecord, TopologyRecord,
 };
-use phoenix_scene_contract::{CapsRole, FamilyMask, HighlightPalette};
+use phoenix_scene_contract::{
+    with_visual_role, CapsRole, FamilyMask, HighlightPalette, VisualRole,
+};
 use phoenix_scene_product_index::{EntityNodeMappingRecord, ProductReferenceRecord};
 use phoenix_scene_publisher::{
     NativeScenePublication, SceneEdgeProduct, SceneNodeProduct, ScenePublicationKind,
@@ -50,6 +52,7 @@ pub(crate) struct ProjectionBuilder {
     document_id: u64,
     nodes: Vec<NodeDraft>,
     node_ids: HashSet<u64>,
+    node_family_masks: HashMap<u64, u64>,
     edges: Vec<EdgeDraft>,
     edge_ids: HashSet<u64>,
     entity_mappings: Vec<EntityNodeMappingRecord>,
@@ -76,6 +79,7 @@ impl ProjectionBuilder {
             document_id,
             nodes: Vec::with_capacity(node_capacity),
             node_ids: HashSet::with_capacity(node_capacity),
+            node_family_masks: HashMap::with_capacity(node_capacity),
             edges: Vec::with_capacity(edge_capacity),
             edge_ids: HashSet::with_capacity(edge_capacity),
             entity_mappings: Vec::new(),
@@ -89,6 +93,7 @@ impl ProjectionBuilder {
                 resource: "V2 scene node",
             });
         }
+        self.node_family_masks.insert(node.id, node.family_mask);
         self.nodes.push(node);
         Ok(())
     }
@@ -97,7 +102,10 @@ impl ProjectionBuilder {
         self.node_ids.contains(&node_id)
     }
 
-    pub(crate) fn push_edge(&mut self, edge: EdgeDraft) -> Result<(), NativeSceneCompilerError> {
+    pub(crate) fn push_edge(
+        &mut self,
+        mut edge: EdgeDraft,
+    ) -> Result<(), NativeSceneCompilerError> {
         if self.edges.len() >= MAX_SCENE_EDGES {
             return Err(NativeSceneCompilerError::EdgeLimit(MAX_SCENE_EDGES));
         }
@@ -106,6 +114,22 @@ impl ProjectionBuilder {
                 resource: "V2 scene edge",
             });
         }
+        // Edge products inherit only topology-detail lanes from their exact
+        // endpoints. Broad lane authority remains the producer's decision,
+        // while endpoint visibility guarantees that hiding a subtype cannot
+        // leave a dangling line behind.
+        edge.family_mask |= self
+            .node_family_masks
+            .get(&edge.source)
+            .copied()
+            .unwrap_or(0)
+            & FamilyMask::TOPOLOGY_LANES.0;
+        edge.family_mask |= self
+            .node_family_masks
+            .get(&edge.target)
+            .copied()
+            .unwrap_or(0)
+            & FamilyMask::TOPOLOGY_LANES.0;
         self.edges.push(edge);
         Ok(())
     }
@@ -152,6 +176,12 @@ impl ProjectionBuilder {
             degrees[target] = degrees[target].saturating_add(1);
         }
 
+        // Promote only the statistically dense tail to a visual hub.  The
+        // threshold is computed from the complete degree distribution rather
+        // than insertion order, so a regeneration with the same topology
+        // produces identical role metadata.
+        let hub_threshold = hub_degree_threshold(&degrees);
+
         let node_count = self.nodes.len();
         let mut identities = Vec::with_capacity(node_count);
         let mut styles = Vec::with_capacity(node_count);
@@ -160,13 +190,14 @@ impl ProjectionBuilder {
             std::array::from_fn(|_| Vec::with_capacity(node_count));
         let mut caps_nodes = Vec::with_capacity(node_count);
         for (ordinal, node) in self.nodes.into_iter().enumerate() {
+            let role = visual_role_for(node.caps_role, degrees[ordinal], hub_threshold);
             identities.push(NodeIdentityRecord { id: node.id });
             styles.push(NodeStyleRecord {
                 color: node.color,
                 radius: (node.base_radius + (degrees[ordinal] as f32 + 1.0).ln() * 0.11)
                     .min(node.base_radius * 1.9),
                 kind: node.kind,
-                flags: node.flags,
+                flags: with_visual_role(node.flags, role),
             });
             products.push(SceneNodeProduct {
                 node_id: node.id,
@@ -252,6 +283,32 @@ impl ProjectionBuilder {
     }
 }
 
+fn hub_degree_threshold(degrees: &[u32]) -> u32 {
+    if degrees.is_empty() {
+        return u32::MAX;
+    }
+    let mut ordered = degrees.to_vec();
+    ordered.sort_unstable();
+    // Use a percentile over sample *positions*, not a sample count.  This
+    // keeps a five-node fixture from selecting its maximum as the 95th
+    // percentile and makes the threshold stable as the graph grows.
+    let index = ordered.len().saturating_sub(1).saturating_mul(19) / 20;
+    ordered[index].max(8)
+}
+
+fn visual_role_for(caps_role: CapsRole, degree: u32, hub_threshold: u32) -> VisualRole {
+    let base = match caps_role {
+        CapsRole::Document | CapsRole::Episode => VisualRole::Root,
+        CapsRole::Entity | CapsRole::Chunk | CapsRole::Evidence => VisualRole::Anchor,
+        CapsRole::Event | CapsRole::Fact | CapsRole::Memory => VisualRole::Ordinary,
+    };
+    if base != VisualRole::Root && degree >= hub_threshold {
+        VisualRole::Hub
+    } else {
+        base
+    }
+}
+
 /// Select an entity-kind lane before the broad product lane.  A fact node can
 /// carry both `FACTS` and `CHARACTERS`, for example; using `trailing_zeros`
 /// directly would always place it in the generic facts band and erase the
@@ -298,6 +355,18 @@ fn assign_sibling_ranks(nodes: &mut [layout::CapsNode]) -> Result<(), NativeScen
     Ok(())
 }
 
+pub(crate) fn projection_id(domain: &[u8], parts: &[&[u8]]) -> u64 {
+    let mut hash = blake3::Hasher::new();
+    hash.update(b"phoenix.native.scene-projection/v2\0");
+    hash.update(domain);
+    for part in parts {
+        hash.update(part);
+    }
+    let mut raw = [0_u8; 8];
+    raw.copy_from_slice(&hash.finalize().as_bytes()[..8]);
+    u64::from_le_bytes(raw).max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,16 +393,27 @@ mod tests {
         assert_eq!(layout_family_slot(FamilyMask::FACTS.0), 9);
         assert_eq!(layout_family_slot(FamilyMask::DISCOURSE.0), 10);
     }
-}
 
-pub(crate) fn projection_id(domain: &[u8], parts: &[&[u8]]) -> u64 {
-    let mut hash = blake3::Hasher::new();
-    hash.update(b"phoenix.native.scene-projection/v2\0");
-    hash.update(domain);
-    for part in parts {
-        hash.update(part);
+    #[test]
+    fn visual_hub_threshold_is_deterministic_and_bounded() {
+        assert_eq!(hub_degree_threshold(&[]), u32::MAX);
+        assert_eq!(hub_degree_threshold(&[0, 1, 2, 3]), 8);
+        assert_eq!(hub_degree_threshold(&[1, 2, 8, 64, 128]), 64);
     }
-    let mut raw = [0_u8; 8];
-    raw.copy_from_slice(&hash.finalize().as_bytes()[..8]);
-    u64::from_le_bytes(raw).max(1)
+
+    #[test]
+    fn roots_remain_roots_even_when_they_are_dense() {
+        assert_eq!(
+            visual_role_for(CapsRole::Document, 10_000, 1),
+            VisualRole::Root
+        );
+        assert_eq!(
+            visual_role_for(CapsRole::Entity, 10_000, 1),
+            VisualRole::Hub
+        );
+        assert_eq!(
+            visual_role_for(CapsRole::Evidence, 1, 8),
+            VisualRole::Anchor
+        );
+    }
 }

@@ -27,10 +27,13 @@ struct NodeProductGpu {
 
 struct GraphLensUniform {
     family_mask: vec2<u32>,
+    entity_family_mask: vec2<u32>,
+    topology_family_mask: vec2<u32>,
     scope_mask: vec2<u32>,
     relation_mask: vec2<u32>,
     review_mask: u32,
     product_index_enabled: u32,
+    _padding: vec4<u32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -47,9 +50,44 @@ struct VertexOutput {
 
 // Must match nodes.wgsl so the visible sphere and its pick target scale together.
 const NODE_SCREEN_SCALE: f32 = 1.3662;
+const NODE_DIAMETER_SCALE: f32 = 2.02;
+const NODE_MIN_DIAMETER_PX: f32 = 3.50;
+const NODE_MAX_DIAMETER_PX: f32 = 34.0;
+const VISUAL_ROLE_MASK: u32 = 3840u;
+const VISUAL_ROLE_SHIFT: u32 = 8u;
+
+fn visual_role(flags: u32) -> u32 {
+    return (flags & VISUAL_ROLE_MASK) >> VISUAL_ROLE_SHIFT;
+}
+
+fn role_scale(role: u32) -> f32 {
+    switch role {
+        case 1u: { return 1.72; }
+        case 2u: { return 1.22; }
+        case 3u: { return 1.48; }
+        case 4u: { return 1.95; }
+        case 5u: { return 1.82; }
+        default: { return 1.0; }
+    }
+}
 
 fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
     return ((left.x & right.x) | (left.y & right.y)) != 0u;
+}
+
+fn entity_lane_visible(product_mask: vec2<u32>) -> bool {
+    let product_lanes = product_mask.x & 0x00ff0000u;
+    return product_lanes == 0u
+        || (product_lanes & lens.entity_family_mask.x) != 0u;
+}
+
+fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
+    let product_lanes = vec2<u32>(
+        product_mask.x & 0xff000000u,
+        product_mask.y & 0x0000003fu,
+    );
+    return (product_lanes.x | product_lanes.y) == 0u
+        || intersects(product_lanes, lens.topology_family_mask);
 }
 
 fn node_visible(product: NodeProductGpu) -> bool {
@@ -58,6 +96,8 @@ fn node_visible(product: NodeProductGpu) -> bool {
     }
     return product.enabled != 0u
         && intersects(product.family_mask, lens.family_mask)
+        && entity_lane_visible(product.family_mask)
+        && topology_lane_visible(product.family_mask)
         && intersects(product.scope_mask, lens.scope_mask)
         && (product.review_mask & lens.review_mask) != 0u;
 }
@@ -76,8 +116,12 @@ fn vs_main(
         vec2<f32>( 1.0,  1.0),
     );
     let uv = corners[vertex_index];
-    let visual_diameter = clamp(node.position_radius.w * 1.65, 1.5, 18.0)
-        * NODE_SCREEN_SCALE;
+    let flags = node.kind_flags & 0xffffu;
+    let visual_diameter = clamp(
+        node.position_radius.w * NODE_DIAMETER_SCALE * role_scale(visual_role(flags)),
+        NODE_MIN_DIAMETER_PX,
+        NODE_MAX_DIAMETER_PX,
+    ) * NODE_SCREEN_SCALE;
     let hit_diameter = clamp(visual_diameter * 0.7 + 6.0, 7.0, 18.0);
     let view_back = cross(camera.view_right.xyz, camera.view_up.xyz);
     let view_depth = max(

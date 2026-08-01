@@ -4,6 +4,7 @@ mod caps;
 mod entities;
 mod highlights;
 mod view;
+mod visual;
 
 use phoenix_scene_archive::{
     ArchiveError, ArchiveManifold, GuidePageView, ManifoldPageSet, PageKey, PageKind, PathPageView,
@@ -32,6 +33,7 @@ pub use view::{
     FamilyMask, GraphAction, GraphLens, GraphReviewOverride, GraphScope, GraphSurface,
     GraphViewState, RelationFamily, RelationMask, ReviewMask, SceneAuthority, ScopeMask,
 };
+pub use visual::{visual_role, with_visual_role, VisualRole, VISUAL_ROLE_MASK, VISUAL_ROLE_SHIFT};
 
 pub const SCENE_CONTRACT: &str = "phoenix.native.resident-scene/v1";
 pub const NATIVE_SCENE_COMPILER_CONTRACT: &str = "phoenix.native.active-document-scene-compiler/v2";
