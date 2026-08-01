@@ -252,6 +252,9 @@ const fn family_slot(family: EntityFamily) -> u16 {
         EntityFamily::Concept => 4,
         EntityFamily::Event => 5,
         EntityFamily::Structure => 6,
+        EntityFamily::Npc => 0,
+        EntityFamily::Network => 2,
+        EntityFamily::Creature => 3,
         EntityFamily::Other => 7,
     }
 }

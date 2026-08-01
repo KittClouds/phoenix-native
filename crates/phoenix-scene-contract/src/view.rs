@@ -91,12 +91,50 @@ impl ScopeMask {
 pub struct FamilyMask(pub u64);
 
 impl FamilyMask {
-    pub const ENTITIES: Self = Self((1 << 8) - 1);
+    // Bits 0..7 are the original V1 family slots.  Keep them readable so
+    // frozen archives continue to open, but give the native renderer a
+    // second, unambiguous set of entity-kind lanes.  The high lanes are
+    // deliberately outside the legacy range so a new kind can never alias a
+    // top-level Structure/Facts/Discourse bit.
+    pub const CHARACTERS: Self = Self(1 << 16);
+    pub const LOCATIONS: Self = Self(1 << 17);
+    pub const NETWORKS: Self = Self(1 << 18);
+    pub const CREATURES: Self = Self(1 << 19);
+    pub const NPCS: Self = Self(1 << 20);
+    pub const EVENTS: Self = Self(1 << 21);
+    pub const CONCEPTS: Self = Self(1 << 22);
+    pub const OTHER_ENTITIES: Self = Self(1 << 23);
+    pub const ENTITY_LANES: Self = Self(
+        Self::CHARACTERS.0
+            | Self::LOCATIONS.0
+            | Self::NETWORKS.0
+            | Self::CREATURES.0
+            | Self::NPCS.0
+            | Self::EVENTS.0
+            | Self::CONCEPTS.0
+            | Self::OTHER_ENTITIES.0,
+    );
+    pub const ENTITIES: Self = Self(((1 << 8) - 1) | Self::ENTITY_LANES.0);
     pub const STRUCTURE: Self = Self(1 << 8);
     pub const FACTS: Self = Self(1 << 9);
     pub const DISCOURSE: Self = Self(1 << 10);
     pub const ALL: Self =
         Self(Self::ENTITIES.0 | Self::STRUCTURE.0 | Self::FACTS.0 | Self::DISCOURSE.0);
+
+    #[must_use]
+    pub const fn entity_lane(family: crate::EntityFamily) -> Self {
+        match family {
+            crate::EntityFamily::Character => Self::CHARACTERS,
+            crate::EntityFamily::Location => Self::LOCATIONS,
+            crate::EntityFamily::Organization | crate::EntityFamily::Network => Self::NETWORKS,
+            crate::EntityFamily::Creature => Self::CREATURES,
+            crate::EntityFamily::Npc => Self::NPCS,
+            crate::EntityFamily::Event => Self::EVENTS,
+            crate::EntityFamily::Concept => Self::CONCEPTS,
+            crate::EntityFamily::Item => Self::CREATURES,
+            crate::EntityFamily::Structure | crate::EntityFamily::Other => Self::OTHER_ENTITIES,
+        }
+    }
 
     #[must_use]
     pub const fn contains(self, other: Self) -> bool {
@@ -358,6 +396,43 @@ mod tests {
         assert!(combined.contains(FamilyMask::FACTS));
         assert!(combined.intersects(FamilyMask::ENTITIES));
         assert!(combined.is_valid_selection());
+    }
+
+    #[test]
+    fn granular_entity_lanes_are_disjoint_and_part_of_entities() {
+        let lanes = [
+            FamilyMask::CHARACTERS,
+            FamilyMask::LOCATIONS,
+            FamilyMask::NETWORKS,
+            FamilyMask::CREATURES,
+            FamilyMask::NPCS,
+        ];
+        for (index, lane) in lanes.iter().enumerate() {
+            assert!(FamilyMask::ENTITIES.contains(*lane));
+            for other in &lanes[index + 1..] {
+                assert!(!lane.intersects(*other));
+            }
+        }
+        assert_eq!(
+            FamilyMask::entity_lane(crate::EntityFamily::Character),
+            FamilyMask::CHARACTERS
+        );
+        assert_eq!(
+            FamilyMask::entity_lane(crate::EntityFamily::Location),
+            FamilyMask::LOCATIONS
+        );
+        assert_eq!(
+            FamilyMask::entity_lane(crate::EntityFamily::Network),
+            FamilyMask::NETWORKS
+        );
+        assert_eq!(
+            FamilyMask::entity_lane(crate::EntityFamily::Creature),
+            FamilyMask::CREATURES
+        );
+        assert_eq!(
+            FamilyMask::entity_lane(crate::EntityFamily::Npc),
+            FamilyMask::NPCS
+        );
     }
 
     #[test]

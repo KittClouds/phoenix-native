@@ -548,6 +548,8 @@ pub(super) fn entity_kind(kind: AnalysisEntityKind) -> EntityKind {
         AnalysisEntityKind::Faction => EntityKind::Faction,
         AnalysisEntityKind::Event => EntityKind::Event,
         AnalysisEntityKind::Concept => EntityKind::Concept,
+        AnalysisEntityKind::Network => EntityKind::Network,
+        AnalysisEntityKind::Creature => EntityKind::Creature,
         AnalysisEntityKind::Custom => EntityKind::Custom,
     }
 }

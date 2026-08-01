@@ -471,11 +471,11 @@ mod tests {
     fn builtin_kinds_keep_the_old_toolbar_semantics() {
         assert_eq!(
             EntityKind::Npc.family(),
-            phoenix_scene_contract::EntityFamily::Character
+            phoenix_scene_contract::EntityFamily::Npc
         );
         assert_eq!(
             EntityKind::Faction.family(),
-            phoenix_scene_contract::EntityFamily::Organization
+            phoenix_scene_contract::EntityFamily::Network
         );
     }
 }

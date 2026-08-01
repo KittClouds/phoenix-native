@@ -44,6 +44,7 @@ struct VertexOutput {
     @location(1) color: vec4<f32>,
     @location(2) @interpolate(flat) flags: u32,
     @location(3) @interpolate(flat) visible: u32,
+    @location(4) @interpolate(flat) kind: u32,
 };
 
 // Screen-space geometry contract. Semantic radius may grow for hubs, centroids,
@@ -64,6 +65,30 @@ fn node_visible(product: NodeProductGpu) -> bool {
         && (product.review_mask & lens.review_mask) != 0u;
 }
 
+// Product pages carry the authoritative high-bit entity lanes. Keep this
+// separate from the legacy node kind so structure/fact nodes can inherit the
+// same family aura as the entity they explain without changing their semantic
+// kind or their body color.
+fn entity_lane_kind(mask: vec2<u32>) -> u32 {
+    let lanes = mask.x;
+    if ((lanes & 0x00010000u) != 0u) {
+        return 101u; // character/person
+    }
+    if ((lanes & 0x00020000u) != 0u) {
+        return 102u; // location
+    }
+    if ((lanes & 0x00040000u) != 0u) {
+        return 103u; // network
+    }
+    if ((lanes & 0x00080000u) != 0u) {
+        return 104u; // creature
+    }
+    if ((lanes & 0x00100000u) != 0u) {
+        return 105u; // npc
+    }
+    return 0u;
+}
+
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
@@ -79,7 +104,7 @@ fn vs_main(
     );
     let uv = corners[vertex_index] * 1.24;
     let flags = node.kind_flags & 0xffffu;
-    let diameter_pixels = clamp(node.position_radius.w * 1.65, 1.5, 18.0)
+    let diameter_pixels = clamp(node.position_radius.w * 1.75, 1.5, 22.0)
         * NODE_SCREEN_SCALE;
     let view_back = cross(camera.view_right.xyz, camera.view_up.xyz);
     let view_depth = max(
@@ -101,7 +126,32 @@ fn vs_main(
     output.color = node.color;
     output.flags = flags;
     output.visible = select(0u, 1u, is_visible);
+    var kind = node.kind_flags >> 16u;
+    // An unfiltered renderer uses the sentinel all-ones product page.  Do
+    // not interpret that sentinel as a character lane; only an installed,
+    // authoritative product index may override the node's own kind.
+    if (lens.product_index_enabled != 0u) {
+        let lane_kind = entity_lane_kind(node_products[instance_index].family_mask);
+        if (lane_kind != 0u) {
+            kind = lane_kind;
+        }
+    }
+    output.kind = kind;
     return output;
+}
+
+fn type_aura(kind: u32, fallback: vec3<f32>) -> vec3<f32> {
+    // Entity kinds use a stable family hue for the halo; the node body keeps
+    // its palette-selected color. Structural/semantic nodes fall back to
+    // their own color so the aura never introduces a white bloom.
+    switch kind {
+        case 1u, 101u: { return vec3<f32>(0.10, 0.30, 0.92); } // character/person
+        case 2u, 102u: { return vec3<f32>(0.02, 0.72, 0.48); } // location
+        case 3u, 105u: { return vec3<f32>(0.58, 0.18, 0.92); } // npc
+        case 4u, 7u, 103u: { return vec3<f32>(0.02, 0.65, 0.82); } // network/faction
+        case 8u, 104u: { return vec3<f32>(0.92, 0.42, 0.08); } // creature
+        default: { return fallback; }
+    }
 }
 
 @fragment
@@ -112,11 +162,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let distance = length(input.uv);
     let derivative = max(fwidth(distance), 0.0001);
     let circle = 1.0 - smoothstep(1.0 - derivative, 1.0 + derivative, distance);
+    let aura = 1.0 - smoothstep(0.92, 1.52, distance);
     let hovered = (input.flags & 4096u) != 0u;
     let selected = (input.flags & 8192u) != 0u;
     let neighbor = (input.flags & 16384u) != 0u;
     let route = (input.flags & 32768u) != 0u;
-    if (circle <= 0.001 && !hovered && !selected) {
+    if (circle <= 0.001 && aura <= 0.001 && !hovered && !selected) {
         discard;
     }
 
@@ -133,7 +184,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         color.rgb * (diffuse + rim) + vec3<f32>(specular),
         vec3<f32>(1.0),
     );
-    color = vec4<f32>(sphere_rgb, color.a);
+    let aura_rgb = mix(color.rgb, type_aura(input.kind, color.rgb), 0.34);
+    let halo_alpha = color.a * aura * 0.16;
+    color = vec4<f32>(mix(aura_rgb, sphere_rgb, circle), max(color.a * circle, halo_alpha));
     if (route) {
         let glow = 1.0 - smoothstep(0.55, 1.15, distance);
         color = mix(color, vec4<f32>(0.913, 0.195, 0.033, 1.0), glow * 0.72);
@@ -148,6 +201,5 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (neighbor) {
         color = mix(color, vec4<f32>(0.064, 0.749, 0.477, color.a), 0.32);
     }
-    color.a *= circle;
     return color;
 }

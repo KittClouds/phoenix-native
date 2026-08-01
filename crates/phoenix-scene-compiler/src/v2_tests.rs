@@ -439,7 +439,10 @@ fn accepted_status_without_receipt_fails_closed() {
         .position(|style| style.kind == RELATIONSHIP_FACT_NODE_KIND)
         .expect("relationship fact midpoint");
     let fact = &compiled.publication.node_products[fact_slot];
-    assert_eq!(fact.family_mask, FamilyMask::FACTS.0);
+    assert_eq!(
+        fact.family_mask,
+        FamilyMask::FACTS.0 | FamilyMask::CHARACTERS.0
+    );
     assert_eq!(fact.review_mask, ReviewMask::PROPOSED.0);
     drop(proposed);
     drop(generation);

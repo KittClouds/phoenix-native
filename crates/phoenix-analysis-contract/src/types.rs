@@ -50,6 +50,15 @@ pub enum AnalysisEntityKind {
     Faction = 4,
     Event = 5,
     Concept = 6,
+    /// A network, institution, faction, or other collective identity.
+    ///
+    /// Keep this after the original discriminants so old analysis artifacts
+    /// retain their wire values while new producers can preserve the native
+    /// network lane instead of collapsing it into a generic faction.
+    Network = 7,
+    /// A non-human creature or biological entity.  This is deliberately
+    /// distinct from `Npc`: both are visible entity lanes in the renderer.
+    Creature = 8,
     Custom = 255,
 }
 

@@ -422,6 +422,8 @@ fn compact_kind_label(kind: EntityKind) -> &'static str {
         EntityKind::Location => "PLACE",
         EntityKind::Npc => "NPC",
         EntityKind::Faction => "GROUP",
+        EntityKind::Network => "NETWORK",
+        EntityKind::Creature => "CREATURE",
         EntityKind::Event => "EVENT",
         EntityKind::Concept => "IDEA",
         EntityKind::Custom => "CUSTOM",

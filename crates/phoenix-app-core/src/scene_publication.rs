@@ -396,6 +396,12 @@ const fn family_mask(family: EntityFamily) -> u64 {
         EntityFamily::Concept => 4,
         EntityFamily::Event => 5,
         EntityFamily::Structure => 6,
+        // Keep the legacy low-bit palette slots stable for old scene
+        // publications.  V2/V3 native publications carry the granular
+        // high-bit lane in addition to this compatibility slot.
+        EntityFamily::Npc => 0,
+        EntityFamily::Network => 2,
+        EntityFamily::Creature => 3,
         EntityFamily::Other => 7,
     };
     1_u64 << slot

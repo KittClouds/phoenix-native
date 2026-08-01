@@ -8,6 +8,14 @@ use phoenix_scene_contract::{
 };
 use serde::{Deserialize, Serialize};
 
+const ENTITY_LANE_SPECS: [(&str, FamilyMask, u32); 5] = [
+    ("CHAR / PERSONS", FamilyMask::CHARACTERS, 0x2f80ff),
+    ("LOCATIONS", FamilyMask::LOCATIONS, 0x00c48c),
+    ("NETWORKS", FamilyMask::NETWORKS, 0x22d3ee),
+    ("CREATURES", FamilyMask::CREATURES, 0xf59e0b),
+    ("NPCS", FamilyMask::NPCS, 0xa855f7),
+];
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum GraphSidebarPanel {
@@ -27,6 +35,8 @@ struct TopologySummary {
     accepted_edges: usize,
     proposed_edges: usize,
     relations: [usize; RelationFamily::ALL.len()],
+    entity_nodes: [usize; ENTITY_LANE_SPECS.len()],
+    entity_edges: [usize; ENTITY_LANE_SPECS.len()],
 }
 
 impl TopologySummary {
@@ -46,12 +56,22 @@ impl TopologySummary {
             } else {
                 summary.unclassified_nodes += 1;
             }
+            for (slot, (_, mask, _)) in ENTITY_LANE_SPECS.into_iter().enumerate() {
+                if node.family_mask & mask.0 != 0 {
+                    summary.entity_nodes[slot] += 1;
+                }
+            }
         }
         for edge in index.edges() {
             if let Some(slot) = lane_slot(edge.family_mask) {
                 summary.edge_lanes[slot] += 1;
             } else {
                 summary.unclassified_edges += 1;
+            }
+            for (slot, (_, mask, _)) in ENTITY_LANE_SPECS.into_iter().enumerate() {
+                if edge.family_mask & mask.0 != 0 {
+                    summary.entity_edges[slot] += 1;
+                }
             }
             if edge.review_mask & ReviewMask::ACCEPTED.0 != 0 {
                 summary.accepted_edges += 1;
@@ -176,6 +196,16 @@ impl PhoenixShell {
                     .pt_2()
                     .child(section_label("NODE LANES"))
                     .child(lane_grid(view, summary, cx)),
+            )
+            .child(
+                div()
+                    .mt_2()
+                    .border_t_1()
+                    .border_color(rgb(BORDER))
+                    .px_2()
+                    .pt_2()
+                    .child(section_label("ENTITY KIND LANES"))
+                    .child(entity_lane_grid(view, summary, cx)),
             )
             .child(
                 div()
@@ -335,6 +365,70 @@ fn relation_inventory(
         );
     }
     rows
+}
+
+fn entity_lane_grid(
+    view: GraphViewState,
+    summary: TopologySummary,
+    cx: &mut Context<PhoenixShell>,
+) -> impl IntoElement {
+    let mut grid = div().mt_1().grid().grid_cols(2).gap_1();
+    for (slot, (label, mask, color)) in ENTITY_LANE_SPECS.into_iter().enumerate() {
+        let selected = view.families.contains(mask);
+        grid = grid.child(
+            div()
+                .id(("style-entity-lane", slot))
+                .min_w_0()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(if selected { 0x397765 } else { BORDER }))
+                .bg(rgb(if selected { 0x183d34 } else { 0x111514 }))
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.mutate_graph_view(
+                        |next| {
+                            let toggled = next.families.toggled(mask);
+                            if toggled.is_valid_selection() {
+                                next.families = toggled;
+                                next.surface = GraphSurface::Atlas;
+                            }
+                        },
+                        "STYLE HUB ENTITY LANE",
+                        cx,
+                    );
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(div().size(px(7.)).rounded_full().bg(rgb(color)))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .truncate()
+                                .text_xs()
+                                .font_semibold()
+                                .text_color(rgb(if selected { TEXT } else { TEXT_MUTED }))
+                                .child(label),
+                        ),
+                )
+                .child(
+                    div()
+                        .mt(px(2.))
+                        .text_xs()
+                        .text_color(rgb(TEXT_MUTED))
+                        .child(format!(
+                            "{} N / {} E",
+                            summary.entity_nodes[slot], summary.entity_edges[slot]
+                        )),
+                ),
+        );
+    }
+    grid
 }
 
 fn lane_slot(mask: u64) -> Option<usize> {

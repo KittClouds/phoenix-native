@@ -267,6 +267,8 @@ fn test_ner_batch(
                 EntityKind::Faction => AnalysisEntityKind::Faction,
                 EntityKind::Event => AnalysisEntityKind::Event,
                 EntityKind::Concept => AnalysisEntityKind::Concept,
+                EntityKind::Network => AnalysisEntityKind::Network,
+                EntityKind::Creature => AnalysisEntityKind::Creature,
                 EntityKind::Custom => AnalysisEntityKind::Custom,
             },
             custom_kind: record.custom_kind,
@@ -832,7 +834,7 @@ fn verified_analysis_highlights_exact_mentions_with_manual_precedence(
     assert_eq!(anchors.source(), AnchorSource::CanonicalRegistry);
     assert_eq!(anchors.anchors().len(), 3);
     assert_eq!(anchors.anchors()[0].node_id, manual_id);
-    assert_eq!(anchors.anchors()[0].family, EntityFamily::Character);
+    assert_eq!(anchors.anchors()[0].family, EntityFamily::Npc);
     assert_eq!(anchors.anchors()[1].node_id, 40);
     assert_eq!(anchors.anchors()[1].family, EntityFamily::Other);
     assert_eq!(anchors.anchors()[2].node_id, 30);

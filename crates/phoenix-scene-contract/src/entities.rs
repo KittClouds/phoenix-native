@@ -13,17 +13,21 @@ pub enum EntityKind {
     Faction = 4,
     Event = 5,
     Concept = 6,
+    Network = 7,
+    Creature = 8,
     Custom = 255,
 }
 
 impl EntityKind {
-    pub const TOOLBAR: [Self; 7] = [
+    pub const TOOLBAR: [Self; 9] = [
         Self::Character,
         Self::Location,
         Self::Npc,
         Self::Faction,
         Self::Event,
         Self::Concept,
+        Self::Network,
+        Self::Creature,
         Self::Custom,
     ];
 
@@ -35,15 +39,19 @@ impl EntityKind {
             Self::Faction => "Faction",
             Self::Event => "Event",
             Self::Concept => "Concept",
+            Self::Network => "Network",
+            Self::Creature => "Creature",
             Self::Custom => "Custom",
         }
     }
 
     pub const fn family(self) -> EntityFamily {
         match self {
-            Self::Character | Self::Npc => EntityFamily::Character,
+            Self::Character => EntityFamily::Character,
             Self::Location => EntityFamily::Location,
-            Self::Faction => EntityFamily::Organization,
+            Self::Npc => EntityFamily::Npc,
+            Self::Faction | Self::Network => EntityFamily::Network,
+            Self::Creature => EntityFamily::Creature,
             Self::Event => EntityFamily::Event,
             Self::Concept => EntityFamily::Concept,
             Self::Custom => EntityFamily::Other,
@@ -66,10 +74,13 @@ mod tests {
                 "Faction",
                 "Event",
                 "Concept",
+                "Network",
+                "Creature",
                 "Custom",
             ]
         );
-        assert_eq!(EntityKind::Npc.family(), EntityFamily::Character);
-        assert_eq!(EntityKind::Faction.family(), EntityFamily::Organization);
+        assert_eq!(EntityKind::Npc.family(), EntityFamily::Npc);
+        assert_eq!(EntityKind::Faction.family(), EntityFamily::Network);
+        assert_eq!(EntityKind::Creature.family(), EntityFamily::Creature);
     }
 }

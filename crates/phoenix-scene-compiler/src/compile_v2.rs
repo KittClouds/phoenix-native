@@ -316,6 +316,7 @@ pub fn compile_graph_generation_v2(
             records: evidence,
             bindings: candidate_evidence,
         },
+        entities,
         &accepted_memberships,
         document.id,
     )?;
@@ -326,7 +327,7 @@ pub fn compile_graph_generation_v2(
         structural.structural_edges(),
     )?;
     add_source_edges(&mut builder, structural.structural_edges())?;
-    add_evidence_projection_edges(&mut builder, evidence)?;
+    add_evidence_projection_edges(&mut builder, evidence, entities)?;
 
     let mut accepted_semantic_edges = 0_u64;
     let mut candidate_overlay_edges = 0_u64;
@@ -343,6 +344,7 @@ pub fn compile_graph_generation_v2(
         &membership_statuses,
         evidence,
         candidate_evidence,
+        entities,
         &mut accepted_semantic_edges,
         &mut candidate_overlay_edges,
     )?;
@@ -519,7 +521,7 @@ fn add_evidence_nodes(
             id: record.id,
             label: Arc::from("Evidence"),
             kind: EVIDENCE_NODE_KIND,
-            family_mask: FamilyMask::STRUCTURE.0,
+            family_mask: FamilyMask::STRUCTURE.0 | entity_family_mask(family),
             scope_mask: SCOPE,
             review_mask: ReviewMask::ACCEPTED.0,
             color: palette.for_family(family).secondary,
@@ -569,15 +571,21 @@ fn add_episode_nodes(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn add_event_nodes(
     builder: &mut ProjectionBuilder,
     generation: &VerifiedGraphGenerationV2,
     events: &[EventRecord],
     statuses: &[ProjectedStatus],
     evidence: EventEvidence<'_>,
+    entities: &[EntityRecord],
     memberships: &HashMap<u64, u64>,
     document_id: u64,
 ) -> Result<(), NativeSceneCompilerError> {
+    let entity_families: HashMap<u64, EntityFamily> = entities
+        .iter()
+        .map(|entity| Ok((entity.id, entity_kind(entity.kind)?.family())))
+        .collect::<Result<_, NativeSceneCompilerError>>()?;
     for (event, status) in events.iter().zip(statuses) {
         let evidence_parent = first_candidate_evidence_id(
             evidence.bindings,
@@ -590,11 +598,21 @@ fn add_event_nodes(
                 .iter()
                 .any(|record| record.id == *evidence_id)
         });
+        let event_lane = evidence_parent
+            .and_then(|evidence_id| {
+                evidence
+                    .records
+                    .iter()
+                    .find(|record| record.id == evidence_id)
+                    .and_then(|record| entity_families.get(&record.entity_id))
+                    .copied()
+            })
+            .map_or(0, entity_family_mask);
         builder.push_node(NodeDraft {
             id: event.id,
             label: text(generation, event.label)?,
             kind: EVENT_NODE_KIND,
-            family_mask: FamilyMask::FACTS.0,
+            family_mask: FamilyMask::FACTS.0 | event_lane,
             scope_mask: SCOPE,
             review_mask: status.mask,
             color: color_for_status(EVENT_COLOR, *status),
@@ -686,14 +704,23 @@ fn add_chunk_membership_edges(
 fn add_evidence_projection_edges(
     builder: &mut ProjectionBuilder,
     evidence: &[EvidenceRecord],
+    entities: &[EntityRecord],
 ) -> Result<(), NativeSceneCompilerError> {
+    let entity_families: HashMap<u64, EntityFamily> = entities
+        .iter()
+        .map(|entity| Ok((entity.id, entity_kind(entity.kind)?.family())))
+        .collect::<Result<_, NativeSceneCompilerError>>()?;
     for record in evidence {
         let evidence_id = record.id.to_le_bytes();
+        let entity_lane = entity_families
+            .get(&record.entity_id)
+            .copied()
+            .map_or(0, entity_family_mask);
         builder.push_edge(EdgeDraft {
             id: projection_id(b"chunk-evidence", &[&evidence_id]),
             source: record.chunk_id,
             target: record.id,
-            family_mask: FamilyMask::STRUCTURE.0,
+            family_mask: FamilyMask::STRUCTURE.0 | entity_lane,
             scope_mask: SCOPE,
             relation_mask: RelationFamily::Observation.mask().0,
             review_mask: ReviewMask::ACCEPTED.0,
@@ -708,7 +735,7 @@ fn add_evidence_projection_edges(
             id: projection_id(b"evidence-entity", &[&evidence_id]),
             source: record.id,
             target: record.entity_id,
-            family_mask: FamilyMask::STRUCTURE.0 | FamilyMask::ENTITIES.0,
+            family_mask: FamilyMask::STRUCTURE.0 | entity_lane,
             scope_mask: SCOPE,
             relation_mask: RelationFamily::Observation.mask().0,
             review_mask: ReviewMask::ACCEPTED.0,
@@ -737,9 +764,27 @@ fn add_candidate_edges(
     membership_statuses: &[ProjectedStatus],
     evidence: &[EvidenceRecord],
     candidate_evidence: &[CandidateEvidenceBindingRecord],
+    entities: &[EntityRecord],
     accepted_count: &mut u64,
     overlay_count: &mut u64,
 ) -> Result<(), NativeSceneCompilerError> {
+    let mut entity_lanes: HashMap<u64, u64> = entities
+        .iter()
+        .map(|entity| {
+            Ok((
+                entity.id,
+                entity_family_mask(entity_kind(entity.kind)?.family()),
+            ))
+        })
+        .collect::<Result<_, NativeSceneCompilerError>>()?;
+    // Evidence and event records use their own stable IDs as candidate
+    // endpoints. Carry the entity lane through those IDs so fact/discourse
+    // edges retain the same granularity as the entity they explain.
+    for record in evidence {
+        if let Some(lane) = entity_lanes.get(&record.entity_id).copied() {
+            entity_lanes.insert(record.id, lane);
+        }
+    }
     for ((event, status), row) in events.iter().zip(event_statuses).zip(0_u64..) {
         let source = first_candidate_evidence_id(
             candidate_evidence,
@@ -748,12 +793,19 @@ fn add_candidate_edges(
         )?
         .filter(|evidence_id| evidence.iter().any(|record| record.id == *evidence_id))
         .unwrap_or(document_id);
+        // Events are first-class fact nodes, but their semantic lane is
+        // inherited from the entity evidence that caused them.  Retain that
+        // mapping for later temporal/causal/state candidates whose endpoints
+        // reference the event ID directly.
+        if let Some(lane) = entity_lanes.get(&source).copied() {
+            entity_lanes.insert(event.id, lane);
+        }
         push_candidate_with_domain(
             builder,
             *status,
             source,
             event.id,
-            FamilyMask::FACTS.0,
+            lane_augmented(FamilyMask::FACTS.0, source, event.id, &entity_lanes),
             RelationFamily::Event,
             event.kind,
             f32::from_bits(event.confidence_bits),
@@ -793,7 +845,12 @@ fn add_candidate_edges(
             status,
             record.source_entity_id,
             record.target_entity_id,
-            FamilyMask::FACTS.0,
+            lane_augmented(
+                FamilyMask::FACTS.0,
+                record.source_entity_id,
+                record.target_entity_id,
+                &entity_lanes,
+            ),
             relation_for(record.family),
             record.relation,
             f32::from_bits(record.confidence_bits),
@@ -818,7 +875,12 @@ fn add_candidate_edges(
             status,
             record.left_entity_id,
             record.right_entity_id,
-            FamilyMask::DISCOURSE.0,
+            lane_augmented(
+                FamilyMask::DISCOURSE.0,
+                record.left_entity_id,
+                record.right_entity_id,
+                &entity_lanes,
+            ),
             RelationFamily::Identity,
             record.kind,
             f32::from_bits(record.confidence_bits),
@@ -836,7 +898,12 @@ fn add_candidate_edges(
             *status,
             record.episode_id,
             record.member_id,
-            FamilyMask::STRUCTURE.0,
+            lane_augmented(
+                FamilyMask::STRUCTURE.0,
+                record.episode_id,
+                record.member_id,
+                &entity_lanes,
+            ),
             RelationFamily::Structural,
             record.member_kind,
             f32::from_bits(record.confidence_bits),
@@ -857,7 +924,12 @@ fn add_candidate_edges(
             status,
             record.source_id,
             record.target_id,
-            FamilyMask::FACTS.0,
+            lane_augmented(
+                FamilyMask::FACTS.0,
+                record.source_id,
+                record.target_id,
+                &entity_lanes,
+            ),
             RelationFamily::Temporal,
             record.relation,
             f32::from_bits(record.confidence_bits),
@@ -878,7 +950,12 @@ fn add_candidate_edges(
             status,
             record.cause_id,
             record.effect_id,
-            FamilyMask::FACTS.0,
+            lane_augmented(
+                FamilyMask::FACTS.0,
+                record.cause_id,
+                record.effect_id,
+                &entity_lanes,
+            ),
             RelationFamily::Causal,
             record.relation,
             f32::from_bits(record.confidence_bits),
@@ -903,7 +980,12 @@ fn add_candidate_edges(
             status,
             record.subject_id,
             record.context_id,
-            FamilyMask::FACTS.0,
+            lane_augmented(
+                FamilyMask::FACTS.0,
+                record.subject_id,
+                record.context_id,
+                &entity_lanes,
+            ),
             RelationFamily::MemoryState,
             record.kind,
             f32::from_bits(record.confidence_bits),
@@ -940,7 +1022,12 @@ fn add_candidate_edges(
             },
             record.source_entity_id,
             record.target_entity_id,
-            FamilyMask::DISCOURSE.0,
+            lane_augmented(
+                FamilyMask::DISCOURSE.0,
+                record.source_entity_id,
+                record.target_entity_id,
+                &entity_lanes,
+            ),
             RelationFamily::CoOccurrence,
             0,
             f32::from_bits(record.weight_bits),
@@ -953,6 +1040,11 @@ fn add_candidate_edges(
         )?;
     }
     Ok(())
+}
+
+#[inline]
+fn lane_augmented(base: u64, source: u64, target: u64, lanes: &HashMap<u64, u64>) -> u64 {
+    base | lanes.get(&source).copied().unwrap_or(0) | lanes.get(&target).copied().unwrap_or(0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1242,16 +1334,7 @@ fn entity_kind(raw: u16) -> Result<EntityKind, NativeSceneCompilerError> {
 }
 
 fn entity_family_mask(family: EntityFamily) -> u64 {
-    match family {
-        EntityFamily::Character => 1 << 0,
-        EntityFamily::Location => 1 << 1,
-        EntityFamily::Organization => 1 << 2,
-        EntityFamily::Item => 1 << 3,
-        EntityFamily::Concept => 1 << 4,
-        EntityFamily::Event => 1 << 5,
-        EntityFamily::Structure => 1 << 6,
-        EntityFamily::Other => 1 << 7,
-    }
+    FamilyMask::entity_lane(family).0
 }
 
 fn text(

@@ -3,7 +3,7 @@ use hashbrown::{HashMap, HashSet};
 use phoenix_scene_archive::{
     EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PositionRecord, TopologyRecord,
 };
-use phoenix_scene_contract::{CapsRole, HighlightPalette};
+use phoenix_scene_contract::{CapsRole, FamilyMask, HighlightPalette};
 use phoenix_scene_product_index::{EntityNodeMappingRecord, ProductReferenceRecord};
 use phoenix_scene_publisher::{
     NativeScenePublication, SceneEdgeProduct, SceneNodeProduct, ScenePublicationKind,
@@ -197,7 +197,7 @@ impl ProjectionBuilder {
                 node.id,
                 ordinal,
                 node_count,
-                node.family_mask.trailing_zeros().min(u32::from(u16::MAX)) as u16,
+                layout_family_slot(node.family_mask),
                 degrees[ordinal],
             )) {
                 page.push(position);
@@ -252,6 +252,27 @@ impl ProjectionBuilder {
     }
 }
 
+/// Select an entity-kind lane before the broad product lane.  A fact node can
+/// carry both `FACTS` and `CHARACTERS`, for example; using `trailing_zeros`
+/// directly would always place it in the generic facts band and erase the
+/// entity granularity from Hopf/Transit geometry.
+fn layout_family_slot(mask: u64) -> u16 {
+    let entity_lanes = [
+        FamilyMask::CHARACTERS.0,
+        FamilyMask::LOCATIONS.0,
+        FamilyMask::NETWORKS.0,
+        FamilyMask::CREATURES.0,
+        FamilyMask::NPCS.0,
+        FamilyMask::EVENTS.0,
+        FamilyMask::CONCEPTS.0,
+        FamilyMask::OTHER_ENTITIES.0,
+    ];
+    if let Some(slot) = entity_lanes.iter().position(|lane| mask & lane != 0) {
+        return slot as u16;
+    }
+    mask.trailing_zeros().min(u32::from(u16::MAX)) as u16
+}
+
 fn assign_sibling_ranks(nodes: &mut [layout::CapsNode]) -> Result<(), NativeSceneCompilerError> {
     let mut counts = HashMap::<(Option<u32>, CapsRole), u32>::new();
     for node in nodes.iter() {
@@ -275,6 +296,34 @@ fn assign_sibling_ranks(nodes: &mut [layout::CapsNode]) -> Result<(), NativeScen
             ))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn product_lanes_keep_entity_granularity_for_structure_and_facts() {
+        assert_eq!(
+            layout_family_slot(FamilyMask::STRUCTURE.0 | FamilyMask::CHARACTERS.0),
+            0
+        );
+        assert_eq!(
+            layout_family_slot(FamilyMask::FACTS.0 | FamilyMask::LOCATIONS.0),
+            1
+        );
+        assert_eq!(
+            layout_family_slot(FamilyMask::DISCOURSE.0 | FamilyMask::NPCS.0),
+            4
+        );
+    }
+
+    #[test]
+    fn generic_product_lanes_keep_their_legacy_slots() {
+        assert_eq!(layout_family_slot(FamilyMask::STRUCTURE.0), 8);
+        assert_eq!(layout_family_slot(FamilyMask::FACTS.0), 9);
+        assert_eq!(layout_family_slot(FamilyMask::DISCOURSE.0), 10);
+    }
 }
 
 pub(crate) fn projection_id(domain: &[u8], parts: &[&[u8]]) -> u64 {

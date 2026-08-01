@@ -38,6 +38,9 @@ pub enum EntityFamily {
     Concept = 5,
     Event = 6,
     Structure = 7,
+    Npc = 8,
+    Network = 9,
+    Creature = 10,
     Other = 255,
 }
 
@@ -70,6 +73,12 @@ pub struct HighlightPalette {
     pub concept: FamilyPalette,
     pub event: FamilyPalette,
     pub structure: FamilyPalette,
+    #[serde(default = "default_npc_palette")]
+    pub npc: FamilyPalette,
+    #[serde(default = "default_network_palette")]
+    pub network: FamilyPalette,
+    #[serde(default = "default_creature_palette")]
+    pub creature: FamilyPalette,
     pub other: FamilyPalette,
 }
 
@@ -83,6 +92,9 @@ impl Default for HighlightPalette {
             concept: family(0x00a896, 0x0891b2),
             event: family(0xe35216, 0xd7a000),
             structure: family(0xc02667, 0x7c3aed),
+            npc: default_npc_palette(),
+            network: default_network_palette(),
+            creature: default_creature_palette(),
             other: family(0x71817b, 0x4b6b61),
         }
     }
@@ -98,6 +110,9 @@ impl HighlightPalette {
             EntityFamily::Concept => self.concept,
             EntityFamily::Event => self.event,
             EntityFamily::Structure => self.structure,
+            EntityFamily::Npc => self.npc,
+            EntityFamily::Network => self.network,
+            EntityFamily::Creature => self.creature,
             EntityFamily::Other => self.other,
         }
     }
@@ -111,12 +126,27 @@ impl HighlightPalette {
             self.concept,
             self.event,
             self.structure,
+            self.npc,
+            self.network,
+            self.creature,
             self.other,
         ] {
             palette.validate()?;
         }
         Ok(())
     }
+}
+
+fn default_npc_palette() -> FamilyPalette {
+    family(0x7c3aed, 0xa855f7)
+}
+
+fn default_network_palette() -> FamilyPalette {
+    family(0x0077b6, 0x22d3ee)
+}
+
+fn default_creature_palette() -> FamilyPalette {
+    family(0xe4572e, 0xf59e0b)
 }
 
 const fn family(primary: u32, secondary: u32) -> FamilyPalette {
