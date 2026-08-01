@@ -602,10 +602,20 @@ pub(super) fn restore_active_analysis(
         else {
             continue;
         };
-        coordinator
+        // A producer-contract upgrade may make an otherwise intact historical
+        // coordinator artifact incomplete (for example, a generation created
+        // before contextual evidence became a required product).  Such an
+        // artifact is not current authority, but it is not a corrupt file
+        // either.  Leave it historical and continue looking for a generation
+        // that satisfies the current contract; if none does, startup exposes
+        // no matching analysis and the user can run the production pipeline.
+        if coordinator
             .coordinator()
             .validate_final(analysis, structural.structural())
-            .map_err(|_| KernelError::AnalysisAuthorityMismatch)?;
+            .is_err()
+        {
+            continue;
+        }
         let receipt = publication_receipt(
             analysis,
             verified.artifact_hash(),
@@ -701,17 +711,24 @@ fn contextual_evidence_bindings(
     structural: &phoenix_analysis_contract::PhoenixStructuralSubstrateV1,
 ) -> Result<Vec<ContextualEvidenceBinding>, KernelError> {
     let mut per_chunk = vec![BTreeMap::<u64, u64>::new(); structural.chunks.len()];
-    for mention in ner.mentions.iter().filter(|mention| mention.accepted) {
+    // PhoenixNerArtifactV1 contains only exportable dynamic-NER mentions.  The
+    // `accepted` bit records semantic promotion (AcceptedKnown/AcceptedNew),
+    // not whether the exact source span may serve as contextual evidence.
+    // Contextual co-occurrence is evidence-only and must therefore preserve
+    // alias-candidate mentions without silently promoting them to topology.
+    for mention in &ner.mentions {
+        // Match the entity producer's structural binding rule exactly.  In an
+        // overlapping chunk window the last chunk can be shorter than its
+        // predecessor; selecting merely the first containing chunk would give
+        // one source span two different chunk identities downstream.
         let chunk_index = structural
             .chunks
-            .partition_point(|chunk| chunk.end <= mention.start);
-        let chunk = structural
-            .chunks
-            .get(chunk_index)
+            .iter()
+            .enumerate()
+            .filter(|(_, chunk)| chunk.start <= mention.start && mention.end <= chunk.end)
+            .min_by_key(|(ordinal, chunk)| (chunk.end - chunk.start, *ordinal))
+            .map(|(ordinal, _)| ordinal)
             .ok_or(KernelError::AnalysisAuthorityMismatch)?;
-        if chunk.start > mention.start || chunk.end < mention.end {
-            return Err(KernelError::AnalysisAuthorityMismatch);
-        }
         per_chunk[chunk_index]
             .entry(mention.entity_id)
             .and_modify(|mention_id| *mention_id = (*mention_id).min(mention.mention_id))

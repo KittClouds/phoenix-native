@@ -76,6 +76,19 @@ pub(super) fn refresh_registry_scene(
         Some(publisher) => publisher,
         None => return Ok(None),
     };
+    // A registry refresh is a useful bootstrap only while no full graph has
+    // ever been published. The resident scene may be deliberately withdrawn
+    // when its restored compiler contract is stale, while the durable full
+    // generation remains the rollback authority. In that state, attempting
+    // to publish a registry-only generation would correctly be rejected by
+    // the store and would abort the analysis pipeline before the replacement
+    // full generation can be compiled.
+    if publisher
+        .open_current()?
+        .is_some_and(|current| current.receipt.kind == ScenePublicationKind::Full)
+    {
+        return Ok(None);
+    }
     if read_state(shared)?
         .resident_scene
         .as_ref()

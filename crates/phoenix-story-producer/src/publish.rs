@@ -20,6 +20,10 @@ impl VerifiedStoryGeneration {
     pub fn receipt(&self) -> &StoryPublicationReceipt {
         &self.receipt
     }
+
+    pub fn into_generation(self) -> VerifiedGraphGenerationV2 {
+        self.generation
+    }
 }
 
 pub fn publish_story_generation_new(
@@ -69,7 +73,7 @@ pub fn publish_story_generation_new(
             temporal_candidates: &built.temporal,
             causal_candidates: &built.causal,
             memory_state_candidates: &built.memory_state,
-            contextual_evidence: typed(source, PageKind::ContextualEvidence)?,
+            contextual_evidence: &built.contextual_evidence,
             nli_adjudications: typed(source, PageKind::NliAdjudications)?,
             decisions: typed(source, PageKind::Decisions)?,
             capabilities: &built.capabilities,
@@ -93,6 +97,7 @@ pub fn publish_story_generation_new(
         temporal_count: count(built.temporal.len())?,
         causal_count: count(built.causal.len())?,
         memory_state_count: count(built.memory_state.len())?,
+        contextual_evidence_count: count(built.contextual_evidence.len())?,
         evidence_binding_count: count(
             built.candidate_evidence_bindings.len() - built.story_binding_start,
         )?,
@@ -122,7 +127,6 @@ fn verify_output(
         PageKind::Evidence,
         PageKind::StructuralEdges,
         PageKind::IdentityCandidates,
-        PageKind::ContextualEvidence,
         PageKind::NliAdjudications,
         PageKind::Decisions,
         PageKind::CanonicalEntityBindings,
@@ -164,6 +168,11 @@ fn verify_output(
             generation,
             PageKind::MemoryStateCandidates,
             &built.memory_state,
+        )
+        || !records_match(
+            generation,
+            PageKind::ContextualEvidence,
+            &built.contextual_evidence,
         )
         || !records_match(
             generation,

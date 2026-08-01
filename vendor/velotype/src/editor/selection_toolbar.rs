@@ -1,5 +1,6 @@
 //! Native, editor-owned toolbar for rendered text selections.
 
+mod block_menu;
 mod button;
 mod entity_panel;
 mod panel;
@@ -9,18 +10,22 @@ use std::time::Duration;
 
 use gpui::{prelude::FluentBuilder as _, *};
 
+use self::block_menu::BlockControl;
 use super::{
-    Editor, EditorEvent, EntityTagKind, EntityTagRequest, UndoSelectionSnapshot, ViewMode,
+    BlockCommand, BlockTransform, Editor, EditorEvent, EntityTagKind, EntityTagRequest,
+    UndoSelectionSnapshot, ViewMode,
 };
 use crate::components::{
-    Block, BlockRecord, BoldSelection, CodeSelection, ItalicSelection, SelectionLinkState,
-    SelectionMarkState, StyleFlag, UnderlineSelection, UndoCaptureKind,
+    Block, BlockKind, BlockRecord, BoldSelection, CodeSelection, ItalicSelection,
+    SelectionLinkState, SelectionMarkState, StyleFlag, UnderlineSelection, UndoCaptureKind,
 };
 use crate::theme::Theme;
 
-const TOOLBAR_WIDTH: f32 = 366.0;
+const TOOLBAR_WIDTH: f32 = 478.0;
 const TOOLBAR_HEIGHT: f32 = 38.0;
 const TOOLBAR_GAP: f32 = 10.0;
+const BLOCK_MENU_WIDTH: f32 = 174.0;
+const BLOCK_MENU_NATURAL_HEIGHT: f32 = 344.0;
 const LINK_PANEL_WIDTH: f32 = 344.0;
 const VIEWPORT_MARGIN: f32 = 8.0;
 const MAX_LINK_BYTES: usize = 2_048;
@@ -87,6 +92,8 @@ struct SelectionLease {
     formats: SelectionFormatStates,
     link_state: SelectionLinkState,
     can_link: bool,
+    has_text_selection: bool,
+    block_control: BlockControl,
 }
 
 #[derive(Default)]
@@ -95,6 +102,7 @@ pub(super) struct SelectionToolbarState {
     dismissed: Option<SelectionIdentity>,
     link_input: Option<Entity<Block>>,
     entity_panel_open: bool,
+    block_menu_open: bool,
     custom_entity_input: Option<Entity<Block>>,
     entity_error: Option<SharedString>,
     pinned_block: Option<Entity<Block>>,
@@ -124,16 +132,30 @@ impl Editor {
         changed
     }
 
+    fn clear_block_menu(&mut self) -> bool {
+        std::mem::take(&mut self.selection_toolbar.block_menu_open)
+    }
+
     pub(super) fn on_selection_changed(&mut self, cx: &mut Context<Self>) {
+        let current_identity = self.current_selection_identity(cx);
         let preserve_entity_panel = self.selection_toolbar.entity_panel_open
             && self
                 .selection_toolbar
                 .lease
                 .as_ref()
-                .is_some_and(|lease| lease.identity == self.current_selection_identity(cx));
+                .is_some_and(|lease| lease.identity == current_identity);
+        let preserve_block_menu = self.selection_toolbar.block_menu_open
+            && self
+                .selection_toolbar
+                .lease
+                .as_ref()
+                .is_some_and(|lease| lease.identity == current_identity);
         self.selection_toolbar.lease = None;
         self.selection_toolbar.dismissed = None;
         self.clear_link_editor(cx);
+        if !preserve_block_menu {
+            self.clear_block_menu();
+        }
         if !preserve_entity_panel {
             self.clear_entity_editor(cx);
         }
@@ -148,7 +170,8 @@ impl Editor {
             .map(|lease| lease.identity.clone());
         let changed = self.selection_toolbar.lease.take().is_some()
             || self.clear_link_editor(cx)
-            || self.clear_entity_editor(cx);
+            || self.clear_entity_editor(cx)
+            || self.clear_block_menu();
         self.selection_toolbar.dismissed = identity;
         self.sync_cross_block_selection_visuals(cx);
         if changed {
@@ -209,13 +232,37 @@ impl Editor {
         }])
     }
 
+    fn current_toolbar_slices(&self, cx: &App) -> Option<(Vec<SelectionSlice>, bool)> {
+        if let Some(slices) = self.current_selection_slices(cx) {
+            return Some((slices, true));
+        }
+        if self.view_mode != ViewMode::Rendered || self.cross_block_selection.is_some() {
+            return None;
+        }
+
+        let block = self.current_edit_target_from_state(cx)?;
+        let block_ref = block.read(cx);
+        if !block_ref.selected_range.is_empty() {
+            return None;
+        }
+        Some((
+            vec![SelectionSlice {
+                block: block.clone(),
+                current_range: block_ref.selected_range.clone(),
+            }],
+            false,
+        ))
+    }
+
     fn selection_bounds(slices: &[SelectionSlice], cx: &App) -> Option<Bounds<Pixels>> {
         let mut bounds: Option<Bounds<Pixels>> = None;
         for slice in slices {
-            let next = slice
-                .block
-                .read(cx)
-                .selection_bounds_for_range(slice.current_range.clone())?;
+            let block = slice.block.read(cx);
+            let next = if slice.current_range.is_empty() {
+                block.active_range_or_cursor_bounds()?
+            } else {
+                block.selection_bounds_for_range(slice.current_range.clone())?
+            };
             bounds = Some(match bounds {
                 None => next,
                 Some(current) => Bounds::from_corners(
@@ -246,6 +293,9 @@ impl Editor {
     }
 
     fn format_state(slices: &[SelectionSlice], flag: StyleFlag, cx: &App) -> SelectionMarkState {
+        if slices.iter().any(|slice| slice.current_range.is_empty()) {
+            return SelectionMarkState::Unavailable;
+        }
         slices
             .iter()
             .fold(SelectionMarkState::Unavailable, |aggregate, slice| {
@@ -277,10 +327,11 @@ impl Editor {
     fn build_selection_lease(
         &self,
         slices: &[SelectionSlice],
+        has_text_selection: bool,
         bounds: Bounds<Pixels>,
         cx: &App,
     ) -> SelectionLease {
-        let can_link = slices.len() == 1;
+        let can_link = has_text_selection && slices.len() == 1;
         let link_state = if can_link {
             let slice = &slices[0];
             slice
@@ -302,14 +353,17 @@ impl Editor {
             },
             link_state,
             can_link,
+            has_text_selection,
+            block_control: self.block_control_for_slices(slices, cx),
         }
     }
 
     pub(super) fn sync_selection_toolbar(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let Some(slices) = self.current_selection_slices(cx) else {
+        let Some((slices, has_text_selection)) = self.current_toolbar_slices(cx) else {
             self.selection_toolbar.lease = None;
             self.clear_link_editor(cx);
             self.clear_entity_editor(cx);
+            self.clear_block_menu();
             self.selection_toolbar.dismissed = None;
             return;
         };
@@ -325,6 +379,7 @@ impl Editor {
             self.selection_toolbar.lease = None;
             self.clear_link_editor(cx);
             self.clear_entity_editor(cx);
+            self.clear_block_menu();
             return;
         }
 
@@ -355,8 +410,10 @@ impl Editor {
         if identity_changed {
             self.clear_link_editor(cx);
             self.clear_entity_editor(cx);
+            self.clear_block_menu();
         }
-        self.selection_toolbar.lease = Some(self.build_selection_lease(&slices, bounds, cx));
+        self.selection_toolbar.lease =
+            Some(self.build_selection_lease(&slices, has_text_selection, bounds, cx));
     }
 
     fn validated_selection_slices(
@@ -546,6 +603,14 @@ impl Editor {
         else {
             return;
         };
+        if !self
+            .selection_toolbar
+            .lease
+            .as_ref()
+            .is_some_and(|lease| lease.has_text_selection)
+        {
+            return;
+        }
         match command {
             SelectionCommand::Link => {
                 self.clear_entity_editor(cx);
@@ -636,11 +701,14 @@ impl Editor {
         let max_x = (f32::from(viewport.right()) - panel_width - VIEWPORT_MARGIN).max(min_x);
         let x = (selection_center - panel_width * 0.5).clamp(min_x, max_x);
         let above = f32::from(lease.bounds.top()) - TOOLBAR_HEIGHT - TOOLBAR_GAP;
+        let max_y = (f32::from(viewport.bottom()) - TOOLBAR_HEIGHT - VIEWPORT_MARGIN)
+            .max(f32::from(viewport.top()) + VIEWPORT_MARGIN);
         let y = if above >= f32::from(viewport.top()) + VIEWPORT_MARGIN {
             above
         } else {
             f32::from(lease.bounds.bottom()) + TOOLBAR_GAP
-        };
+        }
+        .min(max_y);
         point(px(x), px(y))
     }
 
@@ -668,8 +736,10 @@ impl Editor {
     ) -> Option<AnyElement> {
         let lease = self.selection_toolbar.lease.as_ref()?;
         let viewport = self.scroll_handle.bounds();
+        let available_width = (f32::from(viewport.size.width) - VIEWPORT_MARGIN * 2.0).max(1.0);
+        let panel_width = TOOLBAR_WIDTH.min(available_width);
         let position =
-            Self::toolbar_overlay_position(lease, viewport, TOOLBAR_WIDTH, self.is_embedded());
+            Self::toolbar_overlay_position(lease, viewport, panel_width, self.is_embedded());
 
         let link_state = if lease.can_link {
             match lease.link_state {
@@ -688,10 +758,12 @@ impl Editor {
             .left(position.x)
             .top(position.y)
             .h(px(TOOLBAR_HEIGHT))
+            .w(px(panel_width))
             .px(px(5.0))
             .flex()
             .items_center()
             .gap(px(3.0))
+            .overflow_x_scroll()
             .occlude()
             .rounded(px(7.0))
             .border(px(1.0))
@@ -699,6 +771,15 @@ impl Editor {
             .bg(rgba(TOOLBAR_BG))
             .shadow_lg()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(self.render_block_control(lease, cx))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .w(px(1.0))
+                    .h(px(18.0))
+                    .mx(px(2.0))
+                    .bg(rgba(TOOLBAR_BORDER)),
+            )
             .child(self.render_toolbar_button(
                 "selection-bold",
                 "B",
@@ -736,6 +817,7 @@ impl Editor {
             ))
             .child(
                 div()
+                    .flex_shrink_0()
                     .w(px(1.0))
                     .h(px(18.0))
                     .mx(px(2.0))
@@ -778,6 +860,13 @@ impl Editor {
         };
         let root = if let Some(entity_panel) = self.render_entity_panel(position, cx) {
             root.child(entity_panel)
+        } else {
+            root
+        };
+        let root = if let Some(block_menu) =
+            self.render_block_menu(position, viewport, self.is_embedded(), cx)
+        {
+            root.child(block_menu)
         } else {
             root
         };

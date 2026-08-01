@@ -9,7 +9,10 @@ use gpui::*;
 const BLOCK_EDITOR_CONTEXT: &str = "BlockEditor";
 
 use super::element::{BlockTextElement, CodeLanguageInputElement};
-use super::{Block, BlockEvent, BlockKind, ImageResolvedSource, ImageRuntime};
+use super::{
+    AgentBlockDisposition, AgentBlockState, Block, BlockEvent, BlockKind, BlockOrigin,
+    ImageResolvedSource, ImageRuntime,
+};
 use crate::components::{
     Editor, HtmlCssColor, HtmlDocument, HtmlNode, HtmlNodeKind, InlineScript, TableAxisHighlight,
     TableAxisKind, TableAxisMarker, TableCellInlineImageSegment, TableColumnLayout, attr_value,
@@ -425,6 +428,37 @@ fn html_node_visual_style(
 }
 
 impl Block {
+    fn request_agent_disposition(
+        &mut self,
+        disposition: AgentBlockDisposition,
+        cx: &mut Context<Self>,
+    ) {
+        let BlockOrigin::Agent(origin) = &self.record.origin else {
+            return;
+        };
+        cx.emit(BlockEvent::RequestAgentDisposition {
+            invocation_id: origin.invocation_id,
+            disposition,
+        });
+    }
+
+    fn on_agent_keep(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.request_agent_disposition(AgentBlockDisposition::KeepAsResponse, cx);
+    }
+
+    fn on_agent_convert_to_prose(
+        &mut self,
+        _: &ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_agent_disposition(AgentBlockDisposition::ConvertToProse, cx);
+    }
+
+    fn on_agent_remove(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.request_agent_disposition(AgentBlockDisposition::Remove, cx);
+    }
+
     fn on_html_details_toggle_mouse_down(
         &mut self,
         _: &MouseDownEvent,
@@ -2955,7 +2989,81 @@ impl Render for Block {
                 .into_any_element(),
         };
 
-        wrap_with_quote_guides(content, visible_quote_guides(self), &theme)
+        let content = wrap_with_quote_guides(content, visible_quote_guides(self), &theme);
+        let BlockOrigin::Agent(origin) = &self.record.origin else {
+            return content;
+        };
+        if origin.state == AgentBlockState::Adopted {
+            return content;
+        }
+
+        let show_header = origin.group_ordinal == 0;
+        let provisional = origin.state == AgentBlockState::Provisional;
+        let state_label = match origin.state {
+            AgentBlockState::Provisional => "PROVISIONAL",
+            AgentBlockState::Committed => "AGENT RESPONSE",
+            AgentBlockState::Superseded => "SUPERSEDED",
+            AgentBlockState::Adopted => unreachable!(),
+        };
+        let model = origin.model.clone();
+        let header = if show_header {
+            let block_id = self.record.id;
+            let button = |id: &'static str, label: &'static str| {
+                div()
+                    .id(SharedString::from(format!("{id}-{block_id}")))
+                    .px(px(8.0))
+                    .py(px(3.0))
+                    .rounded(px(5.0))
+                    .cursor_pointer()
+                    .text_size(px((t.code_size - 1.0).max(10.0)))
+                    .text_color(c.dialog_secondary_button_text)
+                    .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                    .child(label)
+            };
+            let mut header = div()
+                .w_full()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .text_size(px((t.code_size - 1.0).max(10.0)))
+                .text_color(c.text_placeholder)
+                .child(state_label)
+                .child("/")
+                .child(model);
+            if provisional {
+                header = header
+                    .child(div().flex_grow())
+                    .child(button("agent-keep", "Keep").on_click(cx.listener(Self::on_agent_keep)))
+                    .child(
+                        button("agent-prose", "Prose")
+                            .on_click(cx.listener(Self::on_agent_convert_to_prose)),
+                    )
+                    .child(
+                        button("agent-remove", "Remove")
+                            .on_click(cx.listener(Self::on_agent_remove)),
+                    );
+            }
+            Some(header.into_any_element())
+        } else {
+            None
+        };
+        let mut shell = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .px(px(d.block_padding_x))
+            .py(px((d.block_padding_x * 0.7).max(8.0)))
+            .rounded(px(d.code_bg_radius))
+            .border(px(1.0))
+            .border_color(c.border_quote)
+            .bg(c.source_mode_block_bg)
+            .children(header)
+            .child(content);
+        if origin.state == AgentBlockState::Superseded {
+            shell = shell.opacity(0.58);
+        }
+        shell.into_any_element()
     }
 }
 

@@ -31,6 +31,7 @@ pub(super) struct BlockLocation {
 pub(super) struct VisibleTreeSnapshot {
     visible: Vec<VisibleBlock>,
     visible_index_by_entity: HashMap<EntityId, usize>,
+    entity_by_block_id: HashMap<uuid::Uuid, EntityId>,
     location_by_entity: HashMap<EntityId, BlockLocation>,
     last_visible_descendant_by_entity: HashMap<EntityId, EntityId>,
 }
@@ -39,6 +40,7 @@ impl VisibleTreeSnapshot {
     fn clear(&mut self) {
         self.visible.clear();
         self.visible_index_by_entity.clear();
+        self.entity_by_block_id.clear();
         self.location_by_entity.clear();
         self.last_visible_descendant_by_entity.clear();
     }
@@ -102,6 +104,13 @@ impl DocumentTree {
         self.visible_index_for_entity_id(entity_id)
             .and_then(|index| self.snapshot.visible.get(index))
             .map(|visible| visible.entity.clone())
+    }
+
+    pub(super) fn block_entity_by_uuid(&self, block_id: uuid::Uuid) -> Option<Entity<Block>> {
+        self.snapshot
+            .entity_by_block_id
+            .get(&block_id)
+            .and_then(|entity_id| self.block_entity_by_id(*entity_id))
     }
 
     pub(super) fn find_block_location(&self, entity_id: EntityId) -> Option<BlockLocation> {
@@ -325,6 +334,7 @@ impl DocumentTree {
                         && block_ref.children.is_empty(),
                 )
             };
+            snapshot.entity_by_block_id.insert(block_id, entity_id);
             let parent_is_list_item = parent_entity
                 .as_ref()
                 .is_some_and(|parent| parent.read(cx).kind().is_list_item());

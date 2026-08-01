@@ -1,10 +1,14 @@
 use anyhow::{bail, Context, Result};
-use phoenix_analysis_contract::{open_analysis_artifact, open_nli_artifact};
+use phoenix_analysis_contract::{
+    open_analysis_artifact, open_nli_artifact, open_producer_coordinator, open_structural_artifact,
+};
 use phoenix_app_core::{
     AtlasCapabilityCount, AtlasCapabilityState, AtlasRunReceiptV1, KernelCommand,
     NativeProducerRuntimeConfig, PhoenixKernel,
 };
+use phoenix_graph_generation_v2::{PageKind, VerifiedGraphGenerationV2};
 use phoenix_workspace::ContentHash;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -58,6 +62,11 @@ fn main() -> Result<()> {
             Path::new(&args[5]),
             Path::new(&args[6]),
         ),
+        Some("inspect-topology") if args.len() == 4 => inspect_topology(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            Path::new(&args[3]),
+        ),
         _ => bail!(
             "usage: phoenix-analysis-proof seed-and-publish <workspace> <publication-root> \
              <document> <source-document-id> <producer> <ner-model-root> <nli-model-root>\n\
@@ -69,9 +78,112 @@ fn main() -> Result<()> {
              or: phoenix-analysis-proof shadow-v2-produce <workspace> <entry-id> \
              <analysis> <structural> <coordinator> <output-root> <run-label>\n\
              or: phoenix-analysis-proof shadow-v2-verify <workspace> <entry-id> \
-             <analysis> <structural> <coordinator> <entity-generation>"
+             <analysis> <structural> <coordinator> <entity-generation>\n\
+             or: phoenix-analysis-proof inspect-topology <analysis> <coordinator> <generation>"
         ),
     }
+}
+
+fn inspect_topology(
+    analysis_path: &Path,
+    coordinator_path: &Path,
+    generation_path: &Path,
+) -> Result<()> {
+    let analysis = open_analysis_artifact(analysis_path)
+        .with_context(|| format!("open analysis {}", analysis_path.display()))?;
+    let structural_path = analysis_path.with_file_name(
+        analysis_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .context("analysis path has no UTF-8 file name")?
+            .replace(".analysis.pnaa", ".structural.pnss"),
+    );
+    let structural = open_structural_artifact(&structural_path)
+        .with_context(|| format!("open structural {}", structural_path.display()))?;
+    let coordinator = open_producer_coordinator(coordinator_path)
+        .with_context(|| format!("open coordinator {}", coordinator_path.display()))?;
+    let generation = VerifiedGraphGenerationV2::open(generation_path)
+        .with_context(|| format!("open generation {}", generation_path.display()))?;
+    let coordinator = coordinator.coordinator();
+    println!("document_id={}", coordinator.binding.native_document_id);
+    println!(
+        "document_revision={}",
+        coordinator.binding.document_revision
+    );
+    println!(
+        "analysis_generation={}",
+        coordinator.binding.analysis_generation
+    );
+    println!("candidate_evidence={}", coordinator.evidence_bindings.len());
+    println!(
+        "analysis_mentions={}",
+        analysis.analysis().ner.mentions.len()
+    );
+    println!(
+        "accepted_mentions={}",
+        analysis
+            .analysis()
+            .ner
+            .mentions
+            .iter()
+            .filter(|mention| mention.accepted)
+            .count()
+    );
+    println!(
+        "contextual_evidence_bindings={}",
+        coordinator.contextual_evidence_bindings.len()
+    );
+    let chunks = &structural.structural().chunks;
+    let mut expected_contextual_bindings = 0_usize;
+    let mut per_chunk = vec![BTreeMap::<u64, u64>::new(); chunks.len()];
+    for mention in &analysis.analysis().ner.mentions {
+        let chunk_index = chunks.partition_point(|chunk| chunk.end <= mention.start);
+        let chunk = chunks
+            .get(chunk_index)
+            .context("exported mention has no structural chunk")?;
+        if chunk.start > mention.start || chunk.end < mention.end {
+            bail!("exported mention crosses its structural chunk");
+        }
+        per_chunk[chunk_index]
+            .entry(mention.entity_id)
+            .and_modify(|mention_id| *mention_id = (*mention_id).min(mention.mention_id))
+            .or_insert(mention.mention_id);
+    }
+    for entities in &per_chunk {
+        expected_contextual_bindings = expected_contextual_bindings
+            .checked_add(
+                entities
+                    .len()
+                    .saturating_mul(entities.len().saturating_sub(1))
+                    / 2,
+            )
+            .context("contextual evidence count overflow")?;
+    }
+    println!("expected_contextual_bindings={expected_contextual_bindings}");
+    for capability in &coordinator.capabilities {
+        println!(
+            "producer={:?}:{:?}:{}",
+            capability.product,
+            capability.state,
+            capability
+                .output_count
+                .map_or_else(|| "unsupported".to_owned(), |count| count.to_string())
+        );
+    }
+    for page in PageKind::ALL {
+        let descriptor = generation.descriptor(page);
+        println!(
+            "page={page:?}:count={}:bytes={}:hash={}",
+            descriptor.count,
+            descriptor.length,
+            descriptor
+                .hash
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+    }
+    Ok(())
 }
 
 fn parse_entry_id(value: &std::ffi::OsStr) -> Result<u64> {

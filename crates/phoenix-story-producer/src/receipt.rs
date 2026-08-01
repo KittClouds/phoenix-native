@@ -25,6 +25,7 @@ pub(crate) fn append_story_receipts(
     stage_receipts: &mut Vec<StageReceiptRecord>,
     publication_receipts: &mut Vec<PublicationReceiptRecord>,
     counts: [usize; 6],
+    contextual_count: usize,
     model_ranked_count: usize,
 ) -> Result<u16, StoryProducerError> {
     let producer_name = push_string(strings, "phoenix-story-producer/v1")?;
@@ -110,6 +111,19 @@ pub(crate) fn append_story_receipts(
             flags: unmeasured,
         });
     }
+
+    let contextual_producer = push_string(strings, "phoenix-contextual-evidence/v1")?;
+    capabilities.push(CapabilityRecord {
+        product: ProducerProduct::ContextualEvidence as u16,
+        authority: AuthorityClass::ContextualEvidenceOnly as u16,
+        state: CapabilityState::Produced as u16,
+        flags_u16: 0,
+        producer: contextual_producer,
+        output_count: contextual_count as u64,
+        reused_generation: 0,
+        model_identity_index: producer_model_index,
+        flags: 0,
+    });
 
     if let Some(batch) = input.model_ranking {
         let name = push_string(strings, batch.model.name)?;

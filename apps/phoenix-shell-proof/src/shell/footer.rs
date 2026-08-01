@@ -240,7 +240,7 @@ impl PhoenixShell {
             .bg(rgb(FOOTER_BG))
             .child(
                 Button::new("footer-toggle-inspector")
-                    .label("INSPECTOR")
+                    .label(self.right_sidebar_page.label())
                     .small()
                     .ghost()
                     .on_click(cx.listener(|this, _, _, cx| {

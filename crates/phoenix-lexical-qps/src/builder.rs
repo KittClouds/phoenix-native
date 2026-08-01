@@ -103,6 +103,11 @@ impl QpsBuilder {
                 u32::try_from(documents.len()).map_err(|_| QpsError::DocumentIdOverflow)?;
             documents.push(DocumentMeta {
                 external_id: source.external_id,
+                token_count: source.fields.iter().try_fold(0_u32, |total, field| {
+                    total
+                        .checked_add(checked_u32(field.terms.len())?)
+                        .ok_or(QpsError::IndexAddressOverflow)
+                })?,
             });
             let mut document_position_start = 0_u32;
             for (field, stored) in source.fields.iter().enumerate() {

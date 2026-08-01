@@ -6,6 +6,7 @@ use std::time::Instant;
 use compact_str::CompactString;
 use hashbrown::HashMap;
 
+use crate::ranker::RankFeatureVector;
 use crate::score::{
     measure_field, ordered_fraction, Coherence, CoherenceSignals, GroupMask, PositionedGroups,
 };
@@ -31,6 +32,46 @@ fn coverage_factor(coverage: f32, exponent: f32) -> f32 {
     }
 }
 
+#[inline]
+fn unit_saturating(value: f32) -> f32 {
+    let positive = value.max(0.0);
+    positive / (1.0 + positive)
+}
+
+struct RankFeatureInputs {
+    baseline: f32,
+    lexical: f32,
+    coverage: f32,
+    coherence: Coherence,
+    candidate_score: f32,
+    maximum_candidate_score: f32,
+    token_count: u32,
+    expansion_quality: f32,
+}
+
+#[inline]
+fn rank_features(inputs: RankFeatureInputs) -> RankFeatureVector {
+    let candidate_strength = if inputs.maximum_candidate_score > 0.0 {
+        (inputs.candidate_score / inputs.maximum_candidate_score).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    RankFeatureVector([
+        unit_saturating(inputs.baseline),
+        unit_saturating(inputs.lexical),
+        inputs.coverage.clamp(0.0, 1.0),
+        f32::from(inputs.coverage >= 1.0 - f32::EPSILON),
+        inputs.coherence.proximity.clamp(0.0, 1.0),
+        inputs.coherence.order.clamp(0.0, 1.0),
+        inputs.coherence.phrase.clamp(0.0, 1.0),
+        inputs.coherence.segment.clamp(0.0, 1.0),
+        unit_saturating(inputs.coherence.exact_field),
+        candidate_strength,
+        1.0 / (1.0 + inputs.token_count as f32).sqrt(),
+        inputs.expansion_quality,
+    ])
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct StoredField {
     pub terms: Box<[u32]>,
@@ -47,6 +88,7 @@ pub(crate) struct StoredDocument {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct DocumentMeta {
     pub external_id: u64,
+    pub token_count: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -496,12 +538,15 @@ impl QpsIndex {
 
         let total_weight = group_count as f32;
         let mut covered_candidates = 0_u32;
+        let mut maximum_candidate_score = 0.0_f32;
         for &document in &scratch.touched {
             let index = document as usize;
             let coverage = scratch.coverage_weight[index] / total_weight;
             if coverage >= self.config.coverage_floor {
                 scratch.candidate_scores[index] = scratch.lexical[index]
                     * coverage_factor(coverage, self.config.coverage_exponent);
+                maximum_candidate_score =
+                    maximum_candidate_score.max(scratch.candidate_scores[index]);
                 covered_candidates = covered_candidates.saturating_add(1);
             }
         }
@@ -594,10 +639,32 @@ impl QpsIndex {
                 + self.config.segment_weight * coherence.segment
                 + coherence.exact_field;
             let lexical = scratch.lexical[index];
+            let baseline_score = scratch.candidate_scores[index] * multiplier;
+            let matched_groups = (0..group_count)
+                .filter(|group| {
+                    let choice = index * self.config.maximum_query_groups + *group;
+                    scratch.choice_stamp[choice] == scratch.epoch
+                })
+                .count();
+            let expansion_quality = if matched_groups == 0 {
+                0.0
+            } else {
+                (scratch.coverage_weight[index] / matched_groups as f32).clamp(0.0, 1.0)
+            };
+            let features = rank_features(RankFeatureInputs {
+                baseline: baseline_score,
+                lexical,
+                coverage,
+                coherence,
+                candidate_score: scratch.candidate_scores[index],
+                maximum_candidate_score,
+                token_count: self.documents[index].token_count,
+                expansion_quality,
+            });
             output.push(SearchHit {
                 document: DocumentId(document),
                 external_id: self.documents[index].external_id,
-                score: scratch.candidate_scores[index] * multiplier,
+                score: self.config.learned_ranker.score(baseline_score, features),
                 lexical_score: lexical,
                 coverage,
                 proximity: coherence.proximity,
@@ -605,6 +672,7 @@ impl QpsIndex {
                 phrase: coherence.phrase,
                 segment: coherence.segment,
                 exact_field: coherence.exact_field,
+                rank_features: features,
             });
         }
         let coherence_nanos = elapsed_nanos(coherence_started);

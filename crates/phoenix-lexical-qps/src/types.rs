@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::ranker::{LinearRankerV1, RankFeatureVector};
+
 /// Maximum number of independently scored query groups. The coherence kernel
 /// uses two packed `u64` lanes, keeping long-query bookkeeping on the stack.
 pub const MAXIMUM_QUERY_GROUPS: usize = 128;
@@ -59,6 +61,9 @@ pub struct QpsConfig {
     pub dense_simd_threshold: f32,
     pub maximum_query_groups: usize,
     pub maximum_expansions_per_group: usize,
+    /// Optional deterministic learned composition over evidence already
+    /// produced by QPS. Disabled means the frozen hand-tuned V2.01 score.
+    pub learned_ranker: LinearRankerV1,
 }
 
 impl Default for QpsConfig {
@@ -78,6 +83,7 @@ impl Default for QpsConfig {
             dense_simd_threshold: 0.35,
             maximum_query_groups: 32,
             maximum_expansions_per_group: 16,
+            learned_ranker: LinearRankerV1::disabled(),
         }
     }
 }
@@ -111,6 +117,9 @@ pub struct SearchHit {
     pub phrase: f32,
     pub segment: f32,
     pub exact_field: f32,
+    /// Fixed-width evidence used by the optional learned ranker. Keeping it on
+    /// the returned hit makes failures auditable without retaining postings.
+    pub rank_features: RankFeatureVector,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

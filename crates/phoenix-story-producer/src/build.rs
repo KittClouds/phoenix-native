@@ -11,9 +11,9 @@ use crate::StoryProducerError;
 use bytemuck::cast_slice;
 use phoenix_graph_generation_v2::{
     AuthorityClass, CandidateEvidenceBindingRecord, CandidateId, CandidateStatus, CapabilityRecord,
-    CausalCandidateRecord, EpisodeMemberKind, EpisodeMembershipRecord, EpisodeRecord, EventRecord,
-    EvidenceId, EvidenceRole, MemoryStateCandidateRecord, ModelIdentityRecord,
-    PublicationReceiptRecord, SemanticFamily, StageReceiptRecord, StringRef,
+    CausalCandidateRecord, ContextualEvidenceRecord, EpisodeMemberKind, EpisodeMembershipRecord,
+    EpisodeRecord, EventRecord, EvidenceId, EvidenceRole, MemoryStateCandidateRecord,
+    ModelIdentityRecord, PublicationReceiptRecord, SemanticFamily, StageReceiptRecord, StringRef,
     TemporalCandidateRecord, TypedRelationshipCandidateRecord,
 };
 
@@ -26,6 +26,7 @@ pub(crate) struct BuiltStoryGeneration {
     pub temporal: Vec<TemporalCandidateRecord>,
     pub causal: Vec<CausalCandidateRecord>,
     pub memory_state: Vec<MemoryStateCandidateRecord>,
+    pub contextual_evidence: Vec<ContextualEvidenceRecord>,
     pub candidate_evidence_bindings: Vec<CandidateEvidenceBindingRecord>,
     pub capabilities: Vec<CapabilityRecord>,
     pub model_identities: Vec<ModelIdentityRecord>,
@@ -58,6 +59,7 @@ pub(crate) fn build_story_pages(
     let temporal = pack_temporal(input, &index, &mut bindings)?;
     let causal = pack_causal(input, &index, &mut bindings)?;
     let memory_state = pack_memory(input, &index, &mut strings, &mut bindings)?;
+    let contextual_evidence = input.contextual_evidence.to_vec();
 
     let mut capabilities = typed_copy(input, phoenix_graph_generation_v2::PageKind::Capabilities)?;
     let mut model_identities = typed_copy(
@@ -86,6 +88,7 @@ pub(crate) fn build_story_pages(
             causal.len(),
             memory_state.len(),
         ],
+        contextual_evidence.len(),
         model_ranked_count,
     )?;
 
@@ -113,6 +116,7 @@ pub(crate) fn build_story_pages(
         temporal,
         causal,
         memory_state,
+        contextual_evidence,
         candidate_evidence_bindings: bindings,
         capabilities,
         model_identities,

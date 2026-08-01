@@ -7,8 +7,10 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+blake3.workspace = true
 compact_str.workspace = true
 hashbrown.workspace = true
 pulp.workspace = true
+serde.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true

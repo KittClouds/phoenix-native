@@ -7,6 +7,7 @@ use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::PixelsExt;
 use phoenix_app_core::{KernelCommand, KernelError, KernelOutcome};
 use phoenix_scene_contract::Manifold;
+use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -19,7 +20,8 @@ const ATLAS_MAX_WIDTH: f32 = 520.;
 const GRAPH_MIN_WIDTH: f32 = 360.;
 pub(super) const ACCENT: u32 = 0x57e2bb;
 pub(super) const ACCENT_DIM: u32 = 0x173b32;
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum DrawerTab {
     Graph,
     Patterns,
@@ -93,6 +95,18 @@ impl DrawerLayout {
 
     pub(super) const fn atlas_width(self) -> f32 {
         self.atlas_width
+    }
+
+    pub(super) const fn snapshot(self) -> (bool, bool, f32, f32) {
+        (self.open, self.full_page, self.height, self.atlas_width)
+    }
+
+    pub(super) fn restore(open: bool, full_page: bool, height: f32, atlas_width: f32) -> Self {
+        let mut layout = Self::new(open);
+        layout.full_page = open && full_page;
+        layout.set_height(height);
+        layout.set_atlas_width(atlas_width);
+        layout
     }
 
     pub(super) fn set_height(&mut self, height: f32) {
@@ -203,7 +217,7 @@ impl PhoenixShell {
             let result = background
                 .spawn(async move { kernel.run_active_document_pipeline() })
                 .await;
-            if let Err(error) = shell.update(async_cx, |this, cx| {
+            if let Err(error) = shell.update_in(async_cx, |this, window, cx| {
                 this.graph_rebuild_pending = false;
                 match result {
                     Ok(command) => match command.outcome {
@@ -221,12 +235,12 @@ impl PhoenixShell {
                                 cx.notify();
                                 return;
                             }
+                            this.apply_kernel_highlights(cx);
                             let sync = this
                                 .graph
                                 .borrow()
                                 .as_ref()
                                 .map(|graph| graph.sync_kernel_state());
-                            this.apply_kernel_highlights(cx);
                             match sync {
                                 Some(Ok(())) => {
                                     this.status = format!(
@@ -246,13 +260,26 @@ impl PhoenixShell {
                                     )
                                     .into();
                                 }
-                                None => {
-                                    this.status = format!(
-                                        "PIPELINE BLOCKED / G{} PUBLISHED / HOST UNAVAILABLE",
-                                        receipt.publication.generation_id
-                                    )
-                                    .into();
-                                }
+                                None => match graph_viewport::parent_window_handle(window) {
+                                    Ok(parent) => {
+                                        this.graph_init_error = None;
+                                        this.status = format!(
+                                            "PIPELINE PUBLISHED / G{} / STARTING GRAPH HOST",
+                                            receipt.publication.generation_id
+                                        )
+                                        .into();
+                                        this.start_graph_host(parent, window, cx);
+                                    }
+                                    Err(error) => {
+                                        lifecycle::mark_proof_failed();
+                                        this.graph_init_error = Some(format!("{error:#}"));
+                                        this.status = format!(
+                                            "PIPELINE BLOCKED / G{} PUBLISHED / HOST {error:#}",
+                                            receipt.publication.generation_id
+                                        )
+                                        .into();
+                                    }
+                                },
                             }
                         }
                         _ => {

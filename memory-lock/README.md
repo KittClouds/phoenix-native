@@ -24,6 +24,12 @@ Bounded worker scaling is frozen in
 source suite and the pinned 500-case LongMemEval workload with sharded bounded
 queues, worker-local scratch, deterministic rankings, and memory-plateau gates.
 
+The optional learned ordering layer is qualified by `qps-learned-qualify`.
+It mines a frozen hard-negative ledger from the same candidate pool, trains a
+deterministic non-negative linear model over QPS's existing evidence, and
+measures both paired query overhead and the absolute cost of scoring a complete
+160-candidate rerank pool. It is one ranking layer, not a second search arm.
+
 The harness has three artifact domains:
 
 - `PHXLMW01`: retrieval workload; questions and history only.
@@ -66,6 +72,12 @@ cargo run --release -p phoenix-memory-lock -- qps-qualify `
   --manifest memory-lock\longmemeval-cleaned-v1.json `
   --suite memory-lock\qps-mixed-qualification-v1.json `
   --repetitions 1024
+
+cargo run --release -p phoenix-memory-lock -- qps-learned-qualify `
+  --manifest memory-lock\longmemeval-cleaned-v1.json `
+  --suite memory-lock\qps-mixed-qualification-v1.json `
+  --output D:\phoenix-target-qps-learned\qps-learned-ranker-v1.json `
+  --repetitions 256
 
 cargo run --release -p phoenix-memory-lock -- qps-concurrent-workload `
   --manifest memory-lock\longmemeval-cleaned-v1.json `

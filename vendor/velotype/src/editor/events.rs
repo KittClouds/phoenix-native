@@ -12,10 +12,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, anyhow};
 use gpui::*;
 
-use super::Editor;
+use super::{AgentInvocationDisposition, Editor};
 use crate::components::{
-    BlockEvent, BlockKind, BlockRecord, CollapsedCaretAffinity, IndentBlock, InlineTextTree,
-    OutdentBlock, PastedImageSource, TableCellPosition, is_table_row_candidate,
+    AgentBlockDisposition, BlockEvent, BlockKind, BlockRecord, CollapsedCaretAffinity, IndentBlock,
+    InlineTextTree, OutdentBlock, PastedImageSource, TableCellPosition, is_table_row_candidate,
     parse_root_table_region, parse_table_body_row,
 };
 use crate::config::{ImagePasteBehavior, read_app_preferences};
@@ -1614,6 +1614,26 @@ impl Editor {
             return;
         }
 
+        if let BlockEvent::RequestAgentDisposition {
+            invocation_id,
+            disposition,
+        } = event
+        {
+            let disposition = match disposition {
+                AgentBlockDisposition::KeepAsResponse => AgentInvocationDisposition::KeepAsResponse,
+                AgentBlockDisposition::ConvertToProse => AgentInvocationDisposition::ConvertToProse,
+                AgentBlockDisposition::Remove => AgentInvocationDisposition::Remove,
+            };
+            let _ = self.execute_agent_document_op(
+                super::AgentDocumentOp::SetDisposition {
+                    invocation_id: *invocation_id,
+                    disposition,
+                },
+                cx,
+            );
+            return;
+        }
+
         if let Some(binding) = self.table_cell_binding(block.entity_id()) {
             self.on_table_cell_event(binding, event, cx);
             return;
@@ -2340,6 +2360,7 @@ impl Editor {
             }
             BlockEvent::RequestRenderedSelectAll => {}
             BlockEvent::PrepareUndo { .. } => {}
+            BlockEvent::RequestAgentDisposition { .. } => {}
         }
     }
 }

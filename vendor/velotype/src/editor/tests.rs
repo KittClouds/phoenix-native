@@ -3286,7 +3286,7 @@ async fn inserting_table_at_document_end_adds_trailing_paragraph(cx: &mut TestAp
     cx.update(|window, cx| {
         editor.update(cx, |editor, cx| {
             editor.table_insert_dialog = Some(super::context_menu::TableInsertDialogState {
-                target: super::context_menu::TableInsertTarget::Append,
+                target: super::BlockInsertTarget::Append,
                 body_rows: 2,
                 columns: 2,
             });

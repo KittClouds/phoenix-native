@@ -6,7 +6,10 @@ use phoenix_graph_generation_v2::{
     TypedRelationshipCandidateRecord,
 };
 use phoenix_scene_archive::{ArchiveManifold, PageKey, PageKind};
-use phoenix_scene_contract::{EntityKind, GraphGeneration, HighlightPalette, Manifold};
+use phoenix_scene_contract::{
+    EntityKind, FamilyMask, GraphGeneration, HighlightPalette, Manifold, ReviewMask,
+    RELATIONSHIP_FACT_NODE_KIND,
+};
 use phoenix_scene_publisher::ScenePublicationStore;
 use phoenix_semantic_lens::{
     CandidateOrigin, CoreSemanticClass, EndpointKind, LensNeutralReviewBinding, SemanticEndpointRef,
@@ -417,15 +420,27 @@ fn accepted_status_without_receipt_fails_closed() {
     .expect("proposed candidate compiles as overlay");
     assert_eq!(compiled.receipt.accepted_semantic_edges, 0);
     assert_eq!(compiled.receipt.candidate_overlay_edges, 1);
+    assert_eq!(compiled.receipt.relationship_candidate_count, 1);
+    assert_eq!(compiled.receipt.identity_candidate_count, 0);
     assert_eq!(
         compiled
             .publication
             .edge_products
             .iter()
-            .filter(|edge| edge.review_mask == phoenix_scene_contract::ReviewMask::PROPOSED.0)
+            .filter(|edge| edge.review_mask == ReviewMask::PROPOSED.0)
             .count(),
-        1
+        2,
+        "one relationship fact projects through one midpoint and two typed edges"
     );
+    let fact_slot = compiled
+        .publication
+        .styles
+        .iter()
+        .position(|style| style.kind == RELATIONSHIP_FACT_NODE_KIND)
+        .expect("relationship fact midpoint");
+    let fact = &compiled.publication.node_products[fact_slot];
+    assert_eq!(fact.family_mask, FamilyMask::FACTS.0);
+    assert_eq!(fact.review_mask, ReviewMask::PROPOSED.0);
     drop(proposed);
     drop(generation);
     fs::remove_dir_all(root).expect("remove test root");

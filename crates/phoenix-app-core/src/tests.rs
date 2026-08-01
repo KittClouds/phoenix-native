@@ -1069,6 +1069,61 @@ fn test_only_backend_publication_cannot_become_restart_authority(
 }
 
 #[test]
+fn ner_refresh_does_not_replace_withdrawn_durable_full_generation(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path();
+    let kernel = PhoenixKernel::start_production(path.clone())?;
+    let initial = kernel.snapshot()?;
+    let registry_generation = initial
+        .scene_publication
+        .ok_or("registry publication missing")?
+        .generation_id;
+    let full_generation = registry_generation + 1;
+    let published = kernel.execute(KernelCommand::PublishNativeScene(Box::new(
+        NativeScenePublishCommand::backend(full_publication(
+            full_generation,
+            initial.atlas_registry.registry_revision,
+        )),
+    )))?;
+    let full_receipt = match published.outcome {
+        KernelOutcome::SceneGenerationPublished(receipt) => receipt,
+        other => return Err(format!("unexpected publication outcome: {other:?}").into()),
+    };
+    {
+        let mut state = write_state(&kernel.shared)?;
+        state.resident_scene = None;
+        state.scene_product_index = None;
+        state.scene_publication = None;
+    }
+
+    kernel.execute(KernelCommand::PublishNerEntities(test_ner_batch(
+        &kernel,
+        1,
+        vec![NerEntityRecord {
+            stable_id: 902,
+            label: "Durable full guard".into(),
+            kind: EntityKind::Concept,
+            custom_kind: None,
+            mention_count: 1,
+        }],
+    )?))?;
+
+    assert!(kernel.snapshot()?.scene_publication.is_none());
+    let current = kernel
+        .shared
+        .publisher
+        .as_ref()
+        .ok_or("publisher missing")?
+        .open_current()?
+        .ok_or("durable publication missing")?;
+    assert_eq!(current.receipt, full_receipt);
+    kernel.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
 fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = path();

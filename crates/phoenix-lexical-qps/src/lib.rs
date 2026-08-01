@@ -6,6 +6,7 @@
 
 mod builder;
 mod index;
+mod ranker;
 mod score;
 mod selection;
 mod tokenize;
@@ -13,6 +14,10 @@ mod types;
 
 pub use builder::QpsBuilder;
 pub use index::{IndexStats, QpsIndex, SearchScratch};
+pub use ranker::{
+    HardNegativeJudgment, HardNegativeLedgerV1, HardNegativeReason, LinearRankerV1,
+    RankFeatureVector, RankerTrainingConfig, RankerTrainingReceipt, RANK_FEATURE_COUNT,
+};
 pub use types::{
     CandidateSelection, DocumentId, DocumentInput, Expansion, FieldConfig, QpsConfig, QpsError,
     QueryGroup, SearchHit, SearchReceipt, SearchStageNanos, MAXIMUM_QUERY_GROUPS,

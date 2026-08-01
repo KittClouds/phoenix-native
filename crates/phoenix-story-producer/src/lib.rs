@@ -1,4 +1,5 @@
 mod build;
+mod deterministic;
 mod error;
 mod ids;
 mod lens;
@@ -8,6 +9,10 @@ mod review;
 mod types;
 mod validate;
 
+pub use deterministic::{
+    publish_deterministic_story_generation_new, DeterministicStoryProducerInput, CAUSAL_PRODUCER,
+    EPISODE_PRODUCER, EVENT_PRODUCER, MEMORY_PRODUCER, RELATIONSHIP_PRODUCER, TEMPORAL_PRODUCER,
+};
 pub use error::StoryProducerError;
 pub use ids::{
     derive_causal_candidate_id, derive_episode_candidate_id, derive_episode_id,

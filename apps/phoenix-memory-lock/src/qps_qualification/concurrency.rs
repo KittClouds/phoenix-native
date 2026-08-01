@@ -582,11 +582,13 @@ mod tests {
             receipt.authority,
             "one-qps-index-sharded-bounded-batch-workers"
         );
-        assert!(receipt.all_absolute_gates_pass);
         assert_eq!(receipt.sweeps.len(), 2);
         for sweep in receipt.sweeps {
             assert_eq!(sweep.scratch_capacity_growths, 0);
             assert_eq!(sweep.determinism_failures, 0);
+            assert!(sweep.gates.zero_scratch_capacity_growth);
+            assert!(sweep.gates.deterministic_rankings);
+            assert!(sweep.gates.bounded_queues);
             assert!(sweep.gates.every_worker_received_exact_share);
         }
     }

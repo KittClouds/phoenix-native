@@ -1,5 +1,6 @@
 use phoenix_graph_generation_v2::{
-    CandidateId, ChunkId, EntityId, EpisodeId, EventId, EvidenceId, VerifiedGraphGenerationV2,
+    CandidateId, ChunkId, ContextualEvidenceRecord, EntityId, EpisodeId, EventId, EvidenceId,
+    VerifiedGraphGenerationV2,
 };
 use std::path::PathBuf;
 
@@ -242,6 +243,8 @@ pub struct StoryProducerInput<'a> {
     pub text: &'a str,
     pub source: &'a VerifiedGraphGenerationV2,
     pub registrations: StoryRegistrations<'a>,
+    /// Context-only co-occurrence evidence. This never becomes accepted topology.
+    pub contextual_evidence: &'a [ContextualEvidenceRecord],
     pub model_ranking: Option<ModelRankingBatch<'a>>,
     pub producer_binary_hash: [u8; 32],
     pub published_generation: u64,
@@ -260,6 +263,7 @@ pub struct StoryPublicationReceipt {
     pub temporal_count: u32,
     pub causal_count: u32,
     pub memory_state_count: u32,
+    pub contextual_evidence_count: u32,
     pub evidence_binding_count: u32,
     pub model_ranked_count: u32,
     /// One bit per story product in registration order. Set means unsupported.

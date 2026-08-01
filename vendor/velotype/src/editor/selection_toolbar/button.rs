@@ -13,6 +13,7 @@ impl Editor {
         let selected = matches!(state, SelectionMarkState::On | SelectionMarkState::Mixed);
         let button = div()
             .id(id)
+            .flex_shrink_0()
             .w(px(34.0))
             .h(px(28.0))
             .flex()

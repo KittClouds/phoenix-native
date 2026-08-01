@@ -37,8 +37,10 @@ use theme::ThemeManager;
 
 pub use components::{SemanticHighlight, SemanticHighlightMode};
 pub use editor::{
-    Editor, EditorEvent, EntityTagKind, EntityTagRequest, SemanticHighlightError,
-    SemanticHighlightProjectionReceipt,
+    AgentAnchor, AgentBlockDraft, AgentCommandError, AgentDocumentOp, AgentInsertionReceipt,
+    AgentInvocationDisposition, AgentInvocationReceipt, BlockCommand, BlockCommandError,
+    BlockCommandOutcome, BlockInsert, BlockInsertTarget, BlockTransform, Editor, EditorEvent,
+    EntityTagKind, EntityTagRequest, SemanticHighlightError, SemanticHighlightProjectionReceipt,
 };
 
 pub struct VelotypeAssets;

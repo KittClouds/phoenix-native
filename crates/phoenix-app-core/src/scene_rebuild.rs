@@ -227,11 +227,10 @@ impl PhoenixKernel {
             Ok(command) => match command.outcome {
                 KernelOutcome::GraphRebuilt(graph) => {
                     let durable = (|| {
-                        let (nli, coordinator, product_index) = {
+                        let (nli, product_index) = {
                             let state = read_state(&self.shared)?;
                             (
                                 state.nli_analysis.as_ref().map(Arc::clone),
-                                state.producer_coordinator.as_ref().map(Arc::clone),
                                 state
                                     .scene_product_index
                                     .as_ref()
@@ -250,7 +249,6 @@ impl PhoenixKernel {
                             metrics_before,
                             metrics_after,
                             nli: nli.as_deref(),
-                            coordinator: coordinator.as_deref(),
                             product_index: &product_index,
                         })?;
                         let hash = atlas_run::persist(&self.shared.workspace_path, &receipt)?;

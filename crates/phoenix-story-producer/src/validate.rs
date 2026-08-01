@@ -7,7 +7,8 @@ use crate::types::{EpisodeMember, ProducerRegistration, SemanticEndpoint, StoryP
 use crate::StoryProducerError;
 use hashbrown::{HashMap, HashSet};
 use phoenix_graph_generation_v2::{
-    CandidateId, ChunkId, EntityId, EpisodeId, EventId, EvidenceId, EvidenceRecord, PageKind,
+    CandidateId, ChunkId, EntityId, EpisodeId, EventId, EvidenceId, EvidenceRecord, MentionId,
+    MentionRecord, PageKind,
 };
 
 pub(crate) const CANDIDATE_FLAG_MODEL_RANKED: u32 = 1 << 0;
@@ -73,8 +74,42 @@ pub(crate) fn validate_input<'a>(
     validate_temporal(input, &mut index)?;
     validate_causal(input, &mut index)?;
     validate_memory(input, &mut index)?;
+    validate_contextual_evidence(input)?;
     validate_model_ranking(input, &mut index)?;
     Ok(index)
+}
+
+fn validate_contextual_evidence(input: &StoryProducerInput<'_>) -> Result<(), StoryProducerError> {
+    let mentions: &[MentionRecord] = input.source.typed_page(PageKind::Mentions)?;
+    let mention_index = unique_map(
+        mentions,
+        |row| MentionId(row.id),
+        StoryProducerError::InvalidEvidenceBinding,
+    )?;
+    let chunks: &[phoenix_graph_generation_v2::ChunkRecord] =
+        input.source.typed_page(PageKind::Chunks)?;
+    let chunk_ids = chunks.iter().map(|row| row.id).collect::<HashSet<_>>();
+    let mut keys = HashSet::with_capacity(input.contextual_evidence.len());
+    for row in input.contextual_evidence {
+        let source = mention_index
+            .get(&MentionId(row.source_mention_id))
+            .ok_or(StoryProducerError::UnknownReference)?;
+        let target = mention_index
+            .get(&MentionId(row.target_mention_id))
+            .ok_or(StoryProducerError::UnknownReference)?;
+        if row.source_entity_id == row.target_entity_id
+            || source.entity_id != row.source_entity_id
+            || target.entity_id != row.target_entity_id
+            || source.chunk_id != row.chunk_id
+            || target.chunk_id != row.chunk_id
+            || !chunk_ids.contains(&row.chunk_id)
+            || !f32::from_bits(row.weight_bits).is_finite()
+            || !keys.insert((row.source_mention_id, row.target_mention_id, row.chunk_id))
+        {
+            return Err(StoryProducerError::InvalidEvidenceBinding);
+        }
+    }
+    Ok(())
 }
 
 fn validate_authority(input: &StoryProducerInput<'_>) -> Result<(), StoryProducerError> {

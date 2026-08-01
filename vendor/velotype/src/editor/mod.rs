@@ -15,15 +15,17 @@ use gpui::*;
 use self::context_menu::{ContextMenuState, TableInsertDialogState};
 use self::tree::DocumentTree;
 use crate::components::{
-    Block, BlockKind, BlockRecord, FootnoteDefinitionBinding, FootnoteReferenceLocation,
-    FootnoteRegistry, FootnoteResolvedOccurrence, ImageReferenceDefinitions, InlineTextTree,
-    LinkReferenceDefinitions, SemanticHighlightMode, parse_image_reference_definitions,
-    parse_link_reference_definitions,
+    Block, BlockKind, BlockOrigin, BlockRecord, FootnoteDefinitionBinding,
+    FootnoteReferenceLocation, FootnoteRegistry, FootnoteResolvedOccurrence,
+    ImageReferenceDefinitions, InlineTextTree, LinkReferenceDefinitions, SemanticHighlightMode,
+    parse_image_reference_definitions, parse_link_reference_definitions,
 };
 use crate::components::{
     TableAxisHighlight, TableAxisKind, TableAxisMarker, TableCellPosition, TableColumnAlignment,
     TableData, TableRuntime, UndoCaptureKind, serialize_table_cell_markdown,
 };
+mod agent_commands;
+mod block_commands;
 mod close;
 mod context_menu;
 mod document;
@@ -49,6 +51,14 @@ mod workspace;
 
 use self::status_bar::StatusBarState;
 use self::workspace::WorkspaceState;
+pub use agent_commands::{
+    AgentAnchor, AgentBlockDraft, AgentCommandError, AgentDocumentOp, AgentInsertionReceipt,
+    AgentInvocationDisposition, AgentInvocationReceipt,
+};
+pub use block_commands::{
+    BlockCommand, BlockCommandError, BlockCommandOutcome, BlockInsert, BlockInsertTarget,
+    BlockTransform,
+};
 pub use semantic_highlights::{SemanticHighlightError, SemanticHighlightProjectionReceipt};
 
 /// Link navigation request deferred until a `Window` is available.
@@ -151,6 +161,7 @@ pub struct Editor {
     pending_undo_capture: Option<PendingUndoCapture>,
     last_selection_snapshot: UndoSelectionSnapshot,
     last_stable_source_text: String,
+    last_stable_block_metadata: Vec<BlockHistoryMetadata>,
     history_restore_in_progress: bool,
     image_reference_definitions: Arc<ImageReferenceDefinitions>,
     link_reference_definitions: Arc<LinkReferenceDefinitions>,
@@ -241,9 +252,16 @@ struct UndoSelectionSnapshot {
 #[derive(Clone, Debug)]
 struct HistoryEntry {
     source_text: String,
+    block_metadata: Vec<BlockHistoryMetadata>,
     selection: UndoSelectionSnapshot,
     timestamp: Instant,
     kind: UndoCaptureKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BlockHistoryMetadata {
+    id: uuid::Uuid,
+    origin: BlockOrigin,
 }
 
 /// Deferred undo capture used to coalesce adjacent typing edits.
@@ -439,6 +457,7 @@ impl Editor {
             pending_undo_capture: None,
             last_selection_snapshot: Self::empty_selection_snapshot(),
             last_stable_source_text: normalized,
+            last_stable_block_metadata: Vec::new(),
             history_restore_in_progress: false,
             image_reference_definitions: Arc::default(),
             link_reference_definitions: Arc::default(),

@@ -408,14 +408,61 @@ impl PhoenixKernel {
         ) {
             (Some(publisher), Some(receipt)) => {
                 let source_hash = scene_compiler_authority::verify(publisher, receipt)?;
-                Some(scene_authority_v2::open_exact(
+                match scene_authority_v2::open_exact(
                     &workspace_path,
                     receipt
                         .document_id
                         .ok_or(KernelError::InvalidV2CompilerAuthority)?,
                     receipt.registry_revision,
                     source_hash,
-                )?)
+                ) {
+                    Ok(authority) => Some(authority),
+                    Err(KernelError::AnalysisAuthorityMismatch) => {
+                        match (restored_analysis.as_ref(), active_document_lease.as_deref()) {
+                            (Some(restored), Some(lease)) => {
+                                let authority = scene_authority_v2::produce(
+                                    &workspace_path,
+                                    lease,
+                                    &entity_registry,
+                                    &restored.analysis,
+                                    &restored.structural,
+                                    &restored.coordinator,
+                                )?;
+                                let compiled = phoenix_scene_compiler::compile_graph_generation_v2(
+                                    phoenix_scene_compiler::NativeSceneCompilerV2Input {
+                                        scene_generation_id: publisher.next_generation()?,
+                                        generation: &authority.generation,
+                                        review_catalog: &authority.catalog,
+                                        palette: *highlight_palette,
+                                    },
+                                )?;
+                                let published = publisher.publish(compiled.publication)?;
+                                scene_compiler_authority::write_new(
+                                    publisher,
+                                    published.receipt,
+                                    authority.generation.header().generation_hash,
+                                )?;
+                                scene_publication = Some(published.receipt);
+                                initial_scene = Some(published.scene);
+                                initial_product_index = Some(published.product_index);
+                                Some(authority)
+                            }
+                            _ => {
+                                // A full scene may remain durable after its document or registry
+                                // authority has moved forward. It is still a valid historical
+                                // generation, but it cannot become resident or be migrated without
+                                // exact matching analysis. Start with no live graph so the user can
+                                // run the current production pipeline; never substitute a fixture,
+                                // registry-only scene, or compatibility compiler.
+                                scene_publication = None;
+                                initial_scene = None;
+                                initial_product_index = None;
+                                None
+                            }
+                        }
+                    }
+                    Err(error) => return Err(error),
+                }
             }
             _ => None,
         };

@@ -6,8 +6,10 @@ use phoenix_app_core::KernelSnapshot;
 use phoenix_scene_contract::{
     FamilyMask, GraphLens, GraphSurface, GraphViewState, RelationFamily, ReviewMask,
 };
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum GraphSidebarPanel {
     #[default]
     Registry,

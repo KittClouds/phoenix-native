@@ -16,7 +16,7 @@ use phoenix_scene_contract::HighlightMode;
 use phoenix_workspace::{EntryKind, ROOT_ID};
 
 const ACCENT_BRIGHT: u32 = 0x57e2bb;
-const SHELL_HEADER_HEIGHT: f32 = 44.;
+pub(super) const SHELL_HEADER_HEIGHT: f32 = 44.;
 const CENTER_MIN_WIDTH: f32 = 480.;
 
 impl PhoenixShell {
@@ -168,7 +168,7 @@ impl PhoenixShell {
             .child(tree)
     }
 
-    fn render_editor_surface(&self) -> impl IntoElement {
+    fn render_editor_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.selected_entry();
         let selected_name = selected
             .as_ref()
@@ -205,12 +205,35 @@ impl PhoenixShell {
                     .bg(rgb(SURFACE))
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(rgb(ACCENT_BRIGHT))
-                            .child(format!(
-                                "{} / {selected_name}",
-                                if is_note { "NOTE" } else { "FOLDER" }
-                            )),
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(ACCENT_BRIGHT))
+                                    .child(format!(
+                                        "{} / {selected_name}",
+                                        if is_note { "NOTE" } else { "FOLDER" }
+                                    )),
+                            )
+                            .child(
+                                Button::new("note-header-kammi")
+                                    .label("KAMMI")
+                                    .small()
+                                    .when(
+                                        !self.right_open
+                                            || self.right_sidebar_page
+                                                != super::kammi::RightSidebarPage::Kammi,
+                                        |button| button.ghost(),
+                                    )
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.right_sidebar_page =
+                                            super::kammi::RightSidebarPage::Kammi;
+                                        this.right_open = true;
+                                        cx.notify();
+                                    })),
+                            ),
                     )
                     .child(
                         div()
@@ -238,7 +261,7 @@ impl PhoenixShell {
             )
     }
 
-    fn render_inspector(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn render_inspector(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let snapshot = self.kernel_snapshot();
         let selected = self.selected_entry();
         let selected_name = selected
@@ -290,19 +313,7 @@ impl PhoenixShell {
             .border_l_1()
             .border_color(rgb(BORDER))
             .bg(rgb(SURFACE))
-            .child(
-                div()
-                    .h(px(SHELL_HEADER_HEIGHT))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .px_4()
-                    .border_b_1()
-                    .border_color(rgb(BORDER))
-                    .text_xs()
-                    .text_color(rgb(TEXT_MUTED))
-                    .child("INSPECTOR"),
-            )
+            .child(self.render_right_sidebar_header(cx))
             .child(
                 div()
                     .p_4()
@@ -444,7 +455,7 @@ impl Render for PhoenixShell {
                 .child(
                     resizable_panel()
                         .size_range(px(0.)..gpui::Pixels::MAX)
-                        .child(self.render_editor_surface()),
+                        .child(self.render_editor_surface(cx)),
                 )
                 .child(
                     resizable_panel()
@@ -462,7 +473,7 @@ impl Render for PhoenixShell {
                 })
                 .into_any_element()
         } else {
-            self.render_editor_surface().into_any_element()
+            self.render_editor_surface(cx).into_any_element()
         };
         let panel_group_id = match (self.left_open, self.right_open) {
             (true, true) => "shell-panels-both",
@@ -519,7 +530,7 @@ impl Render for PhoenixShell {
                             .min_h_0()
                             .flex()
                             .flex_col()
-                            .child(self.render_inspector(cx))
+                            .child(self.render_right_sidebar(cx))
                             .child(self.render_right_footer(cx)),
                     ),
             );

@@ -430,7 +430,6 @@ pub(super) struct CompletedRunInput<'a> {
     pub metrics_before: KernelMetrics,
     pub metrics_after: KernelMetrics,
     pub nli: Option<&'a PhoenixNliArtifactV1>,
-    pub coordinator: Option<&'a phoenix_analysis_contract::PhoenixProducerCoordinatorV1>,
     pub product_index: &'a PhoenixSceneProductIndexV1,
 }
 
@@ -441,7 +440,7 @@ pub(super) fn completed_receipt(
     let publication = input.graph.publication;
     let analysis_binding = input.nli.map(|artifact| &artifact.binding);
     let stages = input.analysis.map(|receipt| receipt.stages);
-    let (identity_candidates, generic_related_candidates) =
+    let (nli_identity_candidates, generic_related_candidates) =
         input.nli.map(candidate_family_counts).unwrap_or_default();
     let analyzed = input.analysis.is_some();
     let capability = |value| {
@@ -515,15 +514,21 @@ pub(super) fn completed_receipt(
                 .unwrap_or_else(AtlasCapabilityCount::unsupported),
         },
         semantics: AtlasSemanticCounts {
-            identity_candidates: capability(identity_candidates),
+            // This V1 receipt field is the identity-family partition of the
+            // NLI candidate run. Exact packed identity-page cardinality lives
+            // in `NativeSceneCompileReceiptV2`; mixing the two authorities
+            // makes the NLI family invariant unsatisfiable as soon as the
+            // native producer emits additional identity proposals.
+            identity_candidates: capability(nli_identity_candidates),
             generic_related_candidates: capability(generic_related_candidates),
-            temporal_candidates: AtlasCapabilityCount::unsupported(),
-            causal_candidates: AtlasCapabilityCount::unsupported(),
-            memory_state_candidates: AtlasCapabilityCount::unsupported(),
-            event_candidates: AtlasCapabilityCount::unsupported(),
-            contextual_cooccurrence_candidates: coordinator_count(
-                input.coordinator,
-                phoenix_analysis_contract::SemanticProduct::ContextualCoOccurrence,
+            temporal_candidates: AtlasCapabilityCount::produced(compile.temporal_candidate_count),
+            causal_candidates: AtlasCapabilityCount::produced(compile.causal_candidate_count),
+            memory_state_candidates: AtlasCapabilityCount::produced(
+                compile.memory_state_candidate_count,
+            ),
+            event_candidates: AtlasCapabilityCount::produced(compile.event_candidate_count),
+            contextual_cooccurrence_candidates: AtlasCapabilityCount::produced(
+                compile.contextual_evidence_count,
             ),
             promotions: AtlasCapabilityCount::unsupported(),
         },
@@ -587,26 +592,6 @@ fn candidate_family_counts(artifact: &PhoenixNliArtifactV1) -> (u64, u64) {
                 NliCandidateKind::Related => (identity, relationship + 1),
             },
         )
-}
-
-fn coordinator_count(
-    coordinator: Option<&phoenix_analysis_contract::PhoenixProducerCoordinatorV1>,
-    product: phoenix_analysis_contract::SemanticProduct,
-) -> AtlasCapabilityCount {
-    let Some(capability) = coordinator.and_then(|coordinator| coordinator.capability(product))
-    else {
-        return AtlasCapabilityCount::unsupported();
-    };
-    match capability.state {
-        phoenix_analysis_contract::ProducerRunState::Produced => {
-            AtlasCapabilityCount::produced(u64::from(capability.output_count.unwrap_or_default()))
-        }
-        phoenix_analysis_contract::ProducerRunState::NotRun => AtlasCapabilityCount::not_run(),
-        phoenix_analysis_contract::ProducerRunState::Unsupported => {
-            AtlasCapabilityCount::unsupported()
-        }
-        phoenix_analysis_contract::ProducerRunState::Cancelled => AtlasCapabilityCount::not_run(),
-    }
 }
 
 pub(super) fn graph_review_counts(index: &PhoenixSceneProductIndexV1) -> AtlasGraphReviewCounts {

@@ -9,10 +9,10 @@ use phoenix_document_producer::{publish_or_reuse_structural_generation, Structur
 use phoenix_entity_producer::{publish_entity_generation_new, EntityProducerInput};
 use phoenix_graph_generation_v2::{
     CandidateEvidenceBindingRecord, CandidateId, CandidateStatus, CapabilityRecord,
-    CapabilityState, CausalCandidateRecord, DecisionAction, DecisionRecord, EntityId,
-    EpisodeMembershipRecord, EpisodeRecord, EventRecord, EvidenceId, EvidenceRecord,
-    MemoryStateCandidateRecord, PageKind, ProducerProduct, TemporalCandidateRecord,
-    TypedRelationshipCandidateRecord,
+    CapabilityState, CausalCandidateRecord, ContextualEvidenceRecord, DecisionAction,
+    DecisionRecord, EntityId, EpisodeMembershipRecord, EpisodeRecord, EventRecord, EvidenceId,
+    EvidenceRecord, MemoryStateCandidateRecord, MentionRecord, PageKind, ProducerProduct,
+    TemporalCandidateRecord, TypedRelationshipCandidateRecord,
 };
 use phoenix_semantic_lens::{write_semantic_lens_pack_new, CandidateKeyBuilder, CoreSemanticClass};
 use phoenix_semantic_review::{
@@ -21,8 +21,9 @@ use phoenix_semantic_review::{
 };
 use phoenix_story_producer::{
     derive_causal_candidate_id, derive_episode_id, derive_event_id, derive_memory_candidate_id,
-    derive_relationship_candidate_id, derive_temporal_candidate_id, publish_story_generation_new,
-    story_review_catalog, CausalCandidateInput, CausalRelation, EpisodeCandidateInput,
+    derive_relationship_candidate_id, derive_temporal_candidate_id,
+    publish_deterministic_story_generation_new, publish_story_generation_new, story_review_catalog,
+    CausalCandidateInput, CausalRelation, DeterministicStoryProducerInput, EpisodeCandidateInput,
     EpisodeFamily, EpisodeMember, EpisodeMembershipInput, EventCandidateInput, EventKind,
     MemoryStateCandidateInput, MemoryStateKind, ModelIdentityInput, ModelRankingBatch,
     ModelScoreInput, ProducerRegistration, RelationshipCandidateInput, RelationshipKind,
@@ -155,6 +156,121 @@ fn every_story_output_is_proposed_and_evidence_bound() {
         lens_pack.identity(),
         phoenix_story_producer::story_lens_identity().unwrap()
     );
+}
+
+#[test]
+fn deterministic_coordinator_populates_every_supported_semantic_lane() {
+    let mut fixture = fixture();
+    let first_start = fixture.text.find("Mara warned Ivo.").unwrap() as u32;
+    let first_end = first_start + "Mara warned Ivo.".len() as u32;
+    let second_start = fixture.text.find("Ivo fled because").unwrap() as u32;
+    let second_end = fixture.text.len() as u32;
+    fixture.structural.sentences = vec![
+        AnalysisSentenceRecord {
+            start: first_start,
+            end: first_end,
+            paragraph_index: 0,
+            chapter_index: 0,
+            token_count: 3,
+            content_hash: fnv64(&fixture.text[first_start as usize..first_end as usize]),
+            quality: StructuralSentenceQuality::Complete,
+            dialogue_hint: StructuralDialogueHint::None,
+        },
+        AnalysisSentenceRecord {
+            start: second_start,
+            end: second_end,
+            paragraph_index: 0,
+            chapter_index: 0,
+            token_count: 8,
+            content_hash: fnv64(&fixture.text[second_start as usize..]),
+            quality: StructuralSentenceQuality::Complete,
+            dialogue_hint: StructuralDialogueHint::None,
+        },
+    ];
+    fixture.structural.chunks[0].sentence_end = 2;
+    for mention in &mut fixture.ner.mentions {
+        mention.sentence_index = u32::from(mention.start >= second_start);
+    }
+
+    let structural_dir = tempfile::tempdir().unwrap();
+    let entity_dir = tempfile::tempdir().unwrap();
+    let story_dir = tempfile::tempdir().unwrap();
+    let structural = publish_structure(structural_dir.path(), &fixture);
+    let entities = publish_entities(
+        entity_dir.path().join("entity.phxgg2"),
+        &fixture,
+        structural.generation(),
+    );
+    let mentions: &[MentionRecord] = entities
+        .generation()
+        .typed_page(PageKind::Mentions)
+        .unwrap();
+    let pair = mentions
+        .windows(2)
+        .find(|pair| pair[0].entity_id != pair[1].entity_id)
+        .unwrap();
+    let contextual = [ContextualEvidenceRecord {
+        source_entity_id: pair[0].entity_id,
+        target_entity_id: pair[1].entity_id,
+        source_mention_id: pair[0].id,
+        target_mention_id: pair[1].id,
+        chunk_id: pair[0].chunk_id,
+        weight_bits: 0.75_f32.to_bits(),
+        byte_distance: pair[1].start.saturating_sub(pair[0].end),
+        flags: 0,
+        reserved: 0,
+    }];
+
+    let published = publish_deterministic_story_generation_new(
+        story_dir.path().join("deterministic.phxgg2"),
+        DeterministicStoryProducerInput {
+            text: &fixture.text,
+            source: entities.generation(),
+            contextual_evidence: &contextual,
+            producer_binary_hash: [89; 32],
+            published_generation: 21,
+        },
+    )
+    .unwrap();
+    let generation = published.generation();
+
+    for page in [
+        PageKind::TypedRelationshipCandidates,
+        PageKind::Events,
+        PageKind::Episodes,
+        PageKind::EpisodeMemberships,
+        PageKind::TemporalCandidates,
+        PageKind::CausalCandidates,
+        PageKind::MemoryStateCandidates,
+        PageKind::ContextualEvidence,
+    ] {
+        assert!(generation.descriptor(page).count > 0, "{page:?} is empty");
+    }
+    assert_eq!(
+        generation.descriptor(PageKind::Decisions).count,
+        0,
+        "deterministic production cannot promote its own candidates"
+    );
+    let episodes: &[EpisodeRecord] = generation.typed_page(PageKind::Episodes).unwrap();
+    assert_ne!(
+        generation.resolve_string(episodes[0].label).unwrap(),
+        "Episode 1",
+        "episode identity must remain source-bound"
+    );
+    let capabilities: &[CapabilityRecord] = generation.typed_page(PageKind::Capabilities).unwrap();
+    for product in [
+        ProducerProduct::Relationships,
+        ProducerProduct::Events,
+        ProducerProduct::Episodes,
+        ProducerProduct::Temporal,
+        ProducerProduct::Causal,
+        ProducerProduct::MemoryState,
+        ProducerProduct::ContextualEvidence,
+    ] {
+        assert!(capabilities.iter().any(|row| {
+            row.product == product as u16 && row.state == CapabilityState::Produced as u16
+        }));
+    }
 }
 
 #[test]
@@ -353,6 +469,7 @@ fn unsupported_and_supported_empty_capabilities_are_distinct() {
                 causal: unsupported("causal/unavailable"),
                 memory_state: unsupported("memory/unavailable"),
             },
+            contextual_evidence: &[],
             model_ranking: None,
             producer_binary_hash: [61; 32],
             published_generation: 15,
@@ -428,6 +545,7 @@ fn synthetic_episode_label_and_unknown_model_score_fail_closed() {
                 causal: unsupported("causal/unavailable"),
                 memory_state: unsupported("memory/unavailable"),
             },
+            contextual_evidence: &[],
             model_ranking: None,
             producer_binary_hash: [61; 32],
             published_generation: 15,
@@ -662,6 +780,7 @@ fn publish_full_story(
                     rules: &memory_rules,
                 },
             },
+            contextual_evidence: &[],
             model_ranking: ranking,
             producer_binary_hash: [61; 32],
             published_generation: 15,
@@ -692,6 +811,7 @@ fn publish_empty_with_ranking(
                 causal: unsupported("causal/unavailable"),
                 memory_state: unsupported("memory/unavailable"),
             },
+            contextual_evidence: &[],
             model_ranking: Some(ModelRankingBatch {
                 model: ModelIdentityInput {
                     name: "fixture/story-ranker",

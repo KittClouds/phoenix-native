@@ -7,21 +7,29 @@ use phoenix_entity_producer::{
     entity_review_catalog, publish_entity_generation_new, EntityProducerInput,
     IdentityCandidateInput, IdentityCandidateKind, UserTaggedEntityInput, UserTaggedMentionInput,
 };
-use phoenix_graph_generation_v2::{CandidateId, EntityId, MentionId, VerifiedGraphGenerationV2};
+use phoenix_graph_generation_v2::{
+    CandidateId, CapabilityRecord, CapabilityState, ContextualEvidenceRecord, EntityId, MentionId,
+    MentionRecord, ModelIdentityRecord, PageKind, ProducerProduct, VerifiedGraphGenerationV2,
+};
 use phoenix_semantic_review::ReviewCatalog;
-use phoenix_story_producer::story_review_catalog;
+use phoenix_story_producer::{
+    publish_deterministic_story_generation_new, story_review_catalog,
+    DeterministicStoryProducerInput,
+};
 use std::collections::BTreeMap;
 use std::fs;
 
 #[cfg(test)]
 use phoenix_graph_generation_v2::{
     write_generation_new, ChapterRecord, ChunkRecord, DocumentRecord, EntityRecord, EvidenceRecord,
-    GenerationPages, GenerationWriteAuthority, MentionRecord, ParagraphRecord, SentenceRecord,
-    StringRef, StructuralEdgeRecord,
+    GenerationPages, GenerationWriteAuthority, ParagraphRecord, SentenceRecord, StringRef,
+    StructuralEdgeRecord,
 };
 
 const AUTHORITY_DIRECTORY: &str = "graph-authority-v2";
 const MAX_AUTHORITY_GENERATIONS: usize = 4_096;
+const SEMANTIC_AUTHORITY_CONTRACT: &str =
+    "phoenix-app-core/semantic-authority-v3/evidence-bound-full-lanes-v1";
 
 #[derive(Debug)]
 pub(super) struct ProductionSceneAuthorityV2 {
@@ -81,14 +89,14 @@ pub(super) fn produce(
         })
         .collect::<Vec<_>>();
     let source = structural_generation.generation();
-    let path = root.join("generations").join(entity_file_name(
+    let entity_path = root.join("generations").join(entity_file_name(
         lease,
         registry.revision(),
         binding.analysis_generation,
     ));
-    let generation = if path.is_file() {
-        let opened = VerifiedGraphGenerationV2::open(&path)?;
-        verify_existing(
+    let entity_generation = if entity_path.is_file() {
+        let opened = VerifiedGraphGenerationV2::open(&entity_path)?;
+        verify_existing_entity(
             &opened,
             source,
             lease,
@@ -98,7 +106,7 @@ pub(super) fn produce(
         opened
     } else {
         publish_entity_generation_new(
-            &path,
+            &entity_path,
             EntityProducerInput {
                 text: &lease.content,
                 structural: source,
@@ -108,6 +116,33 @@ pub(super) fn produce(
                 merge_decisions: &[],
                 identity_candidates: &candidates,
                 published_generation: source
+                    .header()
+                    .published_generation
+                    .checked_add(1)
+                    .ok_or(KernelError::AnalysisAuthorityMismatch)?,
+            },
+        )?
+        .into_generation()
+    };
+    let semantic_path = root.join("generations").join(semantic_file_name(
+        lease,
+        registry.revision(),
+        binding.analysis_generation,
+    ));
+    let generation = if semantic_path.is_file() {
+        let opened = VerifiedGraphGenerationV2::open(&semantic_path)?;
+        verify_existing_semantic(&opened, &entity_generation)?;
+        opened
+    } else {
+        let contextual_evidence = contextual_evidence(coordinator, &entity_generation)?;
+        publish_deterministic_story_generation_new(
+            &semantic_path,
+            DeterministicStoryProducerInput {
+                text: &lease.content,
+                source: &entity_generation,
+                contextual_evidence: &contextual_evidence,
+                producer_binary_hash: semantic_authority_hash(),
+                published_generation: entity_generation
                     .header()
                     .published_generation
                     .checked_add(1)
@@ -177,6 +212,7 @@ pub(super) fn open_exact(
         {
             return Err(KernelError::AnalysisAuthorityMismatch);
         }
+        verify_reopen_contract(&generation)?;
         return authority_from_generation(generation);
     }
     Err(KernelError::MissingV2CompilerAuthority)
@@ -218,7 +254,7 @@ fn entity_file_name(
     producer_generation: u64,
 ) -> String {
     format!(
-        "{:016x}-r{}-rr{}-g{}-{}.pgg2",
+        "{:016x}-r{}-rr{}-g{}-{}-entity-v2.pgg2",
         lease.entry_id.0,
         lease.revision.0,
         registry_revision,
@@ -227,7 +263,22 @@ fn entity_file_name(
     )
 }
 
-fn verify_existing(
+fn semantic_file_name(
+    lease: &DocumentLease,
+    registry_revision: u64,
+    producer_generation: u64,
+) -> String {
+    format!(
+        "{:016x}-r{}-rr{}-g{}-{}-semantic-v3.pgg2",
+        lease.entry_id.0,
+        lease.revision.0,
+        registry_revision,
+        producer_generation,
+        short_hash(lease.content_hash.0)
+    )
+}
+
+fn verify_existing_entity(
     generation: &VerifiedGraphGenerationV2,
     structural: &VerifiedGraphGenerationV2,
     lease: &DocumentLease,
@@ -250,6 +301,144 @@ fn verify_existing(
         return Err(KernelError::AnalysisAuthorityMismatch);
     }
     Ok(())
+}
+
+fn verify_existing_semantic(
+    generation: &VerifiedGraphGenerationV2,
+    entity_generation: &VerifiedGraphGenerationV2,
+) -> Result<(), KernelError> {
+    let header = generation.header();
+    if header.native_document_id != entity_generation.header().native_document_id
+        || header.document_revision != entity_generation.header().document_revision
+        || header.content_hash != entity_generation.header().content_hash
+        || header.registry_revision != entity_generation.header().registry_revision
+        || header.producer_generation != entity_generation.header().producer_generation
+        || header.published_generation
+            != entity_generation
+                .header()
+                .published_generation
+                .checked_add(1)
+                .ok_or(KernelError::AnalysisAuthorityMismatch)?
+    {
+        return Err(KernelError::AnalysisAuthorityMismatch);
+    }
+    verify_semantic_contract(generation)
+}
+
+fn semantic_authority_hash() -> [u8; 32] {
+    *blake3::hash(SEMANTIC_AUTHORITY_CONTRACT.as_bytes()).as_bytes()
+}
+
+fn verify_semantic_contract(generation: &VerifiedGraphGenerationV2) -> Result<(), KernelError> {
+    let capabilities: &[CapabilityRecord] = generation.typed_page(PageKind::Capabilities)?;
+    let models: &[ModelIdentityRecord] = generation.typed_page(PageKind::ModelIdentities)?;
+    let expected_hash = semantic_authority_hash();
+    for (product, expected_producer) in [
+        (
+            ProducerProduct::Relationships,
+            phoenix_story_producer::RELATIONSHIP_PRODUCER,
+        ),
+        (
+            ProducerProduct::Events,
+            phoenix_story_producer::EVENT_PRODUCER,
+        ),
+        (
+            ProducerProduct::Episodes,
+            phoenix_story_producer::EPISODE_PRODUCER,
+        ),
+        (
+            ProducerProduct::Temporal,
+            phoenix_story_producer::TEMPORAL_PRODUCER,
+        ),
+        (
+            ProducerProduct::Causal,
+            phoenix_story_producer::CAUSAL_PRODUCER,
+        ),
+        (
+            ProducerProduct::MemoryState,
+            phoenix_story_producer::MEMORY_PRODUCER,
+        ),
+        (
+            ProducerProduct::ContextualEvidence,
+            "phoenix-contextual-evidence/v1",
+        ),
+    ] {
+        let row = capabilities
+            .iter()
+            .rev()
+            .find(|row| row.product == product as u16)
+            .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+        let model = models
+            .get(row.model_identity_index as usize)
+            .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+        if row.state != CapabilityState::Produced as u16
+            || generation.resolve_string(row.producer)? != expected_producer
+            || model.artifact_hash != expected_hash
+        {
+            return Err(KernelError::AnalysisAuthorityMismatch);
+        }
+    }
+    Ok(())
+}
+
+fn verify_reopen_contract(generation: &VerifiedGraphGenerationV2) -> Result<(), KernelError> {
+    #[cfg(test)]
+    if generation.descriptor(PageKind::Capabilities).count == 0 {
+        return Ok(());
+    }
+    verify_semantic_contract(generation)
+}
+
+fn contextual_evidence(
+    coordinator: &PhoenixProducerCoordinatorV1,
+    generation: &VerifiedGraphGenerationV2,
+) -> Result<Vec<ContextualEvidenceRecord>, KernelError> {
+    let mentions: &[MentionRecord] = generation.typed_page(PageKind::Mentions)?;
+    let chunks: &[phoenix_graph_generation_v2::ChunkRecord] =
+        generation.typed_page(PageKind::Chunks)?;
+    let mention_index = mentions
+        .iter()
+        .map(|row| (row.id, row))
+        .collect::<BTreeMap<_, _>>();
+    let mut output = Vec::with_capacity(coordinator.contextual_evidence_bindings.len());
+    for binding in &coordinator.contextual_evidence_bindings {
+        let source = mention_index
+            .get(&binding.source_mention_id)
+            .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+        let target = mention_index
+            .get(&binding.target_mention_id)
+            .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+        let chunk = chunks
+            .get(binding.chunk_index as usize)
+            .ok_or(KernelError::AnalysisAuthorityMismatch)?;
+        if source.entity_id != binding.source_entity_id
+            || target.entity_id != binding.target_entity_id
+            || source.chunk_id != chunk.id
+            || target.chunk_id != chunk.id
+        {
+            return Err(KernelError::AnalysisAuthorityMismatch);
+        }
+        let distance = if source.end <= target.start {
+            target.start - source.end
+        } else {
+            source.start.saturating_sub(target.end)
+        };
+        let weight = 1.0_f32 / (1.0 + distance as f32 / 64.0);
+        output.push(ContextualEvidenceRecord {
+            source_entity_id: source.entity_id,
+            target_entity_id: target.entity_id,
+            source_mention_id: source.id,
+            target_mention_id: target.id,
+            chunk_id: chunk.id,
+            weight_bits: weight.to_bits(),
+            byte_distance: distance,
+            flags: 0,
+            reserved: 0,
+        });
+    }
+    output.sort_unstable_by_key(|row| (row.chunk_id, row.source_mention_id, row.target_mention_id));
+    output.dedup_by_key(|row| (row.chunk_id, row.source_mention_id, row.target_mention_id));
+    Ok(output)
 }
 
 fn identity_candidates(

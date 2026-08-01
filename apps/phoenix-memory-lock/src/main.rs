@@ -107,6 +107,19 @@ fn run() -> Result<()> {
             let receipt = qps_qualification::run(&args.required_path("--suite")?, repetitions)?;
             print_json(&receipt)
         }
+        "qps-learned-qualify" => {
+            let repetitions = args
+                .optional("--repetitions")
+                .unwrap_or("128")
+                .parse::<usize>()
+                .context("--repetitions must be an integer")?;
+            let receipt = qps_qualification::run_learned(
+                &args.required_path("--suite")?,
+                &args.required_path("--output")?,
+                repetitions,
+            )?;
+            print_json(&receipt)
+        }
         "qps-concurrent" => {
             let workers = parse_worker_counts(args.optional("--workers").unwrap_or("1,2,4,8,16"))?;
             let operations_per_worker = args
@@ -162,7 +175,7 @@ fn run() -> Result<()> {
         }
         _ => bail!(
             "unknown command {command:?}; expected verify, prepare, baseline, native-recall, \
-             qps-shadow, qps-qualify, qps-concurrent, qps-concurrent-workload, \
+             qps-shadow, qps-qualify, qps-learned-qualify, qps-concurrent, qps-concurrent-workload, \
              or evaluate"
         ),
     }

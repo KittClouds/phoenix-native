@@ -4,26 +4,17 @@ use std::time::Duration;
 
 use gpui::*;
 
-use super::{Editor, TableAxisSelection, ViewMode};
-use crate::components::{DismissTransientUi, TableAxisKind, TableColumnAlignment, TableData};
+use super::{BlockCommand, BlockInsert, BlockInsertTarget, Editor, TableAxisSelection, ViewMode};
+use crate::components::{DismissTransientUi, TableAxisKind, TableColumnAlignment};
 use crate::i18n::I18nManager;
 use crate::theme::Theme;
-
-/// Target block position for inserting a native table.
-#[derive(Clone, Copy)]
-pub(super) enum TableInsertTarget {
-    /// Insert the table immediately after the referenced block.
-    After(EntityId),
-    /// Append the table to the end of the current root list.
-    Append,
-}
 
 /// Rendered-mode context menu currently open in the editor.
 pub(super) enum ContextMenuState {
     /// General block context menu with an insert submenu.
     Insert {
         position: Point<Pixels>,
-        target: TableInsertTarget,
+        target: BlockInsertTarget,
         insert_hovered: bool,
         submenu_hovered: bool,
         submenu_open: bool,
@@ -37,7 +28,7 @@ pub(super) enum ContextMenuState {
 
 /// State for the table insertion dialog opened from the context menu.
 pub(super) struct TableInsertDialogState {
-    pub target: TableInsertTarget,
+    pub target: BlockInsertTarget,
     pub body_rows: usize,
     pub columns: usize,
 }
@@ -57,7 +48,7 @@ impl Editor {
     fn open_insert_context_menu(
         &mut self,
         position: Point<Pixels>,
-        target: TableInsertTarget,
+        target: BlockInsertTarget,
         cx: &mut Context<Self>,
     ) {
         if self.view_mode != ViewMode::Rendered {
@@ -213,7 +204,7 @@ impl Editor {
             return;
         }
         cx.stop_propagation();
-        self.open_insert_context_menu(event.position, TableInsertTarget::Append, cx);
+        self.open_insert_context_menu(event.position, BlockInsertTarget::Append, cx);
     }
 
     pub(super) fn on_block_context_menu_mouse_down(
@@ -238,7 +229,7 @@ impl Editor {
         if !allows_insert {
             return;
         }
-        let target = TableInsertTarget::After(self.root_ancestor_entity_id(entity_id));
+        let target = BlockInsertTarget::After(self.root_ancestor_entity_id(entity_id));
         self.open_insert_context_menu(event.position, target, cx);
     }
 
@@ -294,6 +285,34 @@ impl Editor {
             columns: 2,
         });
         cx.notify();
+    }
+
+    pub(super) fn on_insert_simulated_agent_response(
+        &mut self,
+        _event: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ContextMenuState::Insert { target, .. }) = self.context_menu.take() else {
+            return;
+        };
+        self.context_menu_submenu_close_task = None;
+        let target = match target {
+            BlockInsertTarget::After(entity_id) => Some(entity_id),
+            BlockInsertTarget::Append => self
+                .document
+                .visible_blocks()
+                .last()
+                .map(|visible| visible.entity.entity_id()),
+        };
+        let Some(target) = target else {
+            return;
+        };
+        let _ = self.simulate_agent_response_after_block(
+            target,
+            "This is a simulated agent response. It was inserted through the same typed editor boundary a future provider will use.",
+            cx,
+        );
     }
 
     pub(super) fn on_table_rows_decrement(
@@ -363,54 +382,16 @@ impl Editor {
             return;
         };
 
-        let table = TableData::new_empty(dialog.body_rows, dialog.columns);
-        let new_block = Self::new_table_block(cx, table);
-
-        match dialog.target {
-            TableInsertTarget::After(entity_id) => {
-                if let Some(location) = self.document.find_block_location(entity_id) {
-                    self.document.insert_blocks_at(
-                        location.parent,
-                        location.index + 1,
-                        vec![new_block.clone()],
-                        cx,
-                    );
-                } else {
-                    self.document.insert_blocks_at(
-                        None,
-                        self.document.root_count(),
-                        vec![new_block.clone()],
-                        cx,
-                    );
-                }
-            }
-            TableInsertTarget::Append => {
-                self.document.insert_blocks_at(
-                    None,
-                    self.document.root_count(),
-                    vec![new_block.clone()],
-                    cx,
-                );
-            }
-        }
-
-        // A table inserted as the last block in its container leaves no line
-        // below it, so in rendered mode the caret cannot move past the table.
-        // Add a trailing empty paragraph to land on when nothing follows it.
-        self.ensure_trailing_paragraph_after_structural(&new_block, cx);
-
-        self.rebuild_table_runtimes(cx);
-        if let Some(first_cell) = new_block
-            .read(cx)
-            .table_runtime
-            .as_ref()
-            .and_then(|runtime| runtime.header.first())
-        {
-            self.focus_block(first_cell.entity_id());
-        }
-        self.mark_dirty(cx);
-        self.request_active_block_scroll_into_view(cx);
-        cx.notify();
+        let _ = self.execute_block_command(
+            BlockCommand::Insert {
+                target: dialog.target,
+                insert: BlockInsert::Table {
+                    body_rows: dialog.body_rows,
+                    columns: dialog.columns,
+                },
+            },
+            cx,
+        );
     }
 
     fn active_axis_menu_selection(&self) -> Option<TableAxisSelection> {
@@ -740,6 +721,24 @@ impl Editor {
                             cx.stop_propagation()
                         })
                         .on_hover(cx.listener(Self::on_context_menu_submenu_hover))
+                        .child(
+                            div()
+                                .id("editor-context-menu-insert-agent-simulation")
+                                .h(px(d.menu_item_height))
+                                .px(px(d.menu_item_padding_x))
+                                .flex()
+                                .items_center()
+                                .rounded(px(d.menu_item_radius))
+                                .bg(c.dialog_surface)
+                                .hover(|this| this.bg(c.dialog_secondary_button_hover))
+                                .active(|this| this.opacity(0.92))
+                                .cursor_pointer()
+                                .text_size(px(d.menu_text_size))
+                                .font_weight(t.dialog_body_weight.to_font_weight())
+                                .text_color(c.dialog_secondary_button_text)
+                                .child("AI response (simulated)")
+                                .on_click(cx.listener(Self::on_insert_simulated_agent_response)),
+                        )
                         .child(
                             div()
                                 .id("editor-context-menu-insert-table")
@@ -1242,7 +1241,7 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
-    use super::{ContextMenuState, Editor, TableInsertTarget};
+    use super::{BlockInsertTarget, ContextMenuState, Editor};
     use gpui::{AppContext, Point, TestAppContext, px};
 
     #[gpui::test]
@@ -1255,7 +1254,7 @@ mod tests {
                     x: px(24.0),
                     y: px(24.0),
                 },
-                TableInsertTarget::Append,
+                BlockInsertTarget::Append,
                 cx,
             );
 

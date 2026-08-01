@@ -338,26 +338,22 @@ fn validate_contextual_evidence_bindings(
         .map(|mention| (mention.mention_id, mention))
         .collect::<BTreeMap<_, _>>();
     let mut expected_per_chunk = vec![BTreeMap::<u64, u64>::new(); structural.chunks.len()];
-    for accepted in analysis
-        .ner
-        .mentions
-        .iter()
-        .filter(|mention| mention.accepted)
-    {
+    // Analysis artifacts contain only exportable mentions.  `accepted` is a
+    // semantic-promotion verdict, while this page is contextual evidence only.
+    // Requiring promotion here would erase valid alias-candidate evidence.
+    for exported in &analysis.ner.mentions {
         let chunk_index = structural
             .chunks
-            .partition_point(|chunk| chunk.end <= accepted.start);
-        let chunk = structural
-            .chunks
-            .get(chunk_index)
-            .ok_or("accepted mention has no contextual chunk")?;
-        if chunk.start > accepted.start || chunk.end < accepted.end {
-            return Err("accepted mention crosses its contextual chunk");
-        }
+            .iter()
+            .enumerate()
+            .filter(|(_, chunk)| chunk.start <= exported.start && exported.end <= chunk.end)
+            .min_by_key(|(ordinal, chunk)| (chunk.end - chunk.start, *ordinal))
+            .map(|(ordinal, _)| ordinal)
+            .ok_or("exported mention has no contextual chunk")?;
         expected_per_chunk[chunk_index]
-            .entry(accepted.entity_id)
-            .and_modify(|mention_id| *mention_id = (*mention_id).min(accepted.mention_id))
-            .or_insert(accepted.mention_id);
+            .entry(exported.entity_id)
+            .and_modify(|mention_id| *mention_id = (*mention_id).min(exported.mention_id))
+            .or_insert(exported.mention_id);
     }
     let mut expected_bindings = BTreeSet::new();
     for (chunk_index, entities) in expected_per_chunk.iter().enumerate() {
@@ -389,8 +385,6 @@ fn validate_contextual_evidence_bindings(
         if evidence.source_entity_id >= evidence.target_entity_id
             || source.entity_id != evidence.source_entity_id
             || target.entity_id != evidence.target_entity_id
-            || !source.accepted
-            || !target.accepted
             || chunk.start > source.start.min(target.start)
             || chunk.end < source.end.max(target.end)
             || !bindings.insert((
@@ -401,7 +395,7 @@ fn validate_contextual_evidence_bindings(
                 evidence.target_mention_id,
             ))
         {
-            return Err("contextual candidate is not bound to exact accepted evidence");
+            return Err("contextual candidate is not bound to exact exported evidence");
         }
         pairs.insert((evidence.source_entity_id, evidence.target_entity_id));
     }
@@ -485,6 +479,11 @@ mod tests {
     #[test]
     fn coordinator_is_evidence_bound_and_never_promotes_generic_related() {
         let (analysis, structural) = fixture();
+        assert!(analysis
+            .ner
+            .mentions
+            .iter()
+            .all(|mention| !mention.accepted));
         let mut coordinator = preliminary(&analysis, &structural);
         coordinator
             .validate_preliminary(&analysis, &structural)
@@ -559,6 +558,43 @@ mod tests {
         assert!(missing_context
             .validate_final(&analysis, &structural)
             .is_err());
+    }
+
+    #[test]
+    fn contextual_evidence_uses_the_smallest_overlapping_chunk() {
+        let (mut analysis, mut structural) = fixture();
+        analysis.ner.mentions[0].start = 8;
+        analysis.ner.mentions[0].end = 9;
+        analysis.ner.mentions[1].start = 10;
+        analysis.ner.mentions[1].end = 11;
+        structural.chunks.push(AnalysisChunkRecord {
+            start: 8,
+            end: 12,
+            sentence_start: 0,
+            sentence_end: 1,
+            paragraph_start: 0,
+            paragraph_end: 1,
+            chapter_index: crate::NO_STRUCTURAL_PARENT,
+            token_count: 2,
+            content_hash: 6,
+            dialogue_hint: StructuralDialogueHint::None,
+        });
+        let mut coordinator = preliminary(&analysis, &structural);
+        coordinator
+            .finalize(
+                2,
+                vec![ContextualEvidenceBinding {
+                    source_entity_id: 11,
+                    target_entity_id: 12,
+                    source_mention_id: 101,
+                    target_mention_id: 102,
+                    chunk_index: 1,
+                }],
+            )
+            .expect("finalize contextual evidence");
+        coordinator
+            .validate_final(&analysis, &structural)
+            .expect("shortest containing chunk is canonical");
     }
 
     fn preliminary(
@@ -715,7 +751,7 @@ mod tests {
                         end: 5,
                         sentence_index: 0,
                         confidence: 1.0,
-                        accepted: true,
+                        accepted: false,
                     },
                     AnalysisMention {
                         mention_id: 102,
@@ -724,7 +760,7 @@ mod tests {
                         end: 10,
                         sentence_index: 0,
                         confidence: 1.0,
-                        accepted: true,
+                        accepted: false,
                     },
                 ],
                 receipt,

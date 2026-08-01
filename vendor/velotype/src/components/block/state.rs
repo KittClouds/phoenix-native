@@ -15,6 +15,42 @@ use crate::components::markdown::image::parse_standalone_image;
 use crate::components::markdown::inline::InlineTextTree;
 use crate::components::{TableAxisKind, TableData};
 
+/// Stable origin metadata for an ordinary document block.
+///
+/// Origin is deliberately orthogonal to [`BlockKind`]. Agent-authored text can
+/// therefore remain a paragraph, heading, list item, or any other native block
+/// without introducing a second message/document model. Markdown serialization
+/// ignores this metadata; the Phoenix host may persist it in its sidecar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockOrigin {
+    Human,
+    Agent(AgentBlockOrigin),
+}
+
+/// Presentation lifecycle for an agent-authored block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentBlockState {
+    /// Newly inserted output awaiting a human disposition.
+    Provisional,
+    /// Retained as a visibly agent-authored response.
+    Committed,
+    /// Adopted into normal prose while retaining historical provenance.
+    Adopted,
+    /// Retained for lineage but no longer the active branch.
+    Superseded,
+}
+
+/// Immutable receipt attached to every block emitted by one invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentBlockOrigin {
+    pub invocation_id: Uuid,
+    pub turn_id: Uuid,
+    pub model: SharedString,
+    pub context_digest: [u8; 32],
+    pub state: AgentBlockState,
+    pub group_ordinal: u32,
+}
+
 /// Supported callout variants parsed from `[!TYPE]` quote headers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CalloutVariant {
@@ -485,6 +521,7 @@ impl BlockKind {
 pub struct BlockRecord {
     pub id: Uuid,
     pub kind: BlockKind,
+    pub origin: BlockOrigin,
     pub title: InlineTextTree,
     pub table: Option<TableData>,
     pub html: Option<HtmlDocument>,
@@ -498,6 +535,7 @@ impl BlockRecord {
         let mut record = Self {
             id: Uuid::new_v4(),
             kind,
+            origin: BlockOrigin::Human,
             title,
             table: None,
             html: None,
@@ -727,6 +765,11 @@ pub enum PastedImageSource {
 /// `cx.subscribe(&block, Self::on_block_event)`.
 #[derive(Debug, Clone)]
 pub enum BlockEvent {
+    /// Apply a human disposition to every block emitted by this invocation.
+    RequestAgentDisposition {
+        invocation_id: Uuid,
+        disposition: AgentBlockDisposition,
+    },
     /// The native text selection changed without mutating document content.
     /// The parent editor uses this allocation-free signal to refresh anchored
     /// selection UI; the block remains the sole selection owner.
@@ -844,6 +887,13 @@ pub enum BlockEvent {
     /// The user clicked this block; notify siblings so they re-render
     /// in display mode.
     RequestFocus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentBlockDisposition {
+    KeepAsResponse,
+    ConvertToProse,
+    Remove,
 }
 
 /// Undo coalescing category captured before a mutation.

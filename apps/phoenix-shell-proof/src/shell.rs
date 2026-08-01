@@ -6,6 +6,8 @@ mod footer;
 mod graph_controls;
 mod graph_viewport;
 mod highlights;
+mod kammi;
+mod shell_state;
 mod style_hub;
 mod view;
 
@@ -64,6 +66,7 @@ pub struct PhoenixShell {
     graph_geometry: Rc<Cell<Option<ViewportGeometry>>>,
     scene_error: Option<ResidentSceneLoadError>,
     graph_init_error: Option<String>,
+    graph_host_start_pending: bool,
     graph_rebuild_pending: bool,
     graph_provenance: Option<GraphProvenanceReceipt>,
     proof_pending: bool,
@@ -71,10 +74,12 @@ pub struct PhoenixShell {
     expanded: HashSet<EntryId>,
     name_input: Entity<InputState>,
     atlas_search: Entity<InputState>,
+    kammi_prompt: Entity<InputState>,
     edit_mode: EditMode,
     delete_armed: Option<EntryId>,
     left_open: bool,
     right_open: bool,
+    right_sidebar_page: kammi::RightSidebarPage,
     left_sidebar_width: f32,
     right_sidebar_width: f32,
     drawer_layout: drawer::DrawerLayout,
@@ -118,6 +123,9 @@ impl PhoenixShell {
         let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Name this item..."));
         let atlas_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search canonical entities..."));
+        let kammi_prompt = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("Describe a response to simulate...")
+        });
         let atlas_control_focus = atlas_control::focus_handle(cx);
         cx.subscribe(
             &atlas_search,
@@ -128,6 +136,23 @@ impl PhoenixShell {
             },
         )
         .detach();
+        let restored_shell_state = match shell_state::ShellStateV1::load(kernel.workspace_path()) {
+            Ok(state) => state,
+            Err(error) => {
+                eprintln!("PHOENIX_SHELL_STATE_IGNORED {error:#}");
+                None
+            }
+        };
+        if let Some(state) = restored_shell_state.as_ref() {
+            if let Ok(snapshot) = kernel.snapshot() {
+                let restored_view = state.rebind_graph_view(snapshot.graph_view.authority);
+                if let Err(error) =
+                    kernel.execute(KernelCommand::SetGraphView(Box::new(restored_view)))
+                {
+                    eprintln!("PHOENIX_SHELL_VIEW_STATE_IGNORED {error}");
+                }
+            }
+        }
         let editor_lease = kernel
             .snapshot()
             .ok()
@@ -139,6 +164,12 @@ impl PhoenixShell {
         let document_metrics = footer::DocumentMetrics::from_text(&initial_markdown);
         let editor = cx.new(|cx| velotype::Editor::embedded_from_markdown(cx, initial_markdown));
         cx.subscribe(&editor, Self::on_editor_event).detach();
+        let restored_layout = restored_shell_state
+            .as_ref()
+            .map(shell_state::ShellStateV1::drawer_layout)
+            .unwrap_or_else(|| {
+                drawer::DrawerLayout::new(proof_mode || soak_mode || design_preview)
+            });
         let mut shell = Self {
             kernel,
             editor,
@@ -149,6 +180,7 @@ impl PhoenixShell {
             graph_init_error: parent
                 .is_none()
                 .then(|| "GPUI parent window handle is unavailable".into()),
+            graph_host_start_pending: false,
             graph_rebuild_pending: false,
             graph_provenance: None,
             proof_pending: proof_mode || soak_mode,
@@ -156,16 +188,40 @@ impl PhoenixShell {
             expanded,
             name_input,
             atlas_search,
+            kammi_prompt,
             edit_mode: EditMode::CreateNote,
             delete_armed: None,
-            left_open: true,
-            right_open: true,
-            left_sidebar_width: LEFT_SIDEBAR_INITIAL_WIDTH,
-            right_sidebar_width: RIGHT_SIDEBAR_INITIAL_WIDTH,
-            drawer_layout: drawer::DrawerLayout::new(proof_mode || soak_mode || design_preview),
+            left_open: restored_shell_state
+                .as_ref()
+                .is_none_or(|state| state.left_open),
+            right_open: restored_shell_state
+                .as_ref()
+                .is_none_or(|state| state.right_open),
+            right_sidebar_page: restored_shell_state
+                .as_ref()
+                .map_or(kammi::RightSidebarPage::Inspector, |state| {
+                    state.right_sidebar_page
+                }),
+            left_sidebar_width: restored_shell_state
+                .as_ref()
+                .map_or(LEFT_SIDEBAR_INITIAL_WIDTH, |state| {
+                    state.left_sidebar_width()
+                }),
+            right_sidebar_width: restored_shell_state
+                .as_ref()
+                .map_or(RIGHT_SIDEBAR_INITIAL_WIDTH, |state| {
+                    state.right_sidebar_width()
+                }),
+            drawer_layout: restored_layout,
             drawer_resize_state: cx.new(|_| ResizableState::default()),
-            drawer_tab: drawer::DrawerTab::Graph,
-            graph_sidebar_panel: style_hub::GraphSidebarPanel::Registry,
+            drawer_tab: restored_shell_state
+                .as_ref()
+                .map_or(drawer::DrawerTab::Graph, |state| state.drawer_tab),
+            graph_sidebar_panel: restored_shell_state
+                .as_ref()
+                .map_or(style_hub::GraphSidebarPanel::Registry, |state| {
+                    state.graph_sidebar_panel
+                }),
             atlas_control_section: atlas_control::AtlasControlSection::Overview,
             atlas_control_focus,
             atlas_selected_candidate: None,
@@ -179,7 +235,17 @@ impl PhoenixShell {
                 shell.start_graph_host(parent, window, cx);
             }
         }
+        let shell_entity = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |_, cx| {
+            shell_entity
+                .update(cx, |this, _| {
+                    this.save_shell_state();
+                    true
+                })
+                .unwrap_or(true)
+        });
         cx.on_app_quit(|this, cx| {
+            this.save_shell_state();
             let graph = this.graph.borrow_mut().take();
             let background = cx.background_executor().clone();
             async move {
@@ -195,12 +261,24 @@ impl PhoenixShell {
         shell
     }
 
+    fn save_shell_state(&self) {
+        if let Err(error) =
+            shell_state::ShellStateV1::capture(self).save(self.kernel.workspace_path())
+        {
+            eprintln!("PHOENIX_SHELL_STATE_SAVE_FAILED {error:#}");
+        }
+    }
+
     fn start_graph_host(
         &mut self,
         parent: crate::graph_window::ParentWindowHandle,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.graph_host_start_pending || self.graph.borrow().is_some() {
+            return;
+        }
+        self.graph_host_start_pending = true;
         let kernel = Arc::clone(&self.kernel);
         let (ui_sender, ui_receiver) = async_channel::bounded(1);
         cx.spawn(async move |shell, async_cx| {
@@ -226,6 +304,7 @@ impl PhoenixShell {
                 })
                 .await;
             if let Err(error) = shell.update(async_cx, |this, cx| {
+                this.graph_host_start_pending = false;
                 match result {
                     Ok(graph) => {
                         let (node_count, edge_count) = graph.inventory();

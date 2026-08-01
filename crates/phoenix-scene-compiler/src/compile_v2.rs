@@ -2,16 +2,18 @@ use crate::v2_projection::{projection_id, EdgeDraft, NodeDraft, ProjectionBuilde
 use crate::{NativeSceneCompilerError, VerifiedStructuralSource};
 use hashbrown::HashMap;
 use phoenix_graph_generation_v2::{
-    CandidateId, CandidateStatus, ChunkRecord, DecisionAction, DecisionRecord, EntityRecord,
-    EpisodeMemberKind, EpisodeMembershipRecord, EpisodeRecord, EventRecord, EvidenceRecord,
-    IdentityCandidateRecord, MemoryStateCandidateRecord, PageKind, PublicationReceiptRecord,
-    StructuralEdgeRecord, TemporalCandidateRecord, TypedRelationshipCandidateRecord,
-    VerifiedGraphGenerationV2,
+    CandidateEvidenceBindingRecord, CandidateId, CandidateStatus, ChunkRecord, DecisionAction,
+    DecisionRecord, EntityRecord, EpisodeMemberKind, EpisodeMembershipRecord, EpisodeRecord,
+    EventRecord, EvidenceRecord, IdentityCandidateRecord, MemoryStateCandidateRecord, PageKind,
+    PublicationReceiptRecord, StructuralEdgeRecord, TemporalCandidateRecord,
+    TypedRelationshipCandidateRecord, VerifiedGraphGenerationV2,
 };
 use phoenix_scene_contract::{
     CapsRole, EntityFamily, EntityKind, FamilyMask, HighlightPalette, RelationFamily, ReviewMask,
-    ScopeMask, CHUNK_NODE_KIND, DOCUMENT_NODE_KIND, EPISODE_NODE_KIND, EVENT_NODE_KIND,
-    EVIDENCE_NODE_KIND,
+    ScopeMask, CAUSAL_MIDPOINT_NODE_KIND, CHUNK_NODE_KIND, CONTEXTUAL_MIDPOINT_NODE_KIND,
+    DOCUMENT_NODE_KIND, EPISODE_NODE_KIND, EVENT_NODE_KIND, EVIDENCE_NODE_KIND,
+    IDENTITY_MIDPOINT_NODE_KIND, MEMORY_STATE_NODE_KIND, RELATIONSHIP_FACT_NODE_KIND,
+    TEMPORAL_MIDPOINT_NODE_KIND,
 };
 use phoenix_scene_product_index::ProductReferenceRecord;
 use phoenix_scene_publisher::NativeScenePublication;
@@ -47,7 +49,14 @@ pub struct NativeSceneCompileReceiptV2 {
     pub edge_count: u64,
     pub accepted_semantic_edges: u64,
     pub candidate_overlay_edges: u64,
+    pub identity_candidate_count: u64,
+    pub relationship_candidate_count: u64,
+    pub event_candidate_count: u64,
     pub episode_count: u64,
+    pub temporal_candidate_count: u64,
+    pub causal_candidate_count: u64,
+    pub memory_state_candidate_count: u64,
+    pub contextual_evidence_count: u64,
     pub compile_micros: u64,
 }
 
@@ -226,6 +235,8 @@ pub fn compile_graph_generation_v2(
     let review = ReviewAuthority::open(input.generation, input.review_catalog)?;
     let entities: &[EntityRecord] = typed(input.generation, PageKind::Entities)?;
     let evidence: &[EvidenceRecord] = typed(input.generation, PageKind::Evidence)?;
+    let candidate_evidence: &[CandidateEvidenceBindingRecord] =
+        typed(input.generation, PageKind::CandidateEvidenceBindings)?;
     let events: &[EventRecord] = typed(input.generation, PageKind::Events)?;
     let episodes: &[EpisodeRecord] = typed(input.generation, PageKind::Episodes)?;
     let memberships: &[EpisodeMembershipRecord] =
@@ -256,14 +267,16 @@ pub fn compile_graph_generation_v2(
         + entities.len()
         + evidence.len()
         + events.len()
-        + episodes.len();
+        + episodes.len()
+        + semantic_midpoint_count(input.generation)?;
     let candidate_edge_capacity = candidate_edge_count(input.generation)?;
     let edge_capacity = structural
         .structural_edges()
         .len()
         .saturating_add(structural.chunks().len())
         .saturating_add(evidence.len().saturating_mul(2))
-        .saturating_add(candidate_edge_capacity);
+        .saturating_add(candidate_edge_capacity)
+        .saturating_add(semantic_midpoint_count(input.generation)?);
     let document = structural.document();
     let mut builder = ProjectionBuilder::with_capacity(
         input.scene_generation_id,
@@ -299,7 +312,10 @@ pub fn compile_graph_generation_v2(
         input.generation,
         events,
         &event_statuses,
-        evidence,
+        EventEvidence {
+            records: evidence,
+            bindings: candidate_evidence,
+        },
         &accepted_memberships,
         document.id,
     )?;
@@ -326,6 +342,7 @@ pub fn compile_graph_generation_v2(
         memberships,
         &membership_statuses,
         evidence,
+        candidate_evidence,
         &mut accepted_semantic_edges,
         &mut candidate_overlay_edges,
     )?;
@@ -344,7 +361,32 @@ pub fn compile_graph_generation_v2(
         edge_count: publication.edges.len() as u64,
         accepted_semantic_edges,
         candidate_overlay_edges,
+        identity_candidate_count: input
+            .generation
+            .descriptor(PageKind::IdentityCandidates)
+            .count,
+        relationship_candidate_count: input
+            .generation
+            .descriptor(PageKind::TypedRelationshipCandidates)
+            .count,
+        event_candidate_count: events.len() as u64,
         episode_count: episodes.len() as u64,
+        temporal_candidate_count: input
+            .generation
+            .descriptor(PageKind::TemporalCandidates)
+            .count,
+        causal_candidate_count: input
+            .generation
+            .descriptor(PageKind::CausalCandidates)
+            .count,
+        memory_state_candidate_count: input
+            .generation
+            .descriptor(PageKind::MemoryStateCandidates)
+            .count,
+        contextual_evidence_count: input
+            .generation
+            .descriptor(PageKind::ContextualEvidence)
+            .count,
         compile_micros: started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
     };
     Ok(CompiledNativeSceneV2 {
@@ -532,14 +574,22 @@ fn add_event_nodes(
     generation: &VerifiedGraphGenerationV2,
     events: &[EventRecord],
     statuses: &[ProjectedStatus],
-    evidence: &[EvidenceRecord],
+    evidence: EventEvidence<'_>,
     memberships: &HashMap<u64, u64>,
     document_id: u64,
 ) -> Result<(), NativeSceneCompilerError> {
     for (event, status) in events.iter().zip(statuses) {
-        let evidence_parent = evidence
-            .get(event.evidence_start as usize)
-            .map(|record| record.id);
+        let evidence_parent = first_candidate_evidence_id(
+            evidence.bindings,
+            event.evidence_start,
+            event.evidence_count,
+        )?
+        .filter(|evidence_id| {
+            evidence
+                .records
+                .iter()
+                .any(|record| record.id == *evidence_id)
+        });
         builder.push_node(NodeDraft {
             id: event.id,
             label: text(generation, event.label)?,
@@ -561,6 +611,12 @@ fn add_event_nodes(
         })?;
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct EventEvidence<'a> {
+    records: &'a [EvidenceRecord],
+    bindings: &'a [CandidateEvidenceBindingRecord],
 }
 
 fn add_source_edges(
@@ -680,13 +736,18 @@ fn add_candidate_edges(
     memberships: &[EpisodeMembershipRecord],
     membership_statuses: &[ProjectedStatus],
     evidence: &[EvidenceRecord],
+    candidate_evidence: &[CandidateEvidenceBindingRecord],
     accepted_count: &mut u64,
     overlay_count: &mut u64,
 ) -> Result<(), NativeSceneCompilerError> {
     for ((event, status), row) in events.iter().zip(event_statuses).zip(0_u64..) {
-        let source = evidence
-            .get(event.evidence_start as usize)
-            .map_or(document_id, |record| record.id);
+        let source = first_candidate_evidence_id(
+            candidate_evidence,
+            event.evidence_start,
+            event.evidence_count,
+        )?
+        .filter(|evidence_id| evidence.iter().any(|record| record.id == *evidence_id))
+        .unwrap_or(document_id);
         push_candidate_with_domain(
             builder,
             *status,
@@ -727,7 +788,7 @@ fn add_candidate_edges(
             ReviewPage::TypedRelationship,
             row,
         )?;
-        push_candidate(
+        push_candidate_through_node(
             builder,
             status,
             record.source_entity_id,
@@ -736,6 +797,10 @@ fn add_candidate_edges(
             relation_for(record.family),
             record.relation,
             f32::from_bits(record.confidence_bits),
+            "Relationship",
+            RELATIONSHIP_FACT_NODE_KIND,
+            CapsRole::Fact,
+            document_id,
             accepted_count,
             overlay_count,
         )?;
@@ -748,7 +813,7 @@ fn add_candidate_edges(
             ReviewPage::Identity,
             row,
         )?;
-        push_candidate(
+        push_candidate_through_node(
             builder,
             status,
             record.left_entity_id,
@@ -757,6 +822,10 @@ fn add_candidate_edges(
             RelationFamily::Identity,
             record.kind,
             f32::from_bits(record.confidence_bits),
+            "Identity proposal",
+            IDENTITY_MIDPOINT_NODE_KIND,
+            CapsRole::Fact,
+            document_id,
             accepted_count,
             overlay_count,
         )?;
@@ -783,7 +852,7 @@ fn add_candidate_edges(
             ReviewPage::Temporal,
             row,
         )?;
-        push_candidate(
+        push_candidate_through_node(
             builder,
             status,
             record.source_id,
@@ -792,6 +861,10 @@ fn add_candidate_edges(
             RelationFamily::Temporal,
             record.relation,
             f32::from_bits(record.confidence_bits),
+            "Temporal relation",
+            TEMPORAL_MIDPOINT_NODE_KIND,
+            CapsRole::Fact,
+            document_id,
             accepted_count,
             overlay_count,
         )?;
@@ -800,7 +873,7 @@ fn add_candidate_edges(
         typed(generation, PageKind::CausalCandidates)?;
     for (row, record) in causal.iter().enumerate() {
         let status = review.direct(record.candidate_id, record.status, ReviewPage::Causal, row)?;
-        push_candidate(
+        push_candidate_through_node(
             builder,
             status,
             record.cause_id,
@@ -809,6 +882,10 @@ fn add_candidate_edges(
             RelationFamily::Causal,
             record.relation,
             f32::from_bits(record.confidence_bits),
+            "Causal relation",
+            CAUSAL_MIDPOINT_NODE_KIND,
+            CapsRole::Fact,
+            document_id,
             accepted_count,
             overlay_count,
         )?;
@@ -821,7 +898,7 @@ fn add_candidate_edges(
             ReviewPage::MemoryState,
             row,
         )?;
-        push_candidate(
+        push_candidate_through_node(
             builder,
             status,
             record.subject_id,
@@ -830,23 +907,31 @@ fn add_candidate_edges(
             RelationFamily::MemoryState,
             record.kind,
             f32::from_bits(record.confidence_bits),
+            "Memory state",
+            MEMORY_STATE_NODE_KIND,
+            CapsRole::Memory,
+            document_id,
             accepted_count,
             overlay_count,
         )?;
     }
     let contextual: &[phoenix_graph_generation_v2::ContextualEvidenceRecord] =
         typed(generation, PageKind::ContextualEvidence)?;
-    for (row, record) in contextual.iter().enumerate() {
-        let row_bytes = (row as u64).to_le_bytes();
+    for record in contextual {
         let source = record.source_entity_id.to_le_bytes();
         let target = record.target_entity_id.to_le_bytes();
+        let source_mention = record.source_mention_id.to_le_bytes();
+        let target_mention = record.target_mention_id.to_le_bytes();
+        let chunk = record.chunk_id.to_le_bytes();
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"phoenix.native.contextual-candidate/v2\0");
-        hasher.update(&row_bytes);
         hasher.update(&source);
         hasher.update(&target);
+        hasher.update(&source_mention);
+        hasher.update(&target_mention);
+        hasher.update(&chunk);
         let candidate_id = CandidateId(*hasher.finalize().as_bytes());
-        push_candidate(
+        push_candidate_through_node(
             builder,
             ProjectedStatus {
                 candidate_id,
@@ -859,6 +944,10 @@ fn add_candidate_edges(
             RelationFamily::CoOccurrence,
             0,
             f32::from_bits(record.weight_bits),
+            "Context evidence",
+            CONTEXTUAL_MIDPOINT_NODE_KIND,
+            CapsRole::Fact,
+            document_id,
             accepted_count,
             overlay_count,
         )?;
@@ -893,6 +982,76 @@ fn push_candidate(
         accepted_count,
         overlay_count,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_candidate_through_node(
+    builder: &mut ProjectionBuilder,
+    status: ProjectedStatus,
+    source: u64,
+    target: u64,
+    family_mask: u64,
+    relation: RelationFamily,
+    kind: u16,
+    confidence: f32,
+    label: &'static str,
+    node_kind: u16,
+    caps_role: CapsRole,
+    document_id: u64,
+    accepted_count: &mut u64,
+    overlay_count: &mut u64,
+) -> Result<(), NativeSceneCompilerError> {
+    let candidate = status.candidate_id.0;
+    let node_id = projection_id(b"semantic-midpoint-node/v2", &[&candidate]);
+    let color = color_for_status(relation_color(relation), status);
+    builder.push_node(NodeDraft {
+        id: node_id,
+        label: Arc::from(label),
+        kind: node_kind,
+        family_mask,
+        scope_mask: SCOPE,
+        review_mask: status.mask,
+        color,
+        base_radius: if caps_role == CapsRole::Memory {
+            0.58
+        } else {
+            0.52
+        },
+        flags: 0,
+        caps_role,
+        caps_parent: Some(document_id),
+        inspector_ref: 0,
+        provenance_ref: 0,
+    })?;
+    for (ordinal, (edge_source, edge_target)) in [(source, node_id), (node_id, target)]
+        .into_iter()
+        .enumerate()
+    {
+        builder.push_edge(EdgeDraft {
+            id: projection_id(
+                b"semantic-midpoint-edge/v2",
+                &[&candidate, &(ordinal as u64).to_le_bytes()],
+            ),
+            source: edge_source,
+            target: edge_target,
+            family_mask,
+            scope_mask: SCOPE,
+            relation_mask: relation.mask().0,
+            review_mask: status.mask,
+            color,
+            width: confidence.clamp(0.22, 1.0) * 0.62,
+            kind,
+            flags: 0,
+            inspector_ref: 0,
+            provenance_ref: 0,
+        })?;
+    }
+    if status.accepted {
+        *accepted_count = accepted_count.saturating_add(1);
+    } else if status.mask == ReviewMask::PROPOSED.0 {
+        *overlay_count = overlay_count.saturating_add(1);
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -959,6 +1118,29 @@ fn accepted_membership_parents(
     Ok(parents)
 }
 
+fn first_candidate_evidence_id(
+    bindings: &[CandidateEvidenceBindingRecord],
+    start: u32,
+    count: u32,
+) -> Result<Option<u64>, NativeSceneCompilerError> {
+    if count == 0 {
+        return Ok(None);
+    }
+    let start = start as usize;
+    let end = start
+        .checked_add(count as usize)
+        .ok_or(NativeSceneCompilerError::RangeOverflow(
+            "V2 candidate evidence range",
+        ))?;
+    bindings
+        .get(start..end)
+        .and_then(|rows| rows.first())
+        .map(|binding| Some(binding.evidence_id))
+        .ok_or(NativeSceneCompilerError::V2InvalidPage(
+            PageKind::CandidateEvidenceBindings,
+        ))
+}
+
 fn candidate_edge_count(
     generation: &VerifiedGraphGenerationV2,
 ) -> Result<usize, NativeSceneCompilerError> {
@@ -977,6 +1159,26 @@ fn candidate_edge_count(
         sum.checked_add(generation.descriptor(page).count as usize)
             .ok_or(NativeSceneCompilerError::RangeOverflow(
                 "V2 candidate edge count",
+            ))
+    })
+}
+
+fn semantic_midpoint_count(
+    generation: &VerifiedGraphGenerationV2,
+) -> Result<usize, NativeSceneCompilerError> {
+    [
+        PageKind::TypedRelationshipCandidates,
+        PageKind::IdentityCandidates,
+        PageKind::TemporalCandidates,
+        PageKind::CausalCandidates,
+        PageKind::MemoryStateCandidates,
+        PageKind::ContextualEvidence,
+    ]
+    .into_iter()
+    .try_fold(0_usize, |sum, page| {
+        sum.checked_add(generation.descriptor(page).count as usize)
+            .ok_or(NativeSceneCompilerError::RangeOverflow(
+                "V2 semantic midpoint count",
             ))
     })
 }

@@ -1,5 +1,6 @@
 use gpui::{AppContext as _, Bounds, TestAppContext, point, px, size};
 
+use super::block_menu::{BlockControl, BlockControlState};
 use super::{SelectionCommand, SelectionMarkState};
 use crate::components::StyleFlag;
 use crate::editor::{CrossBlockSelection, CrossBlockSelectionEndpoint, Editor, ViewMode};
@@ -54,6 +55,46 @@ async fn rendered_selection_opens_toolbar_from_native_layout(cx: &mut TestAppCon
 }
 
 #[gpui::test]
+async fn collapsed_caret_opens_click_driven_block_control(cx: &mut TestAppContext) {
+    init(cx);
+    let (editor, cx) =
+        cx.add_window_view(|_window, cx| Editor::embedded_from_markdown(cx, "alpha beta".into()));
+    redraw(cx);
+
+    editor.update_in(cx, |editor, window, cx| {
+        let block = editor.document.visible_blocks()[0].entity.clone();
+        block.update(cx, |block, cx| {
+            block.selected_range = 5..5;
+            block.focus_handle.focus(window);
+            cx.notify();
+        });
+        editor.active_entity_id = Some(block.entity_id());
+        editor.on_selection_changed(cx);
+    });
+    redraw(cx);
+
+    editor.update_in(cx, |editor, _window, cx| {
+        let lease = editor
+            .selection_toolbar
+            .lease
+            .as_ref()
+            .expect("collapsed caret should own a toolbar lease");
+        assert!(!lease.has_text_selection);
+        assert_eq!(lease.block_control.state, BlockControlState::Paragraph);
+        assert_eq!(
+            lease.block_control.target,
+            Some(editor.document.visible_blocks()[0].entity.entity_id())
+        );
+        assert_eq!(lease.formats.bold, SelectionMarkState::Unavailable);
+
+        editor.toggle_block_menu(cx);
+        assert!(editor.selection_toolbar.block_menu_open);
+        editor.toggle_block_menu(cx);
+        assert!(!editor.selection_toolbar.block_menu_open);
+    });
+}
+
+#[gpui::test]
 async fn entity_menu_opens_after_toolbar_focus_settles(cx: &mut TestAppContext) {
     init(cx);
     let (editor, cx) =
@@ -80,6 +121,71 @@ async fn entity_menu_opens_after_toolbar_focus_settles(cx: &mut TestAppContext) 
     editor.update_in(cx, |editor, _window, _cx| {
         assert!(editor.selection_toolbar.entity_panel_open);
         assert!(editor.selection_toolbar.lease.is_some());
+    });
+}
+
+#[gpui::test]
+async fn block_menu_stays_open_after_toolbar_mouse_release(cx: &mut TestAppContext) {
+    init(cx);
+    let (editor, cx) =
+        cx.add_window_view(|_window, cx| Editor::embedded_from_markdown(cx, "alpha beta".into()));
+    redraw(cx);
+    editor.update_in(cx, |editor, window, cx| {
+        let block = editor.document.visible_blocks()[0].entity.clone();
+        block.update(cx, |block, cx| {
+            block.selected_range = 5..5;
+            block.focus_handle.focus(window);
+            cx.notify();
+        });
+        editor.active_entity_id = Some(block.entity_id());
+        editor.on_selection_changed(cx);
+    });
+    redraw(cx);
+    editor.update_in(cx, |editor, _window, cx| {
+        editor.toggle_block_menu(cx);
+        editor.on_selection_changed(cx);
+    });
+    redraw(cx);
+    editor.update_in(cx, |editor, _window, _cx| {
+        assert!(editor.selection_toolbar.block_menu_open);
+        assert!(editor.selection_toolbar.lease.is_some());
+    });
+}
+
+#[gpui::test]
+async fn cross_block_selection_reports_mixed_block_state_without_a_mutation_target(
+    cx: &mut TestAppContext,
+) {
+    init(cx);
+    let editor = cx.new(|cx| Editor::from_markdown(cx, "alpha\n\n## beta".into(), None));
+
+    editor.update(cx, |editor, cx| {
+        let visible = editor.document.visible_blocks().to_vec();
+        let first = visible[0].entity.clone();
+        let second = visible[1].entity.clone();
+        editor.cross_block_selection = Some(CrossBlockSelection {
+            anchor: CrossBlockSelectionEndpoint {
+                entity_id: first.entity_id(),
+                offset: 0,
+            },
+            focus: CrossBlockSelectionEndpoint {
+                entity_id: second.entity_id(),
+                offset: second.read(cx).visible_len(),
+            },
+        });
+        editor.active_entity_id = Some(second.entity_id());
+
+        let (slices, has_text_selection) = editor
+            .current_toolbar_slices(cx)
+            .expect("cross-block slices");
+        assert!(has_text_selection);
+        assert_eq!(
+            editor.block_control_for_slices(&slices, cx),
+            BlockControl {
+                state: BlockControlState::Mixed,
+                target: None,
+            }
+        );
     });
 }
 
@@ -270,6 +376,11 @@ fn toolbar_position_clamps_and_flips_inside_viewport() {
         formats: SelectionFormatStates::default(),
         link_state: SelectionLinkState::Off,
         can_link: true,
+        has_text_selection: true,
+        block_control: BlockControl {
+            state: BlockControlState::Paragraph,
+            target: None,
+        },
     };
     let viewport = Bounds::new(point(px(0.0), px(0.0)), size(px(500.0), px(300.0)));
     let position = Editor::toolbar_position(&lease, viewport, 316.0);

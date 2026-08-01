@@ -12,9 +12,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 mod concurrency;
+mod learned;
 mod workload_concurrency;
 
 pub use concurrency::run as run_concurrent;
+pub use learned::run as run_learned;
 pub use workload_concurrency::run as run_workload_concurrent;
 
 const CONTRACT: &str = "phoenix.memory.qps-mixed-qualification/v1";
@@ -145,9 +147,17 @@ pub fn run(suite_path: &Path, repetitions: usize) -> Result<QualificationReceipt
 }
 
 fn build_index(suite: &QualificationSuite) -> Result<QpsIndex> {
+    build_index_with_ranker(suite, phoenix_lexical_qps::LinearRankerV1::disabled())
+}
+
+fn build_index_with_ranker(
+    suite: &QualificationSuite,
+    learned_ranker: phoenix_lexical_qps::LinearRankerV1,
+) -> Result<QpsIndex> {
     let config = QpsConfig {
         maximum_candidate_pool: 160,
         maximum_query_groups: MAXIMUM_QUERY_GROUPS,
+        learned_ranker,
         ..QpsConfig::default()
     };
     let mut builder = QpsBuilder::new(Vec::from(FIELDS).into_boxed_slice(), config)?;
@@ -257,6 +267,24 @@ impl<'a> PreparedQuery<'a> {
         }
         index
             .search_groups_into(groups, TOP_K, scratch, hits)
+            .map_err(Into::into)
+    }
+
+    fn search_exhaustive(
+        &self,
+        groups: &[QueryGroup<'_>],
+        index: &QpsIndex,
+        top_k: usize,
+        scratch: &mut SearchScratch,
+        hits: &mut Vec<SearchHit>,
+    ) -> Result<SearchReceipt> {
+        if self.expansions.is_empty() {
+            return index
+                .search_exhaustive_into(&self.query.query, top_k, scratch, hits)
+                .map_err(Into::into);
+        }
+        index
+            .search_groups_exhaustive_into(groups, top_k, scratch, hits)
             .map_err(Into::into)
     }
 }

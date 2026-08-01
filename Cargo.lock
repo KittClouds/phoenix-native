@@ -5737,9 +5737,11 @@ dependencies = [
 name = "phoenix-lexical-qps"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "compact_str",
  "hashbrown 0.15.5",
  "pulp",
+ "serde",
  "smallvec",
  "thiserror 2.0.19",
 ]
