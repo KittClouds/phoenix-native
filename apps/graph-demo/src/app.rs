@@ -1,6 +1,6 @@
 use crate::fixtures::{self, FixtureTopology};
 use graph_model::{GraphRevision, NodeId};
-use graph_render_wgpu::{GraphEvent, GraphInput, GraphRenderer, PointerButton};
+use graph_render_wgpu::{GraphEvent, GraphInput, GraphRenderer, PhysicalPointer, PointerButton};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ pub struct GraphDemoApp {
     animating: bool,
     shift_down: bool,
     alt_down: bool,
-    logical_pointer: (f32, f32),
+    physical_pointer: PhysicalPointer,
     last_update: Instant,
     title_window_start: Instant,
     title_frames: u64,
@@ -44,7 +44,7 @@ impl GraphDemoApp {
             animating: false,
             shift_down: false,
             alt_down: false,
-            logical_pointer: (0.0, 0.0),
+            physical_pointer: PhysicalPointer::default(),
             last_update: Instant::now(),
             title_window_start: Instant::now(),
             title_frames: 0,
@@ -202,11 +202,12 @@ impl ApplicationHandler for GraphDemoApp {
                 });
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let logical = position.to_logical::<f32>(window.scale_factor());
-                self.logical_pointer = (logical.x, logical.y);
+                // Winit's cursor position is already physical. The renderer
+                // consumes framebuffer coordinates so high-DPI monitors do
+                // not receive a second scale conversion.
+                self.physical_pointer = PhysicalPointer::new(position.x as f32, position.y as f32);
                 self.send_input(GraphInput::PointerMoved {
-                    x: logical.x,
-                    y: logical.y,
+                    pointer: self.physical_pointer,
                 });
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -218,15 +219,13 @@ impl ApplicationHandler for GraphDemoApp {
                 };
                 let input = match state {
                     ElementState::Pressed => GraphInput::PointerPressed {
-                        x: self.logical_pointer.0,
-                        y: self.logical_pointer.1,
+                        pointer: self.physical_pointer,
                         button,
                         shift: self.shift_down,
                         alt: self.alt_down,
                     },
                     ElementState::Released => GraphInput::PointerReleased {
-                        x: self.logical_pointer.0,
-                        y: self.logical_pointer.1,
+                        pointer: self.physical_pointer,
                         button,
                     },
                 };

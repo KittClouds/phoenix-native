@@ -28,6 +28,7 @@ pub struct GraphGpuTelemetry {
     pub node_product_buffer_generation: u64,
     pub edge_product_buffer_generation: u64,
     pub product_index_bound: bool,
+    pub viewport_revision: u64,
     pub lens_uniform_writes: u64,
     pub allocated_bytes: usize,
     pub active_manifold: Manifold,

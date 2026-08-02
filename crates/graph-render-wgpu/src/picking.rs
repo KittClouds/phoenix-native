@@ -22,6 +22,8 @@ struct PickRequest {
     x: u32,
     y: u32,
     intent: PickIntent,
+    epoch: u64,
+    viewport_revision: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +43,12 @@ pub struct PickingPass {
     height: u32,
     pending: Option<PickRequest>,
     inflight_intent: Option<PickIntent>,
+    inflight_epoch: Option<u64>,
+    inflight_viewport_revision: Option<u64>,
+    epoch: u64,
+    viewport_revision: u64,
     map_state: Arc<AtomicU8>,
+    wake: Option<Arc<dyn Fn() + Send + Sync>>,
     next_hover_at: Instant,
     hover_interval: Duration,
 }
@@ -117,18 +124,45 @@ impl PickingPass {
             height,
             pending: None,
             inflight_intent: None,
+            inflight_epoch: None,
+            inflight_viewport_revision: None,
+            epoch: 1,
+            viewport_revision: 1,
             map_state: Arc::new(AtomicU8::new(MAP_IDLE)),
+            wake: None,
             next_hover_at: Instant::now(),
             hover_interval: Duration::from_millis(32),
         }
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
+    /// Install a host-neutral wake callback for asynchronous readback
+    /// completion. The renderer does not know about winit or any particular
+    /// event loop; the host supplies the smallest possible wake operation.
+    pub fn set_wake(&mut self, wake: Arc<dyn Fn() + Send + Sync>) {
+        self.wake = Some(wake);
+    }
+
+    pub fn resize(
+        &mut self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+        viewport_revision: u64,
+    ) {
         self.width = width.max(1);
         self.height = height.max(1);
+        self.viewport_revision = viewport_revision.max(1);
         (self.texture, self.view) = create_pick_texture(device, self.width, self.height);
         (self.depth_texture, self.depth_view) =
             create_depth_texture(device, self.width, self.height);
+        self.invalidate();
+    }
+
+    /// Discard requests that were encoded against an older camera, scene, or
+    /// lens view. GPU readback is asynchronous, so without an epoch a result
+    /// can be applied after the pointer has moved to a different projection.
+    pub fn invalidate(&mut self) {
+        self.epoch = self.epoch.wrapping_add(1).max(1);
         self.pending = None;
     }
 
@@ -149,6 +183,8 @@ impl PickingPass {
             x: x as u32,
             y: y as u32,
             intent,
+            epoch: self.epoch,
+            viewport_revision: self.viewport_revision,
         };
         match (self.pending, intent) {
             (Some(pending), PickIntent::Hover) if pending.intent == PickIntent::Select => {}
@@ -158,7 +194,19 @@ impl PickingPass {
 
     #[must_use]
     pub fn has_work(&self) -> bool {
-        self.pending.is_some() || self.map_state.load(Ordering::Acquire) != MAP_IDLE
+        self.pending.is_some()
+            || matches!(
+                self.map_state.load(Ordering::Acquire),
+                COPY_ENCODED | MAP_READY | MAP_FAILED
+            )
+    }
+
+    #[must_use]
+    pub fn map_in_flight(&self) -> bool {
+        matches!(
+            self.map_state.load(Ordering::Acquire),
+            COPY_ENCODED | MAP_PENDING
+        )
     }
 
     pub fn encode_if_ready(
@@ -236,6 +284,8 @@ impl PickingPass {
         );
 
         self.inflight_intent = Some(request.intent);
+        self.inflight_epoch = Some(request.epoch);
+        self.inflight_viewport_revision = Some(request.viewport_revision);
         self.next_hover_at = Instant::now() + self.hover_interval;
         self.map_state.store(COPY_ENCODED, Ordering::Release);
     }
@@ -254,6 +304,7 @@ impl PickingPass {
             return;
         }
         let state = Arc::clone(&self.map_state);
+        let wake = self.wake.clone();
         self.staging_buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |result| {
@@ -265,6 +316,9 @@ impl PickingPass {
                     },
                     Ordering::Release,
                 );
+                if let Some(wake) = wake {
+                    wake();
+                }
             });
     }
 
@@ -273,13 +327,34 @@ impl PickingPass {
         match self.map_state.load(Ordering::Acquire) {
             MAP_READY => {
                 let mapped = self.staging_buffer.slice(..).get_mapped_range();
-                let bytes: [u8; 4] = mapped.get(..4)?.try_into().ok()?;
-                let encoded_slot = u32::from_le_bytes(bytes);
+                let encoded_slot = mapped
+                    .get(..4)
+                    .and_then(|bytes| bytes.try_into().ok())
+                    .map(u32::from_le_bytes);
                 drop(mapped);
                 self.staging_buffer.unmap();
                 self.map_state.store(MAP_IDLE, Ordering::Release);
-                let intent = self.inflight_intent.take()?;
-                let node = encoded_slot
+                let Some(intent) = self.inflight_intent.take() else {
+                    self.inflight_epoch = None;
+                    self.inflight_viewport_revision = None;
+                    return None;
+                };
+                let Some(request_epoch) = self.inflight_epoch.take() else {
+                    self.inflight_viewport_revision = None;
+                    return None;
+                };
+                let Some(request_viewport_revision) = self.inflight_viewport_revision.take() else {
+                    return None;
+                };
+                if !pick_is_current(
+                    request_epoch,
+                    request_viewport_revision,
+                    self.epoch,
+                    self.viewport_revision,
+                ) {
+                    return None;
+                }
+                let node = encoded_slot?
                     .checked_sub(1)
                     .and_then(|slot| scene.node_id_by_slot(slot));
                 Some(PickResult { intent, node })
@@ -288,11 +363,33 @@ impl PickingPass {
                 tracing::warn!("GPU picking readback failed");
                 self.map_state.store(MAP_IDLE, Ordering::Release);
                 self.inflight_intent = None;
+                self.inflight_epoch = None;
+                self.inflight_viewport_revision = None;
                 None
             }
             _ => None,
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn stale_pick_is_rejected_after_viewport_revision_changes() {
+        assert!(!super::pick_is_current(4, 2, 5, 2));
+        assert!(!super::pick_is_current(5, 1, 5, 2));
+        assert!(super::pick_is_current(5, 2, 5, 2));
+    }
+}
+
+#[inline]
+fn pick_is_current(
+    request_epoch: u64,
+    request_viewport_revision: u64,
+    epoch: u64,
+    viewport_revision: u64,
+) -> bool {
+    request_epoch == epoch && request_viewport_revision == viewport_revision
 }
 
 fn create_pick_texture(

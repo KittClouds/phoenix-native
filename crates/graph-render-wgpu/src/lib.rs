@@ -28,7 +28,9 @@ pub use gpu_scene::{
     GpuAllocationStats, GpuSceneMetrics, InteractionAllocationStats, PositionSwitchMetrics,
     ProductInstallMetrics, ReviewOverlayMetrics, SnapshotMetrics,
 };
-pub use interaction::{logical_to_physical, GraphEvent, GraphInput, PointerButton};
+pub use interaction::{
+    logical_to_physical, GraphEvent, GraphInput, PhysicalPointer, PointerButton,
+};
 pub use lens::{EdgeProductGpu, GraphLensUniform, NodeProductGpu};
 pub use path_layer::PreparedGeometryMetrics;
 pub use renderer::GraphRenderer;

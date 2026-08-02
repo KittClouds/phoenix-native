@@ -2,7 +2,7 @@ use crate::buffers::CameraUniform;
 use crate::camera::Camera;
 use crate::events::PendingEvents;
 use crate::gpu_scene::GpuScene;
-use crate::interaction::{logical_to_physical, physical_delta_to_logical, PointerState};
+use crate::interaction::{physical_delta_to_logical, PointerState};
 use crate::labels::{LabelFocus, LabelLayer};
 use crate::path_layer::PreparedPathLayer;
 use crate::picking::{PickIntent, PickingPass};
@@ -16,6 +16,35 @@ use crate::{
     LensUpdateMetrics, PointerButton, PositionSwitchMetrics, ProductInstallMetrics, RenderError,
     ReviewOverlayMetrics, SceneState, SnapshotMetrics,
 };
+
+#[inline]
+fn device_memory_hints() -> wgpu::MemoryHints {
+    // Phoenix owns a small, bounded set of long-lived graph buffers. Asking
+    // wgpu's Vulkan allocator to use its generic 8-64 MiB MemoryUsage range
+    // still reserves more backing memory than this workload needs. The frozen
+    // Shortrun cohort uses less than 1 MiB of graph storage, while the largest
+    // viewport-sized attachments are dedicated automatically. A 1-4 MiB
+    // suballocation range is the measured sweet spot: materially smaller than
+    // MemoryUsage without the needless fragmentation of tighter probe arms.
+    wgpu::MemoryHints::Manual {
+        suballocated_device_memory_block_size: (1024 * 1024)..(4 * 1024 * 1024),
+    }
+}
+
+#[cfg(test)]
+mod memory_policy_tests {
+    #[test]
+    fn graph_device_favors_bounded_memory() {
+        let wgpu::MemoryHints::Manual {
+            suballocated_device_memory_block_size,
+        } = super::device_memory_hints()
+        else {
+            panic!("Phoenix must use its bounded manual allocator policy");
+        };
+        assert_eq!(suballocated_device_memory_block_size.start, 1024 * 1024);
+        assert_eq!(suballocated_device_memory_block_size.end, 4 * 1024 * 1024);
+    }
+}
 use graph_model::{GraphDiff, GraphRevision, GraphSnapshot};
 use phoenix_scene_archive::{LabelPriorityRecord, ManifoldPageSet, PositionRecord};
 use phoenix_scene_contract::{GraphReviewOverride, GraphSurface, GraphViewState, Manifold};
@@ -51,6 +80,7 @@ pub struct GraphRenderer {
     labels: LabelLayer,
     picking: PickingPass,
     pointer: PointerState,
+    viewport_revision: u64,
     events: PendingEvents,
     redraw_requested: bool,
     frame_count: u64,
@@ -85,7 +115,7 @@ impl GraphRenderer {
                     label: Some("graph renderer device"),
                     required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::default(),
-                    memory_hints: wgpu::MemoryHints::Performance,
+                    memory_hints: device_memory_hints(),
                 },
                 None,
             )
@@ -240,10 +270,30 @@ impl GraphRenderer {
             labels,
             picking,
             pointer: PointerState::default(),
+            viewport_revision: 1,
             events: PendingEvents::new(),
             redraw_requested: true,
             frame_count: 0,
         })
+    }
+
+    /// Route asynchronous picking completion back to the host event loop.
+    /// Keeping this callback outside the renderer preserves the reusable
+    /// renderer boundary and avoids a permanent polling timer in hosts.
+    pub fn set_pick_wake(&mut self, wake: Arc<dyn Fn() + Send + Sync>) {
+        self.picking.set_wake(wake);
+    }
+
+    /// Pump wgpu callbacks without scheduling a render. Hosts call this only
+    /// while a one-pixel picking map is in flight, so an asynchronous readback
+    /// never turns into a permanent render loop.
+    pub fn poll_async_work(&self) {
+        self.device.poll(wgpu::MaintainBase::Poll);
+    }
+
+    #[must_use]
+    pub fn pick_in_flight(&self) -> bool {
+        self.picking.map_in_flight()
     }
 
     pub fn set_snapshot(
@@ -263,6 +313,10 @@ impl GraphRenderer {
         if metrics.bindings_changed {
             self.refresh_scene_bindings();
         }
+        self.scene
+            .set_interaction_visibility(self.active_view, &self.queue);
+        self.picking.invalidate();
+        self.refresh_interaction_lens();
         self.fit_active_graph();
         self.write_camera();
         self.labels.clear();
@@ -316,7 +370,10 @@ impl GraphRenderer {
         }
         self.loaded_cohort_hash = cohort_hash;
         self.active_view = GraphViewState::default();
-        self.write_lens_uniform(GraphLensUniform::UNFILTERED);
+        self.scene
+            .set_interaction_visibility(self.active_view, &self.queue);
+        self.picking.invalidate();
+        self.refresh_interaction_lens();
         self.fit_active_graph();
         self.write_camera();
         self.labels.clear();
@@ -341,6 +398,9 @@ impl GraphRenderer {
         if metrics.bindings_changed {
             self.refresh_lens_binding();
         }
+        self.scene
+            .set_interaction_visibility(self.active_view, &self.queue);
+        self.refresh_interaction_lens();
         self.redraw_requested = true;
         Ok(metrics)
     }
@@ -367,15 +427,17 @@ impl GraphRenderer {
             || self.active_view.scope != view.scope
             || self.active_view.reviews != view.reviews
             || self.active_view.manifold != view.manifold;
-        let index_hash = validate_view_authority(
+        let _index_hash = validate_view_authority(
             view,
             self.scene.revision(),
             self.loaded_cohort_hash,
             self.scene.bound_product_hash(),
         )?;
         let before = self.scene.allocation_stats();
-        self.write_lens_uniform(GraphLensUniform::from_view(view, index_hash.is_some()));
         self.active_view = view;
+        self.scene.set_interaction_visibility(view, &self.queue);
+        self.picking.invalidate();
+        self.refresh_interaction_lens();
         if framing_changed {
             self.fit_active_graph();
             self.write_camera();
@@ -402,6 +464,7 @@ impl GraphRenderer {
         let metrics = self
             .scene
             .switch_archive_positions(positions, &self.queue)?;
+        self.picking.invalidate();
         self.labels.mark_dirty();
         self.redraw_requested = true;
         tracing::debug!(
@@ -420,6 +483,10 @@ impl GraphRenderer {
         if metrics.bindings_changed {
             self.refresh_scene_bindings();
         }
+        self.scene
+            .set_interaction_visibility(self.active_view, &self.queue);
+        self.picking.invalidate();
+        self.refresh_interaction_lens();
         self.write_camera();
         self.redraw_requested = true;
         tracing::debug!(
@@ -439,6 +506,14 @@ impl GraphRenderer {
     #[must_use]
     pub fn revision(&self) -> Option<GraphRevision> {
         self.scene.revision()
+    }
+
+    /// Monotonically identifies the framebuffer geometry used by the renderer
+    /// and its asynchronous picking pass. A pointer result captured before a
+    /// resize/DPI transition must never be applied to the new viewport.
+    #[must_use]
+    pub const fn viewport_revision(&self) -> u64 {
+        self.viewport_revision
     }
 
     #[must_use]
@@ -499,8 +574,8 @@ impl GraphRenderer {
 
     pub fn handle_input(&mut self, input: GraphInput) -> Result<Option<GraphEvent>, RenderError> {
         let event = match input {
-            GraphInput::PointerMoved { x, y } => {
-                let (x, y) = self.physical_point(x, y);
+            GraphInput::PointerMoved { pointer } => {
+                let (x, y) = (pointer.x, pointer.y);
                 let (previous_x, previous_y) = self.pointer.position;
                 self.pointer.update_drag(x, y);
                 self.pointer.position = (x, y);
@@ -525,13 +600,12 @@ impl GraphRenderer {
                 }
             }
             GraphInput::PointerPressed {
-                x,
-                y,
+                pointer,
                 button,
                 shift,
                 alt,
             } => {
-                let point = self.physical_point(x, y);
+                let point = (pointer.x, pointer.y);
                 self.pointer.position = point;
                 self.pointer.shift_down = shift;
                 self.pointer.alt_down = alt;
@@ -545,8 +619,8 @@ impl GraphRenderer {
                 self.redraw_requested = true;
                 None
             }
-            GraphInput::PointerReleased { x, y, button } => {
-                let point = self.physical_point(x, y);
+            GraphInput::PointerReleased { pointer, button } => {
+                let point = (pointer.x, pointer.y);
                 self.pointer.position = point;
                 if button == PointerButton::Left {
                     self.pointer.left_down = false;
@@ -564,8 +638,13 @@ impl GraphRenderer {
                 None
             }
             GraphInput::Wheel { delta_y, .. } => {
-                self.camera
-                    .zoom_at(delta_y, self.pointer.position.0, self.pointer.position.1);
+                let anchor = self.hovered_zoom_anchor();
+                self.camera.zoom_at_anchor(
+                    delta_y,
+                    self.pointer.position.0,
+                    self.pointer.position.1,
+                    anchor,
+                );
                 self.camera_changed()
             }
             GraphInput::Resize {
@@ -590,6 +669,7 @@ impl GraphRenderer {
                 {
                     self.scene
                         .update_highlights(self.scene.hover_node(), None, None, &self.queue);
+                    self.refresh_interaction_lens();
                     self.redraw_requested = true;
                     Some(self.events.selection(None)?)
                 } else {
@@ -598,6 +678,19 @@ impl GraphRenderer {
             }
         };
         Ok(event)
+    }
+
+    fn hovered_zoom_anchor(&self) -> Option<[f32; 3]> {
+        const MAX_POINTER_DISTANCE: f32 = 48.0;
+
+        let node_id = self.scene.hover_node()?;
+        let slot = self.scene.state().node_slot(node_id)?;
+        let position = self.scene.state().node_at_slot(slot)?.position;
+        let (screen_x, screen_y, _) = self.camera.project_to_viewport(position)?;
+        let delta_x = screen_x - self.pointer.position.0;
+        let delta_y = screen_y - self.pointer.position.1;
+        ((delta_x * delta_x + delta_y * delta_y) <= MAX_POINTER_DISTANCE * MAX_POINTER_DISTANCE)
+            .then_some(position)
     }
 
     pub fn update(&mut self, _elapsed: Duration) {
@@ -610,6 +703,7 @@ impl GraphRenderer {
                         self.scene.secondary_selected_node(),
                         &self.queue,
                     );
+                    self.refresh_interaction_lens();
                     self.events.push_hover(result.node);
                     self.labels.mark_dirty();
                     self.redraw_requested = true;
@@ -621,6 +715,7 @@ impl GraphRenderer {
                         None,
                         &self.queue,
                     );
+                    self.refresh_interaction_lens();
                     if let Err(error) = self.events.push_selection(result.node) {
                         tracing::error!(%error, "selection event rejected");
                     }
@@ -665,6 +760,7 @@ impl GraphRenderer {
                     .position;
                 self.camera.focus(position);
                 self.write_camera();
+                self.picking.invalidate();
             }
         }
         if let Some(node) = secondary {
@@ -674,6 +770,7 @@ impl GraphRenderer {
         }
         self.scene
             .update_highlights(self.scene.hover_node(), primary, secondary, &self.queue);
+        self.refresh_interaction_lens();
         self.labels.mark_dirty();
         self.redraw_requested = true;
         Ok(())
@@ -694,6 +791,7 @@ impl GraphRenderer {
             self.scene.secondary_selected_node(),
             &self.queue,
         );
+        self.refresh_interaction_lens();
         self.labels.mark_dirty();
         self.redraw_requested = true;
         Ok(())
@@ -707,6 +805,9 @@ impl GraphRenderer {
         let metrics = self
             .scene
             .apply_review_overrides(index, overrides, &self.queue)?;
+        self.scene
+            .set_interaction_visibility(self.active_view, &self.queue);
+        self.refresh_interaction_lens();
         self.redraw_requested = true;
         Ok(metrics)
     }
@@ -850,19 +951,15 @@ impl GraphRenderer {
         self.camera.resize(width as f32, height as f32);
         self.write_camera();
         (self.depth_texture, self.depth_view) = create_depth_texture(&self.device, width, height);
-        self.picking.resize(&self.device, width, height);
+        self.viewport_revision = self.viewport_revision.wrapping_add(1).max(1);
+        self.picking
+            .resize(&self.device, width, height, self.viewport_revision);
         self.labels.mark_dirty();
         self.redraw_requested = true;
     }
 
-    fn physical_point(&self, logical_x: f32, logical_y: f32) -> (f32, f32) {
-        (
-            logical_to_physical(logical_x, self.scale_factor),
-            logical_to_physical(logical_y, self.scale_factor),
-        )
-    }
-
     fn camera_changed(&mut self) -> Option<GraphEvent> {
+        self.picking.invalidate();
         self.write_camera();
         self.labels.mark_dirty();
         self.redraw_requested = true;
@@ -906,6 +1003,14 @@ impl GraphRenderer {
         self.queue
             .write_buffer(&self.lens_uniform_buffer, 0, bytemuck::bytes_of(&uniform));
         self.lens_uniform_writes = self.lens_uniform_writes.saturating_add(1);
+    }
+
+    fn refresh_interaction_lens(&mut self) {
+        let product_index_enabled =
+            self.scene.bound_product_hash().is_some() && self.active_view.requires_product_index();
+        let uniform = GraphLensUniform::from_view(self.active_view, product_index_enabled)
+            .with_focus(self.scene.focus_active());
+        self.write_lens_uniform(uniform);
     }
 }
 mod geometry;

@@ -8,22 +8,38 @@ pub enum PointerButton {
     Right,
 }
 
+/// A pointer coordinate in the renderer's framebuffer coordinate space.
+///
+/// `winit` reports cursor positions in physical pixels. Keeping that unit at
+/// the host boundary avoids a lossy physical -> logical -> physical round
+/// trip when a child window is hosted by a scaled GPUI viewport. The picking
+/// texture, camera projection, and surface are all physical-pixel based.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PhysicalPointer {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl PhysicalPointer {
+    #[must_use]
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GraphInput {
     PointerMoved {
-        x: f32,
-        y: f32,
+        pointer: PhysicalPointer,
     },
     PointerPressed {
-        x: f32,
-        y: f32,
+        pointer: PhysicalPointer,
         button: PointerButton,
         shift: bool,
         alt: bool,
     },
     PointerReleased {
-        x: f32,
-        y: f32,
+        pointer: PhysicalPointer,
         button: PointerButton,
     },
     Wheel {
@@ -80,7 +96,7 @@ impl PointerState {
 
 #[cfg(test)]
 mod tests {
-    use super::{logical_to_physical, physical_delta_to_logical, PointerState};
+    use super::{logical_to_physical, physical_delta_to_logical, PhysicalPointer, PointerState};
 
     #[test]
     fn coordinate_conversion_respects_dpi_scale() {
@@ -111,5 +127,17 @@ mod tests {
         assert!(pointer.right_down);
         assert!(!pointer.left_down);
         assert!(!pointer.middle_down);
+    }
+
+    #[test]
+    fn physical_pointer_keeps_framebuffer_coordinates_unchanged() {
+        let pointer = PhysicalPointer::new(3840.0, 2160.0);
+        assert_eq!(
+            pointer,
+            PhysicalPointer {
+                x: 3840.0,
+                y: 2160.0
+            }
+        );
     }
 }

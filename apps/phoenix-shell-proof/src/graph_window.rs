@@ -7,7 +7,7 @@ mod viewport;
 use crate::lifecycle;
 use anyhow::{anyhow, Context, Result};
 use graph_model::{GraphRevision, NodeId};
-use graph_render_wgpu::{GraphEvent, GraphInput, GraphRenderer, PointerButton};
+use graph_render_wgpu::{GraphEvent, GraphInput, GraphRenderer, PhysicalPointer, PointerButton};
 use phoenix_app_core::{GraphSelectionCommand, GraphSelectionOrigin, KernelCommand, PhoenixKernel};
 use phoenix_scene_archive::{PageKey, PageKind};
 use phoenix_scene_contract::{GraphGeneration, GraphViewState, Manifold};
@@ -241,7 +241,7 @@ struct EmbeddedGraphApp {
     proxy: EventLoopProxy<GraphWake>,
     window: Option<Arc<Window>>,
     renderer: Option<GraphRenderer>,
-    logical_pointer: (f32, f32),
+    physical_pointer: PhysicalPointer,
     shift_down: bool,
     alt_down: bool,
     last_update: Instant,
@@ -281,7 +281,7 @@ impl EmbeddedGraphApp {
             proxy: signals.proxy,
             window: None,
             renderer: None,
-            logical_pointer: (0.0, 0.0),
+            physical_pointer: PhysicalPointer::default(),
             shift_down: false,
             alt_down: false,
             last_update: Instant::now(),
@@ -346,6 +346,10 @@ impl EmbeddedGraphApp {
             window.scale_factor() as f32,
         ))
         .context("initialize embedded graph renderer")?;
+        let pick_proxy = self.proxy.clone();
+        renderer.set_pick_wake(Arc::new(move || {
+            let _ = pick_proxy.send_event(GraphWake::PickReady);
+        }));
         renderer
             .set_archive_scene_bound(
                 GraphRevision(scene.generation().0),
@@ -398,6 +402,33 @@ impl EmbeddedGraphApp {
                 ),
             )
             .context("install initial graph selection")?;
+        let gpu = renderer.gpu_allocation_stats();
+        let interaction = renderer.interaction_allocation_stats();
+        tracing::info!(
+            code = "PHOENIX_GRAPH_RESIDENCY",
+            node_capacity = gpu.node_capacity,
+            edge_capacity = gpu.edge_capacity,
+            node_product_capacity = gpu.node_product_capacity,
+            edge_product_capacity = gpu.edge_product_capacity,
+            gpu_buffer_bytes = gpu.allocated_bytes,
+            interaction_node_slots = interaction.node_slot_capacity,
+            interaction_edge_slots = interaction.edge_slot_capacity,
+            interaction_queue_capacity = interaction.queue_capacity,
+            "resident graph allocation inventory"
+        );
+        eprintln!(
+            "PHOENIX_GRAPH_RESIDENCY nodes={} edges={} node_capacity={} edge_capacity={} node_product_capacity={} edge_product_capacity={} gpu_buffer_bytes={} interaction_node_slots={} interaction_edge_slots={} interaction_queue_capacity={}",
+            renderer.scene_state().node_count(),
+            renderer.scene_state().edge_count(),
+            gpu.node_capacity,
+            gpu.edge_capacity,
+            gpu.node_product_capacity,
+            gpu.edge_product_capacity,
+            gpu.allocated_bytes,
+            interaction.node_slot_capacity,
+            interaction.edge_slot_capacity,
+            interaction.queue_capacity,
+        );
         let projected_generation = renderer
             .revision()
             .map(|revision| GraphGeneration(revision.0))
@@ -477,6 +508,10 @@ impl EmbeddedGraphApp {
             window.scale_factor() as f32,
         ))
         .context("recreate embedded graph renderer and device")?;
+        let pick_proxy = self.proxy.clone();
+        renderer.set_pick_wake(Arc::new(move || {
+            let _ = pick_proxy.send_event(GraphWake::PickReady);
+        }));
         renderer
             .set_archive_scene_bound(
                 GraphRevision(scene.generation().0),
@@ -608,6 +643,7 @@ impl EmbeddedGraphApp {
                                 .authority
                                 .product_index_hash()
                                 .is_some(),
+                            viewport_revision: renderer.viewport_revision(),
                             lens_uniform_writes: renderer.lens_uniform_writes(),
                             allocated_bytes: stats.allocated_bytes,
                             active_manifold: self.loaded_manifold,
@@ -713,7 +749,8 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
         }
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, _: GraphWake) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: GraphWake) {
+        let pick_ready = matches!(event, GraphWake::PickReady);
         if let Err(error) = self.process_viewport() {
             tracing::error!(%error, "embedded viewport synchronization failed");
             lifecycle::mark_proof_failed();
@@ -725,6 +762,12 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
             tracing::error!(%error, "resident scene synchronization failed");
             lifecycle::mark_proof_failed();
             event_loop.exit();
+            return;
+        }
+        if pick_ready {
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
         }
     }
 
@@ -757,11 +800,13 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 lifecycle::pointer_event();
-                let point = position.to_logical::<f32>(window.scale_factor());
-                self.logical_pointer = (point.x, point.y);
+                // `position` is already in the child surface's physical
+                // framebuffer coordinates. Do not convert through GPUI's
+                // logical space: at 150%/200% DPI that would scale picking
+                // twice and place the hover probe away from the cursor.
+                self.physical_pointer = PhysicalPointer::new(position.x as f32, position.y as f32);
                 self.send_input(GraphInput::PointerMoved {
-                    x: point.x,
-                    y: point.y,
+                    pointer: self.physical_pointer,
                 });
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -774,15 +819,13 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
                 };
                 let input = match state {
                     ElementState::Pressed => GraphInput::PointerPressed {
-                        x: self.logical_pointer.0,
-                        y: self.logical_pointer.1,
+                        pointer: self.physical_pointer,
                         button,
                         shift: self.shift_down,
                         alt: self.alt_down,
                     },
                     ElementState::Released => GraphInput::PointerReleased {
-                        x: self.logical_pointer.0,
-                        y: self.logical_pointer.1,
+                        pointer: self.physical_pointer,
                         button,
                     },
                 };
@@ -890,8 +933,16 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
             return;
         }
         if let (Some(renderer), Some(window)) = (&self.renderer, &self.window) {
+            renderer.poll_async_work();
             if renderer.needs_redraw() {
                 window.request_redraw();
+            }
+            if renderer.pick_in_flight() {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(
+                    Instant::now() + Duration::from_millis(4),
+                ));
+            } else {
+                event_loop.set_control_flow(ControlFlow::Wait);
             }
         }
     }
