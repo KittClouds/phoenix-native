@@ -16,10 +16,65 @@ static DANGER_PALETTE: LazyLock<GradientPalette> = LazyLock::new(|| palette([0xf
 static OVER_LIMIT_PALETTE: LazyLock<GradientPalette> =
     LazyLock::new(|| palette([0xff4500, 0xff0000]));
 
+/// A/B arm for the display-linked length warning.
+///
+/// This lives at the footer boundary so the experiment can be removed without
+/// changing document metrics, editor state, or the gradient-text crate.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum FooterMotionArm {
+    /// Repeat forever. Kept only as the control arm for performance diagnosis.
+    Animated,
+    /// Animate briefly when an actionable band is entered, then become static.
+    #[default]
+    Pulse,
+    /// Keep the warning palette while eliminating the repeating scheduler.
+    Static,
+}
+
+impl FooterMotionArm {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Animated => "animated",
+            Self::Pulse => "pulse",
+            Self::Static => "static",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "animated" => Some(Self::Animated),
+            "pulse" => Some(Self::Pulse),
+            "static" => Some(Self::Static),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn render_arm(self, pulse_active: bool) -> Self {
+        match self {
+            Self::Pulse if pulse_active => Self::Animated,
+            Self::Pulse => Self::Static,
+            arm => arm,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct DocumentMetrics {
     words: usize,
     characters: usize,
+}
+
+impl DocumentMetrics {
+    pub(super) const fn counts(self) -> (usize, usize) {
+        (self.words, self.characters)
+    }
+
+    pub(super) const fn band_names(self) -> (&'static str, &'static str) {
+        (
+            word_band(self.words).as_str(),
+            character_band(self.characters).as_str(),
+        )
+    }
 }
 
 impl DocumentMetrics {
@@ -65,6 +120,19 @@ enum LengthBand {
     OverLimit,
 }
 
+impl LengthBand {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Healthy => "healthy",
+            Self::Rising => "rising",
+            Self::Caution => "caution",
+            Self::Warning => "warning",
+            Self::Danger => "danger",
+            Self::OverLimit => "over_limit",
+        }
+    }
+}
+
 impl PhoenixShell {
     pub(super) fn render_left_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
@@ -96,6 +164,9 @@ impl PhoenixShell {
 
     pub(super) fn render_center_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let entity_count = self.entity_count();
+        let motion_arm = self
+            .footer_motion_arm
+            .render_arm(self.footer_pulse_active());
         let graph_available = self.graph.borrow().is_some()
             || self.scene_error.is_some()
             || self.graph_init_error.is_some();
@@ -192,11 +263,13 @@ impl PhoenixShell {
                                 "footer-word-health",
                                 format!("{} words", self.document_metrics.words),
                                 word_band(self.document_metrics.words),
+                                motion_arm,
                             ))
                             .child(metric_text(
                                 "footer-character-health",
                                 format!("{} chars", self.document_metrics.characters),
                                 character_band(self.document_metrics.characters),
+                                motion_arm,
                             )),
                     )
                     .when(!self.left_open, |controls| {
@@ -251,16 +324,25 @@ impl PhoenixShell {
     }
 }
 
-fn metric_text(id: &'static str, label: String, band: LengthBand) -> gpui::AnyElement {
+fn metric_text(
+    id: &'static str,
+    label: String,
+    band: LengthBand,
+    motion_arm: FooterMotionArm,
+) -> gpui::AnyElement {
     let text = GradientText::new(label, band_palette(band))
         .cycles(0.82)
         .max_color_runs(12);
-    if animation_enabled(band) {
+    if uses_animation(motion_arm, band) {
         text.animated(id, Duration::from_millis(5_200))
             .into_any_element()
     } else {
         text.into_any_element()
     }
+}
+
+const fn uses_animation(motion_arm: FooterMotionArm, band: LengthBand) -> bool {
+    matches!(motion_arm, FooterMotionArm::Animated) && animation_enabled(band)
 }
 
 fn palette(colors: [u32; 2]) -> GradientPalette {
@@ -389,5 +471,39 @@ mod tests {
         assert!(animation_enabled(LengthBand::Warning));
         assert!(animation_enabled(LengthBand::Danger));
         assert!(animation_enabled(LengthBand::OverLimit));
+    }
+
+    #[test]
+    fn footer_motion_arms_are_explicit_and_parseable() {
+        assert_eq!(FooterMotionArm::default(), FooterMotionArm::Pulse);
+        assert_eq!(
+            FooterMotionArm::parse("pulse"),
+            Some(FooterMotionArm::Pulse)
+        );
+        assert_eq!(
+            FooterMotionArm::parse("static"),
+            Some(FooterMotionArm::Static)
+        );
+        assert_eq!(FooterMotionArm::parse("unknown"), None);
+        assert!(!uses_animation(
+            FooterMotionArm::Static,
+            LengthBand::OverLimit
+        ));
+        assert_eq!(
+            FooterMotionArm::Pulse.render_arm(true),
+            FooterMotionArm::Animated
+        );
+        assert_eq!(
+            FooterMotionArm::Pulse.render_arm(false),
+            FooterMotionArm::Static
+        );
+        assert!(uses_animation(
+            FooterMotionArm::Animated,
+            LengthBand::OverLimit
+        ));
+        assert!(!uses_animation(
+            FooterMotionArm::Animated,
+            LengthBand::Healthy
+        ));
     }
 }

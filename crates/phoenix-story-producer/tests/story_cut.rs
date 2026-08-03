@@ -14,6 +14,8 @@ use phoenix_graph_generation_v2::{
     EvidenceRecord, MemoryStateCandidateRecord, MentionRecord, PageKind, ProducerProduct,
     TemporalCandidateRecord, TypedRelationshipCandidateRecord,
 };
+use phoenix_scene_compiler::{compile_graph_generation_v2, NativeSceneCompilerV2Input};
+use phoenix_scene_contract::{HighlightPalette, RelationFamily, ReviewMask};
 use phoenix_semantic_lens::{write_semantic_lens_pack_new, CandidateKeyBuilder, CoreSemanticClass};
 use phoenix_semantic_review::{
     append_authority_record, publish_reviewed_generation_new, rollback_authority, DecisionCommand,
@@ -142,6 +144,24 @@ fn every_story_output_is_proposed_and_evidence_bound() {
     );
     assert_eq!(published.receipt().model_ranked_count, 1);
     assert_eq!(published.receipt().unsupported_mask, 0);
+    let review = story_review_catalog(generation).unwrap();
+    let compiled = compile_graph_generation_v2(NativeSceneCompilerV2Input {
+        scene_generation_id: 1,
+        generation,
+        review_catalog: &review,
+        palette: HighlightPalette::default(),
+    })
+    .unwrap();
+    assert_eq!(compiled.receipt.temporal_candidate_count, 1);
+    assert_eq!(compiled.receipt.causal_candidate_count, 1);
+    assert!(compiled.publication.edge_products.iter().any(|edge| {
+        edge.relation_mask == RelationFamily::Temporal.mask().0
+            && edge.review_mask == ReviewMask::PROPOSED.0
+    }));
+    assert!(compiled.publication.edge_products.iter().any(|edge| {
+        edge.relation_mask == RelationFamily::Causal.mask().0
+            && edge.review_mask == ReviewMask::PROPOSED.0
+    }));
     let lens_pack = write_semantic_lens_pack_new(
         &story_dir.path().join("story.pslp"),
         &phoenix_story_producer::story_lens_definition(),
@@ -879,6 +899,37 @@ fn story_v1_lens_formalization_preserves_existing_candidate_identity() {
             RelationshipKind::Supports as u16
         )
     );
+}
+
+#[test]
+fn story_lens_registers_complete_temporal_and_causal_vocabulary() {
+    let definition = phoenix_story_producer::story_lens_definition();
+    for relation in [
+        TemporalRelation::Before,
+        TemporalRelation::After,
+        TemporalRelation::Simultaneous,
+        TemporalRelation::During,
+        TemporalRelation::Contains,
+        TemporalRelation::Starts,
+        TemporalRelation::Finishes,
+        TemporalRelation::Overlaps,
+        TemporalRelation::RecursAfter,
+        TemporalRelation::Supersedes,
+    ] {
+        let code = phoenix_story_producer::temporal_code(relation);
+        assert!(definition.codes.iter().any(|entry| entry.code == code));
+    }
+    for relation in [
+        CausalRelation::Causes,
+        CausalRelation::Enables,
+        CausalRelation::Prevents,
+        CausalRelation::Motivates,
+        CausalRelation::Explains,
+        CausalRelation::Consequence,
+    ] {
+        let code = phoenix_story_producer::causal_code(relation);
+        assert!(definition.codes.iter().any(|entry| entry.code == code));
+    }
 }
 
 fn evidence_for(

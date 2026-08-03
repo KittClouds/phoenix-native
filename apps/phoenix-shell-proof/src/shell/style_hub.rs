@@ -6,6 +6,7 @@ use phoenix_app_core::KernelSnapshot;
 use phoenix_scene_contract::{
     FamilyMask, GraphLens, GraphSurface, GraphViewState, RelationFamily, ReviewMask,
 };
+use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use serde::{Deserialize, Serialize};
 
 const ENTITY_LANE_SPECS: [(&str, FamilyMask, u32); 5] = [
@@ -67,12 +68,39 @@ struct TopologySummary {
     discourse_edges: [usize; DISCOURSE_LANE_SPECS.len()],
 }
 
-impl TopologySummary {
-    fn from_snapshot(snapshot: Option<&KernelSnapshot>) -> Self {
+#[derive(Default)]
+pub(super) struct TopologySummaryCache {
+    index_hash: Option<[u8; 32]>,
+    summary: TopologySummary,
+}
+
+impl TopologySummaryCache {
+    fn summary_for(&mut self, snapshot: Option<&KernelSnapshot>) -> TopologySummary {
         let Some(index) = snapshot.and_then(|snapshot| snapshot.scene_product_index.as_deref())
         else {
-            return Self::default();
+            self.index_hash = None;
+            self.summary = TopologySummary::default();
+            return self.summary;
         };
+        let index_hash = index.header().index_hash;
+        self.get_or_compute(index_hash, || TopologySummary::from_index(index))
+    }
+
+    fn get_or_compute(
+        &mut self,
+        index_hash: [u8; 32],
+        compute: impl FnOnce() -> TopologySummary,
+    ) -> TopologySummary {
+        if self.index_hash != Some(index_hash) {
+            self.summary = compute();
+            self.index_hash = Some(index_hash);
+        }
+        self.summary
+    }
+}
+
+impl TopologySummary {
+    fn from_index(index: &PhoenixSceneProductIndexV1) -> Self {
         let mut summary = Self {
             nodes: index.nodes().len(),
             edges: index.edges().len(),
@@ -162,7 +190,10 @@ impl PhoenixShell {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let view = snapshot.map_or_else(GraphViewState::default, |snapshot| snapshot.graph_view);
-        let summary = TopologySummary::from_snapshot(snapshot);
+        let summary = self
+            .style_hub_summary_cache
+            .borrow_mut()
+            .summary_for(snapshot);
         let bound = snapshot
             .and_then(|snapshot| snapshot.scene_product_index.as_ref())
             .is_some();
@@ -781,6 +812,30 @@ mod tests {
     fn unknown_family_bits_are_never_reported_as_verified_topology() {
         assert_eq!(lane_slot(0), None);
         assert_eq!(lane_slot(1_u64 << 63), None);
+    }
+
+    #[test]
+    fn topology_summary_cache_reuses_an_immutable_product_index() {
+        let mut cache = TopologySummaryCache::default();
+        let mut builds = 0;
+        let index_hash = [7; 32];
+        let first = cache.get_or_compute(index_hash, || {
+            builds += 1;
+            TopologySummary {
+                nodes: 11,
+                edges: 17,
+                ..TopologySummary::default()
+            }
+        });
+        let second = cache.get_or_compute(index_hash, || {
+            builds += 1;
+            TopologySummary::default()
+        });
+
+        assert_eq!(builds, 1);
+        assert_eq!(first, second);
+        assert_eq!(second.nodes, 11);
+        assert_eq!(second.edges, 17);
     }
 
     #[test]

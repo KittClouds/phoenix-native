@@ -343,9 +343,7 @@ impl PickingPass {
                     self.inflight_viewport_revision = None;
                     return None;
                 };
-                let Some(request_viewport_revision) = self.inflight_viewport_revision.take() else {
-                    return None;
-                };
+                let request_viewport_revision = self.inflight_viewport_revision.take()?;
                 if !pick_is_current(
                     request_epoch,
                     request_viewport_revision,
@@ -369,16 +367,6 @@ impl PickingPass {
             }
             _ => None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn stale_pick_is_rejected_after_viewport_revision_changes() {
-        assert!(!super::pick_is_current(4, 2, 5, 2));
-        assert!(!super::pick_is_current(5, 1, 5, 2));
-        assert!(super::pick_is_current(5, 2, 5, 2));
     }
 }
 
@@ -446,4 +434,14 @@ fn create_texture(
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     (texture, view)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn stale_pick_is_rejected_after_viewport_revision_changes() {
+        assert!(!super::pick_is_current(4, 2, 5, 2));
+        assert!(!super::pick_is_current(5, 1, 5, 2));
+        assert!(super::pick_is_current(5, 2, 5, 2));
+    }
 }

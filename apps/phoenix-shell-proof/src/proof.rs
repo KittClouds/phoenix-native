@@ -274,7 +274,7 @@ fn inspect_soak_authority(kernel: &Arc<PhoenixKernel>) -> Result<SoakAuthority, 
         SceneSource::Archive | SceneSource::RegistryOnly => {
             return Err(
                 "automated proof requires a full backend publication or explicit fixture".into(),
-            )
+            );
         }
     };
     let metrics = kernel.metrics();

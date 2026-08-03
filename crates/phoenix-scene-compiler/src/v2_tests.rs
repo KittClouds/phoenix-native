@@ -1,9 +1,9 @@
 use crate::{compile_graph_generation_v2, NativeSceneCompilerError, NativeSceneCompilerV2Input};
 use phoenix_graph_generation_v2::{
-    write_generation_new, CandidateId, CandidateStatus, ChapterRecord, ChunkRecord, DocumentRecord,
-    EntityRecord, EvidenceRecord, GenerationPages, GenerationWriteAuthority, ParagraphRecord,
-    SemanticFamily, SentenceRecord, StringRef, StructuralEdgeRecord,
-    TypedRelationshipCandidateRecord,
+    write_generation_new, CandidateEvidenceBindingRecord, CandidateId, CandidateStatus,
+    ChapterRecord, ChunkRecord, DocumentRecord, EntityRecord, EvidenceRecord, GenerationPages,
+    GenerationWriteAuthority, ParagraphRecord, SemanticFamily, SentenceRecord, StringRef,
+    StructuralEdgeRecord, TypedRelationshipCandidateRecord,
 };
 use phoenix_scene_archive::{ArchiveManifold, PageKey, PageKind};
 use phoenix_scene_contract::{
@@ -122,10 +122,10 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
         reserved: 0,
     }];
     let structural_edges = [
-        structural_edge(101, 10, 20),
-        structural_edge(102, 20, 30),
-        structural_edge(103, 30, 40),
-        structural_edge(104, 10, 50),
+        structural_edge(101, 10, 20, 1),
+        structural_edge(102, 20, 30, 2),
+        structural_edge(103, 30, 40, 3),
+        structural_edge(104, 10, 50, 4),
     ];
     let source_generation = write_generation_new(
         &generation_path,
@@ -190,11 +190,21 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
         compiled.publication.node_products[entity_slot].family_mask,
         FamilyMask::ENTITIES.0 | FamilyMask::CHARACTERS.0
     );
-    assert!(!compiled
+    assert!(compiled
         .publication
         .identities
         .iter()
-        .any(|node| matches!(node.id, 20 | 30 | 40)));
+        .any(|node| node.id == 20));
+    assert!(compiled
+        .publication
+        .identities
+        .iter()
+        .any(|node| node.id == 30));
+    assert!(compiled
+        .publication
+        .identities
+        .iter()
+        .any(|node| node.id == 40));
     assert!(!compiled
         .publication
         .node_products
@@ -206,7 +216,7 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
         .publish(compiled.publication)
         .expect("publish V2 scene");
     assert_eq!(published.scene.generation(), GraphGeneration(41));
-    assert_eq!(published.scene.inventory().node_count, 4);
+    assert_eq!(published.scene.inventory().node_count, 7);
     assert_eq!(
         published
             .product_index
@@ -231,7 +241,7 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
             .scene
             .activate_manifold(manifold)
             .expect("activate prepared manifold");
-        assert_eq!(active.pages.positions.len(), 4);
+        assert_eq!(active.pages.positions.len(), 7);
         assert!(active.guides.is_some());
         assert!(active.prepared_paths.is_some());
         assert!(published
@@ -252,12 +262,30 @@ fn accepted_status_without_receipt_fails_closed() {
     let source = strings.push("receipt-check");
     let label = strings.push("Ryan");
     let candidate_id = CandidateId([7; 32]);
+    let evidence = [EvidenceRecord {
+        id: 70,
+        entity_id: 60,
+        mention_id: 0,
+        chunk_id: 50,
+        start: 0,
+        end: 1,
+        role: 1,
+        flags: 0,
+        reserved: 0,
+    }];
+    let evidence_bindings = [CandidateEvidenceBindingRecord {
+        candidate_id,
+        evidence_id: 70,
+        ordinal: 0,
+        role: 1,
+        flags: 0,
+    }];
     let relationship = [TypedRelationshipCandidateRecord {
         candidate_id,
         source_entity_id: 60,
         target_entity_id: 60,
         evidence_start: 0,
-        evidence_count: 0,
+        evidence_count: 1,
         premise_start: 0,
         premise_end: 1,
         relation: 1,
@@ -288,11 +316,11 @@ fn accepted_status_without_receipt_fails_closed() {
                 chapter_count: 0,
                 paragraph_count: 0,
                 sentence_count: 0,
-                chunk_count: 0,
+                chunk_count: 1,
                 span_count: 0,
                 entity_count: 1,
                 mention_count: 0,
-                evidence_count: 0,
+                evidence_count: 1,
                 structural_edge_count: 0,
                 flags: 0,
                 reserved: [0; 3],
@@ -307,6 +335,23 @@ fn accepted_status_without_receipt_fails_closed() {
                 flags: 0,
                 reserved: 0,
             }],
+            chunks: &[ChunkRecord {
+                id: 50,
+                document_id: 10,
+                content_hash: 5,
+                start: 0,
+                end: 1,
+                sentence_start: 0,
+                sentence_end: 0,
+                paragraph_start: 0,
+                paragraph_end: 0,
+                chapter_index: 0,
+                token_count: 1,
+                flags: 0,
+                reserved: 0,
+            }],
+            evidence: &evidence,
+            candidate_evidence_bindings: &evidence_bindings,
             typed_relationship_candidates: &relationship,
             ..GenerationPages::default()
         },
@@ -385,11 +430,11 @@ fn accepted_status_without_receipt_fails_closed() {
                 chapter_count: 0,
                 paragraph_count: 0,
                 sentence_count: 0,
-                chunk_count: 0,
+                chunk_count: 1,
                 span_count: 0,
                 entity_count: 1,
                 mention_count: 0,
-                evidence_count: 0,
+                evidence_count: 1,
                 structural_edge_count: 0,
                 flags: 0,
                 reserved: [0; 3],
@@ -404,6 +449,23 @@ fn accepted_status_without_receipt_fails_closed() {
                 flags: 0,
                 reserved: 0,
             }],
+            chunks: &[ChunkRecord {
+                id: 50,
+                document_id: 10,
+                content_hash: 5,
+                start: 0,
+                end: 1,
+                sentence_start: 0,
+                sentence_end: 0,
+                paragraph_start: 0,
+                paragraph_end: 0,
+                chapter_index: 0,
+                token_count: 1,
+                flags: 0,
+                reserved: 0,
+            }],
+            evidence: &evidence,
+            candidate_evidence_bindings: &evidence_bindings,
             typed_relationship_candidates: &proposed_relationship,
             ..GenerationPages::default()
         },
@@ -459,14 +521,14 @@ fn accepted_status_without_receipt_fails_closed() {
     fs::remove_dir_all(root).expect("remove test root");
 }
 
-fn structural_edge(id: u64, source_id: u64, target_id: u64) -> StructuralEdgeRecord {
+fn structural_edge(id: u64, source_id: u64, target_id: u64, relation: u16) -> StructuralEdgeRecord {
     StructuralEdgeRecord {
         id,
         source_id,
         target_id,
         evidence_id: 0,
         weight_bits: 1.0_f32.to_bits(),
-        relation: 1,
+        relation,
         flags: 0,
     }
 }

@@ -31,6 +31,8 @@ pub enum NativeSceneCompilerError {
     V2MissingEndpoint(u64),
     #[error("V2 string reference is corrupt")]
     V2StringReference,
+    #[error("V3 visual contract is invalid: {0}")]
+    V3VisualContract(String),
     #[error("verified mention {start}..{end} no longer matches the active document")]
     StaleMention { start: u32, end: u32 },
     #[error("document contains {actual} bytes; scene references support at most {maximum}")]
@@ -57,4 +59,6 @@ pub enum NativeSceneCompilerError {
     CapsProjectionInvalid { slot: usize },
     #[error(transparent)]
     V2Structural(#[from] crate::StructuralSourceError),
+    #[error(transparent)]
+    V2Topology(#[from] phoenix_graph_generation_v2::TopologyValidationError),
 }

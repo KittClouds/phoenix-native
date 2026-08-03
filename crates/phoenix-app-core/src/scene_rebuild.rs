@@ -1,6 +1,7 @@
 use super::*;
 use phoenix_scene_compiler::{
-    compile_graph_generation_v2, NativeSceneCompileReceiptV2, NativeSceneCompilerV2Input,
+    compile_graph_generation_v3, NativeSceneCompileReceiptV2, NativeSceneCompilerV3Input,
+    VisualContractDraftV3,
 };
 use phoenix_scene_contract::{AnchorCandidate, AnchorSource};
 use std::time::Instant;
@@ -10,6 +11,7 @@ pub struct NativeScenePublishCommand {
     pub(super) publication: NativeScenePublication,
     pub(super) anchors: Option<Arc<VerifiedDocumentAnchors>>,
     pub(super) compile_receipt: Option<NativeSceneCompileReceiptV2>,
+    pub(super) visual_receipt: Option<VisualContractDraftV3>,
     pub(super) run_id: Option<u64>,
     pub(super) source_generation_v2: Option<Arc<VerifiedGraphGenerationV2>>,
     pub(super) review_catalog_v2: Option<Arc<ReviewCatalog>>,
@@ -22,6 +24,7 @@ impl NativeScenePublishCommand {
             publication,
             anchors: None,
             compile_receipt: None,
+            visual_receipt: None,
             run_id: None,
             source_generation_v2: None,
             review_catalog_v2: None,
@@ -32,6 +35,7 @@ impl NativeScenePublishCommand {
         publication: NativeScenePublication,
         anchors: Arc<VerifiedDocumentAnchors>,
         compile_receipt: NativeSceneCompileReceiptV2,
+        visual_receipt: VisualContractDraftV3,
         run_id: u64,
         source_generation_v2: Arc<VerifiedGraphGenerationV2>,
         review_catalog_v2: Arc<ReviewCatalog>,
@@ -40,6 +44,7 @@ impl NativeScenePublishCommand {
             publication,
             anchors: Some(anchors),
             compile_receipt: Some(compile_receipt),
+            visual_receipt: Some(visual_receipt),
             run_id: Some(run_id),
             source_generation_v2: Some(source_generation_v2),
             review_catalog_v2: Some(review_catalog_v2),
@@ -50,6 +55,7 @@ impl NativeScenePublishCommand {
         publication: NativeScenePublication,
         anchors: Arc<VerifiedDocumentAnchors>,
         compile_receipt: NativeSceneCompileReceiptV2,
+        visual_receipt: VisualContractDraftV3,
         run_id: u64,
         source_generation_v2: Arc<VerifiedGraphGenerationV2>,
         review_catalog_v2: Arc<ReviewCatalog>,
@@ -58,6 +64,7 @@ impl NativeScenePublishCommand {
             publication,
             anchors: Some(anchors),
             compile_receipt: Some(compile_receipt),
+            visual_receipt: Some(visual_receipt),
             run_id: Some(run_id),
             source_generation_v2: Some(source_generation_v2),
             review_catalog_v2: Some(review_catalog_v2),
@@ -82,7 +89,7 @@ impl PhoenixKernel {
     }
 
     /// Rebuild command used by graph controls. Production builds always route
-    /// through the exact V2 producer pipeline above; only unit tests may use
+    /// through the exact V3 visual-contract pipeline above; only unit tests may use
     /// the isolated fixture authority.
     pub fn rebuild_active_scene(&self) -> Result<CommandReceipt, KernelError> {
         #[cfg(not(test))]
@@ -188,7 +195,7 @@ impl PhoenixKernel {
                 )?,
                 _ => return Err(KernelError::AnalysisAuthorityMismatch),
             };
-            let compiled = compile_graph_generation_v2(NativeSceneCompilerV2Input {
+            let compiled = compile_graph_generation_v3(NativeSceneCompilerV3Input {
                 scene_generation_id: generation_id,
                 generation: &authority.generation,
                 review_catalog: &authority.catalog,
@@ -213,6 +220,7 @@ impl PhoenixKernel {
                     compiled.publication,
                     anchors,
                     compiled.receipt,
+                    compiled.visual,
                     run_id,
                     authority.generation,
                     authority.catalog,

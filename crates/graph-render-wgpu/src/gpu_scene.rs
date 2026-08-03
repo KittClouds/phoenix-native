@@ -181,6 +181,53 @@ impl GpuScene {
         node_product_visible(product, view)
     }
 
+    /// Rebuilds the CPU interaction mask for the active view.  The GPU still
+    /// owns visibility for rasterization, but picking, neighborhood walks, and
+    /// routes must use the same authority or they can cross hidden lanes.
+    pub fn set_interaction_visibility(&mut self, view: GraphViewState, queue: &wgpu::Queue) {
+        let product_index_enabled =
+            self.bound_product_hash.is_some() && view.requires_product_index();
+        let state = &self.state;
+        let node_products = &self.node_product_data;
+        let edge_products = &self.edge_product_data;
+        self.interaction.set_visibility_with(
+            state.node_capacity_slots(),
+            state.edge_capacity_slots(),
+            |slot| {
+                state.node_at_slot(slot as u32).is_some_and(|_| {
+                    !product_index_enabled
+                        || node_products
+                            .get(slot)
+                            .is_some_and(|product| node_product_visible(product, view))
+                })
+            },
+            |slot| {
+                state.edge_at_slot(slot as u32).is_some_and(|edge| {
+                    !product_index_enabled
+                        || edge_products.get(slot).is_some_and(|product| {
+                            let (source, target) = state
+                                .node_slot(edge.source)
+                                .zip(state.node_slot(edge.target))
+                                .map(|(source, target)| {
+                                    (
+                                        node_products.get(source as usize),
+                                        node_products.get(target as usize),
+                                    )
+                                })
+                                .unwrap_or((None, None));
+                            edge_product_visible(product, source, target, view)
+                        })
+                })
+            },
+        );
+        self.update_highlights(
+            self.hover_node,
+            self.selected_node,
+            self.secondary_selected_node,
+            queue,
+        );
+    }
+
     #[must_use]
     pub fn secondary_selected_node(&self) -> Option<NodeId> {
         self.secondary_selected_node
@@ -575,11 +622,18 @@ impl GpuScene {
         self.selected_node = selected.filter(|id| self.state.node_slot(*id).is_some());
         self.secondary_selected_node =
             secondary_selected.filter(|id| self.state.node_slot(*id).is_some());
-        let hover_slot = self.hover_node.and_then(|id| self.state.node_slot(id));
-        let selected_slot = self.selected_node.and_then(|id| self.state.node_slot(id));
+        let hover_slot = self
+            .hover_node
+            .and_then(|id| self.state.node_slot(id))
+            .filter(|slot| self.interaction.node_is_active(*slot));
+        let selected_slot = self
+            .selected_node
+            .and_then(|id| self.state.node_slot(id))
+            .filter(|slot| self.interaction.node_is_active(*slot));
         let secondary_selected_slot = self
             .secondary_selected_node
-            .and_then(|id| self.state.node_slot(id));
+            .and_then(|id| self.state.node_slot(id))
+            .filter(|slot| self.interaction.node_is_active(*slot));
 
         if let Some(slot) = hover_slot {
             mark_node(
@@ -590,15 +644,20 @@ impl GpuScene {
                 HOVERED_FLAG,
             );
         }
-        if let Some(slot) = selected_slot {
+        if let Some(slot) = hover_slot.or(selected_slot) {
+            let focus_flag = if Some(slot) == hover_slot {
+                HOVERED_FLAG
+            } else {
+                SELECTED_FLAG
+            };
             mark_node(
                 &mut self.node_gpu_data,
                 &mut self.interaction_node_slots,
                 &mut self.interaction_node_dirty,
                 slot,
-                SELECTED_FLAG,
+                focus_flag,
             );
-            for adjacency in self.interaction.neighbors(slot) {
+            for adjacency in self.interaction.visible_neighbors(slot) {
                 mark_node(
                     &mut self.node_gpu_data,
                     &mut self.interaction_node_slots,
@@ -615,7 +674,7 @@ impl GpuScene {
                 );
             }
         }
-        if let Some(slot) = secondary_selected_slot {
+        if let Some(slot) = selected_slot {
             mark_node(
                 &mut self.node_gpu_data,
                 &mut self.interaction_node_slots,
@@ -665,6 +724,17 @@ impl GpuScene {
             &self.edge_gpu_data,
             &self.interaction_edge_dirty,
         )
+    }
+
+    #[must_use]
+    pub fn focus_active(&self) -> bool {
+        self.hover_node
+            .and_then(|id| self.state.node_slot(id))
+            .is_some_and(|slot| self.interaction.node_is_active(slot))
+            || self
+                .selected_node
+                .and_then(|id| self.state.node_slot(id))
+                .is_some_and(|slot| self.interaction.node_is_active(slot))
     }
 
     #[must_use]
@@ -899,7 +969,6 @@ fn topology_lane_visible(product_mask: u64, selected: phoenix_scene_contract::Fa
     product_lanes == 0 || product_lanes & selected.0 != 0
 }
 
-#[cfg(test)]
 fn edge_product_visible(
     product: &EdgeProductGpu,
     source: Option<&NodeProductGpu>,

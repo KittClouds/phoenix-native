@@ -13,13 +13,17 @@ use phoenix_analysis_contract::{
 use phoenix_scene_contract::{AnchorCandidate, AnchorSource, EntityKind};
 use std::collections::BTreeMap;
 use std::fs;
-use std::process::{Child, Command, ExitStatus};
+use std::io::{BufRead, BufReader, Write};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{self as control_mpsc, Receiver as ControlReceiver, RecvTimeoutError};
+use std::sync::TryLockError;
 use std::thread;
 use std::time::Duration;
 
 const ANALYSIS_DIRECTORY: &str = "analysis-authority-v1";
 const MAX_RESTORE_FILES: usize = 256;
 const DEFAULT_NLI_CANDIDATES: u32 = 65_536;
+const ANALYSIS_REUSE_MARKER: &[u8] = b"PHOENIX_ANALYSIS_REUSE_V1\0";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AnalysisPublicationReceipt {
@@ -63,11 +67,41 @@ pub struct NativeProducerRuntimeConfig {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnalysisRuntimeInfo {
+    pub configured: bool,
     pub ready: bool,
+    pub resident: bool,
     pub producer: Arc<str>,
     pub dynamic_ner: Arc<str>,
     pub nli: Arc<str>,
     pub detail: Arc<str>,
+    pub warm_receipt: Option<AnalysisModelWarmReceipt>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AnalysisModelWarmReceipt {
+    pub config_hash: [u8; 32],
+    pub producer_pid: u32,
+    pub ner_load_micros: u64,
+    pub nli_load_micros: u64,
+    pub total_micros: u64,
+    pub ner_cache_hit: bool,
+    pub nli_cache_hit: bool,
+    pub reused: bool,
+}
+
+pub(super) struct ResidentAnalysisProducer {
+    child: Child,
+    input: ChildStdin,
+    output: ControlReceiver<Result<String, String>>,
+    receipt: AnalysisModelWarmReceipt,
+}
+
+struct AnalysisWarmGuard<'a>(&'a AtomicBool);
+
+impl Drop for AnalysisWarmGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 pub(super) struct RestoredAnalysis {
@@ -97,36 +131,243 @@ impl NativeProducerRuntimeConfig {
             Ok(config) => config,
             Err(error) => {
                 return AnalysisRuntimeInfo {
+                    configured: false,
                     ready: false,
+                    resident: false,
                     producer: Arc::from("not configured"),
                     dynamic_ner: Arc::from("not configured"),
                     nli: Arc::from("not configured"),
                     detail: Arc::from(error.to_string()),
+                    warm_receipt: None,
                 };
             }
         };
         let producer_ready = config.producer_executable.is_file();
         let ner_ready = config.ner_model_root.is_dir();
         let nli_ready = config.nli_model_root.is_dir();
-        let ready = producer_ready && ner_ready && nli_ready;
+        let configured = producer_ready && ner_ready && nli_ready;
         AnalysisRuntimeInfo {
-            ready,
+            configured,
+            ready: false,
+            resident: false,
             producer: display_name(&config.producer_executable),
             dynamic_ner: display_name(&config.ner_model_root),
             nli: display_name(&config.nli_model_root),
-            detail: Arc::from(if ready {
-                "Verified native producer and model roots are available".to_owned()
+            detail: Arc::from(if configured {
+                "Verified native producer and model roots are configured; warm them before running"
+                    .to_owned()
             } else {
                 format!(
                     "missing runtime input: producer={} dynamic_ner={} nli={}",
                     !producer_ready, !ner_ready, !nli_ready
                 )
             }),
+            warm_receipt: None,
         }
+    }
+
+    fn resident_hash(&self) -> [u8; 32] {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"phoenix.analysis.resident-models/v1\0");
+        hash_path_identity(&mut hasher, &self.producer_executable);
+        hash_path_identity(&mut hasher, &self.ner_model_root);
+        hash_path_identity(&mut hasher, &self.nli_model_root);
+        *hasher.finalize().as_bytes()
     }
 }
 
 impl PhoenixKernel {
+    pub fn analysis_runtime_info(&self) -> AnalysisRuntimeInfo {
+        let mut info = NativeProducerRuntimeConfig::runtime_info();
+        let Ok(config) = NativeProducerRuntimeConfig::from_env() else {
+            return info;
+        };
+        let mut producer = match self.shared.analysis_producer.try_lock() {
+            Ok(producer) => producer,
+            Err(TryLockError::WouldBlock) => {
+                let warming = self.shared.analysis_warming.load(Ordering::Acquire);
+                info.ready = info.configured && !warming;
+                info.resident = info.configured && !warming;
+                info.detail = Arc::from(if warming {
+                    "analysis models are warming"
+                } else {
+                    "resident models are executing the active pipeline"
+                });
+                return info;
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                info.ready = false;
+                info.detail = Arc::from("resident analysis runtime lock is poisoned");
+                return info;
+            }
+        };
+        if let Some(runtime) = producer.as_mut() {
+            let healthy = runtime.receipt.config_hash == config.resident_hash()
+                && runtime.child.try_wait().ok().flatten().is_none();
+            if healthy {
+                info.ready = true;
+                info.resident = true;
+                info.warm_receipt = Some(runtime.receipt);
+                info.detail = Arc::from("GLiNER and ModernBERT are resident and ready");
+            } else {
+                *producer = None;
+                info.ready = false;
+                info.detail =
+                    Arc::from("configured models are not resident; warm them before running");
+            }
+        }
+        info
+    }
+
+    pub fn warm_analysis_models(&self) -> Result<AnalysisModelWarmReceipt, KernelError> {
+        let config = NativeProducerRuntimeConfig::from_env()?;
+        self.warm_analysis_models_with(&config)
+    }
+
+    pub fn warm_analysis_models_with(
+        &self,
+        config: &NativeProducerRuntimeConfig,
+    ) -> Result<AnalysisModelWarmReceipt, KernelError> {
+        validate_runtime_paths(config)?;
+        self.shared
+            .analysis_warming
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| {
+                KernelError::AnalysisProducerFailed(
+                    "analysis model warm is already in progress".into(),
+                )
+            })?;
+        let _warming = AnalysisWarmGuard(&self.shared.analysis_warming);
+        let config_hash = config.resident_hash();
+        let mut slot = match self.shared.analysis_producer.try_lock() {
+            Ok(slot) => slot,
+            Err(TryLockError::WouldBlock) => {
+                return Err(if self.shared.analysis_warming.load(Ordering::Acquire) {
+                    KernelError::AnalysisModelsNotWarm
+                } else {
+                    KernelError::AnalysisProducerFailed("resident analysis producer is busy".into())
+                });
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                return Err(KernelError::Poisoned("resident analysis producer"));
+            }
+        };
+        if let Some(runtime) = slot.as_mut() {
+            if runtime.receipt.config_hash == config_hash
+                && runtime.child.try_wait().ok().flatten().is_none()
+            {
+                let mut receipt = runtime.receipt;
+                receipt.reused = true;
+                return Ok(receipt);
+            }
+            runtime.shutdown();
+            *slot = None;
+        }
+        let mut child = Command::new(&config.producer_executable)
+            .arg("serve")
+            .arg(&config.ner_model_root)
+            .arg(&config.nli_model_root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|error| producer_start_error(config, error))?;
+        let input = child.stdin.take().ok_or_else(|| {
+            KernelError::AnalysisProducerFailed("resident producer stdin unavailable".into())
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            KernelError::AnalysisProducerFailed("resident producer stdout unavailable".into())
+        })?;
+        let (control_sender, control_receiver) = control_mpsc::sync_channel(8);
+        thread::Builder::new()
+            .name("phoenix-analysis-control".into())
+            .spawn(move || {
+                let mut reader = BufReader::new(stdout);
+                let mut line = String::with_capacity(512);
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            if control_sender.send(Ok(line.clone())).is_err() {
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            let _ = control_sender.send(Err(error.to_string()));
+                            break;
+                        }
+                    }
+                }
+            })
+            .map_err(|error| {
+                KernelError::AnalysisProducerFailed(format!(
+                    "start resident producer control reader: {error}"
+                ))
+            })?;
+        let mut runtime = ResidentAnalysisProducer {
+            child,
+            input,
+            output: control_receiver,
+            receipt: AnalysisModelWarmReceipt {
+                config_hash,
+                producer_pid: 0,
+                ner_load_micros: 0,
+                nli_load_micros: 0,
+                total_micros: 0,
+                ner_cache_hit: false,
+                nli_cache_hit: false,
+                reused: false,
+            },
+        };
+        let fields = match runtime.read_control("READY", None) {
+            Ok(fields) => fields,
+            Err(error) => {
+                runtime.shutdown();
+                return Err(error);
+            }
+        };
+        if fields.len() != 7 {
+            runtime.shutdown();
+            return Err(KernelError::AnalysisProducerFailed(
+                "malformed resident producer READY receipt".into(),
+            ));
+        }
+        let parsed = (|| {
+            Ok::<_, KernelError>((
+                parse_control(&fields[1], "producer pid")?,
+                parse_control(&fields[2], "GLiNER load micros")?,
+                parse_control(&fields[3], "NLI load micros")?,
+                parse_control(&fields[4], "total warm micros")?,
+                parse_control::<u8>(&fields[5], "GLiNER optimized cache hit")? != 0,
+                parse_control::<u8>(&fields[6], "NLI optimized cache hit")? != 0,
+            ))
+        })();
+        let (
+            producer_pid,
+            ner_load_micros,
+            nli_load_micros,
+            total_micros,
+            ner_cache_hit,
+            nli_cache_hit,
+        ) = match parsed {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                runtime.shutdown();
+                return Err(error);
+            }
+        };
+        runtime.receipt.producer_pid = producer_pid;
+        runtime.receipt.ner_load_micros = ner_load_micros;
+        runtime.receipt.nli_load_micros = nli_load_micros;
+        runtime.receipt.total_micros = total_micros;
+        runtime.receipt.ner_cache_hit = ner_cache_hit;
+        runtime.receipt.nli_cache_hit = nli_cache_hit;
+        let receipt = runtime.receipt;
+        *slot = Some(runtime);
+        Ok(receipt)
+    }
+
     pub fn analyze_active_document(
         &self,
         generation: u64,
@@ -140,17 +381,25 @@ impl PhoenixKernel {
         generation: u64,
         config: &NativeProducerRuntimeConfig,
     ) -> Result<AnalysisPublicationReceipt, KernelError> {
-        let (lease, source_registry_revision) = {
+        let config_hash = config.resident_hash();
+        let (lease, source_registry_revision, reusable) = {
             let state = read_state(&self.shared)?;
-            (
-                state
-                    .active_document_lease
-                    .as_ref()
-                    .map(Arc::clone)
-                    .ok_or(KernelError::ActiveSceneDocumentUnavailable)?,
-                state.entity_registry.revision(),
-            )
+            let lease = state
+                .active_document_lease
+                .as_ref()
+                .map(Arc::clone)
+                .ok_or(KernelError::ActiveSceneDocumentUnavailable)?;
+            let reusable = reusable_analysis_receipt(
+                &self.shared.workspace_path,
+                &state,
+                &lease,
+                config_hash,
+            )?;
+            (lease, state.entity_registry.revision(), reusable)
         };
+        if let Some(receipt) = reusable {
+            return Ok(receipt);
+        }
         let target_registry_revision = source_registry_revision
             .checked_add(1)
             .ok_or(KernelError::AnalysisAuthorityMismatch)?;
@@ -196,26 +445,18 @@ impl PhoenixKernel {
         let preliminary_coordinator_path =
             directory.join(format!("{stem}.producer.{PRODUCER_COORDINATOR_EXTENSION}"));
         write_message_new(&request_path, &request)?;
-        let mut child = Command::new(&config.producer_executable)
-            .arg("analyze")
-            .arg(&request_path)
-            .arg(&output_path)
-            .arg(&structural_path)
-            .arg(&preliminary_coordinator_path)
-            .spawn()
-            .map_err(|error| {
-                KernelError::AnalysisProducerFailed(format!(
-                    "start {}: {error}",
-                    config.producer_executable.display()
-                ))
-            })?;
-        let status = wait_for_producer(&mut child, &self.shared.producer_cancel)?;
-        if !status.success() {
-            return Err(KernelError::AnalysisProducerFailed(format!(
-                "{} exited with {status}",
-                config.producer_executable.display()
-            )));
-        }
+        self.run_resident_analysis(
+            config,
+            &request_path,
+            &output_path,
+            &structural_path,
+            &preliminary_coordinator_path,
+        )?;
+        // The marker is only an optimization hint.  The immutable artifacts
+        // remain authoritative; a missing marker simply causes the next run
+        // to execute normally rather than risking reuse under a new model or
+        // producer configuration.
+        let _ = write_analysis_reuse_marker(&output_path, config_hash);
         let verified = open_analysis_artifact(&output_path)?;
         let structural = open_structural_artifact(&structural_path)?;
         let coordinator = open_producer_coordinator(&preliminary_coordinator_path)?;
@@ -308,6 +549,167 @@ impl PhoenixKernel {
             },
         )))?;
         Ok(receipt)
+    }
+
+    fn run_resident_analysis(
+        &self,
+        config: &NativeProducerRuntimeConfig,
+        request: &Path,
+        output: &Path,
+        structural: &Path,
+        coordinator: &Path,
+    ) -> Result<(), KernelError> {
+        let expected = config.resident_hash();
+        let mut slot = match self.shared.analysis_producer.try_lock() {
+            Ok(slot) => slot,
+            Err(TryLockError::WouldBlock) => {
+                return Err(if self.shared.analysis_warming.load(Ordering::Acquire) {
+                    KernelError::AnalysisModelsNotWarm
+                } else {
+                    KernelError::AnalysisProducerFailed("resident analysis producer is busy".into())
+                });
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                return Err(KernelError::Poisoned("resident analysis producer"));
+            }
+        };
+        let runtime = slot
+            .as_mut()
+            .filter(|runtime| runtime.receipt.config_hash == expected)
+            .ok_or(KernelError::AnalysisModelsNotWarm)?;
+        if runtime.child.try_wait().ok().flatten().is_some() {
+            *slot = None;
+            return Err(KernelError::AnalysisModelsNotWarm);
+        }
+        for path in [request, output, structural, coordinator] {
+            if path.to_string_lossy().contains(['\r', '\n', '\t']) {
+                return Err(KernelError::AnalysisProducerFailed(
+                    "analysis artifact path contains a control delimiter".into(),
+                ));
+            }
+        }
+        writeln!(
+            runtime.input,
+            "ANALYZE\t{}\t{}\t{}\t{}",
+            request.display(),
+            output.display(),
+            structural.display(),
+            coordinator.display()
+        )
+        .and_then(|_| runtime.input.flush())
+        .map_err(|error| KernelError::AnalysisProducerFailed(format!("send ANALYZE: {error}")))?;
+        match runtime.read_control("DONE", Some(&self.shared.producer_cancel)) {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                runtime.shutdown();
+                *slot = None;
+                Err(error)
+            }
+        }
+    }
+}
+
+impl ResidentAnalysisProducer {
+    fn read_control(
+        &mut self,
+        expected: &str,
+        cancellation: Option<&AtomicBool>,
+    ) -> Result<Vec<String>, KernelError> {
+        loop {
+            if cancellation.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+                return Err(KernelError::AnalysisProducerCancelled);
+            }
+            let line = match self.output.recv_timeout(Duration::from_millis(10)) {
+                Ok(Ok(line)) => line,
+                Ok(Err(error)) => {
+                    return Err(KernelError::AnalysisProducerFailed(format!(
+                        "read producer control: {error}"
+                    )))
+                }
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => {
+                    let status = self.child.try_wait().ok().flatten();
+                    return Err(KernelError::AnalysisProducerFailed(format!(
+                        "resident producer closed its control stream ({status:?})"
+                    )));
+                }
+            };
+            let Some(payload) = line
+                .trim_end_matches(['\r', '\n'])
+                .strip_prefix("PHOENIX_CONTROL\t")
+            else {
+                continue;
+            };
+            let fields = payload.split('\t').map(str::to_owned).collect::<Vec<_>>();
+            if fields.first().is_some_and(|field| field == "ERROR") {
+                return Err(KernelError::AnalysisProducerFailed(
+                    fields
+                        .get(1)
+                        .cloned()
+                        .unwrap_or_else(|| "unknown producer error".into()),
+                ));
+            }
+            if fields.first().is_none_or(|field| field != expected) {
+                return Err(KernelError::AnalysisProducerFailed(format!(
+                    "expected producer control {expected}, received {payload}"
+                )));
+            }
+            return Ok(fields);
+        }
+    }
+
+    pub(super) fn shutdown(&mut self) {
+        let _ = writeln!(self.input, "SHUTDOWN");
+        let _ = self.input.flush();
+        for _ in 0..20 {
+            if self.child.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn validate_runtime_paths(config: &NativeProducerRuntimeConfig) -> Result<(), KernelError> {
+    if !config.producer_executable.is_file()
+        || !config.ner_model_root.is_dir()
+        || !config.nli_model_root.is_dir()
+    {
+        return Err(KernelError::AnalysisProducerFailed(
+            "producer executable or model root is unavailable".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn producer_start_error(
+    config: &NativeProducerRuntimeConfig,
+    error: std::io::Error,
+) -> KernelError {
+    KernelError::AnalysisProducerFailed(format!(
+        "start resident {}: {error}",
+        config.producer_executable.display()
+    ))
+}
+
+fn parse_control<T: std::str::FromStr>(raw: &str, name: &str) -> Result<T, KernelError> {
+    raw.parse()
+        .map_err(|_| KernelError::AnalysisProducerFailed(format!("invalid {name} in warm receipt")))
+}
+
+fn hash_path_identity(hasher: &mut blake3::Hasher, path: &Path) {
+    hasher.update(path.as_os_str().to_string_lossy().as_bytes());
+    if let Ok(metadata) = fs::metadata(path) {
+        hasher.update(&metadata.len().to_le_bytes());
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+                hasher.update(&duration.as_nanos().to_le_bytes());
+            }
+        }
     }
 }
 
@@ -685,36 +1087,6 @@ fn publication_receipt(
     })
 }
 
-fn wait_for_producer(
-    child: &mut Child,
-    cancellation: &AtomicBool,
-) -> Result<ExitStatus, KernelError> {
-    loop {
-        if let Some(status) = child.try_wait().map_err(|error| {
-            KernelError::AnalysisProducerFailed(format!("wait for semantic producer: {error}"))
-        })? {
-            return Ok(status);
-        }
-        if cancellation.load(Ordering::Acquire) {
-            if let Err(error) = child.kill() {
-                if let Some(status) = child.try_wait().map_err(|wait_error| {
-                    KernelError::AnalysisProducerFailed(format!(
-                        "wait after cancellation race: {wait_error}"
-                    ))
-                })? {
-                    return Ok(status);
-                }
-                return Err(KernelError::AnalysisProducerFailed(format!(
-                    "terminate cancelled semantic producer: {error}"
-                )));
-            }
-            let _ = child.wait();
-            return Err(KernelError::AnalysisProducerCancelled);
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-}
-
 fn contextual_evidence_bindings(
     ner: &PhoenixNerArtifactV1,
     structural: &phoenix_analysis_contract::PhoenixStructuralSubstrateV1,
@@ -800,6 +1172,137 @@ fn producer_coordinator_path_for(analysis_path: &Path) -> PathBuf {
         ".analysis.pnaa",
         &format!(".coordinator.{PRODUCER_COORDINATOR_EXTENSION}"),
     ))
+}
+
+fn analysis_reuse_marker_path(analysis_path: &Path) -> PathBuf {
+    let mut marker = analysis_path.as_os_str().to_os_string();
+    marker.push(".reuse");
+    PathBuf::from(marker)
+}
+
+fn analysis_reuse_marker(config_hash: [u8; 32]) -> Vec<u8> {
+    let mut marker = Vec::with_capacity(ANALYSIS_REUSE_MARKER.len() + config_hash.len());
+    marker.extend_from_slice(ANALYSIS_REUSE_MARKER);
+    marker.extend_from_slice(&config_hash);
+    marker
+}
+
+fn write_analysis_reuse_marker(
+    analysis_path: &Path,
+    config_hash: [u8; 32],
+) -> Result<(), KernelError> {
+    let marker_path = analysis_reuse_marker_path(analysis_path);
+    if marker_path.exists() {
+        return Ok(());
+    }
+    let temporary_path = marker_path.with_extension("reuse.tmp");
+    fs::write(&temporary_path, analysis_reuse_marker(config_hash)).map_err(|error| {
+        KernelError::AnalysisProducerFailed(format!(
+            "write analysis reuse marker {}: {error}",
+            temporary_path.display()
+        ))
+    })?;
+    fs::rename(&temporary_path, &marker_path).map_err(|error| {
+        let _ = fs::remove_file(&temporary_path);
+        KernelError::AnalysisProducerFailed(format!(
+            "publish analysis reuse marker {}: {error}",
+            marker_path.display()
+        ))
+    })
+}
+
+fn reusable_analysis_receipt(
+    workspace_path: &Path,
+    state: &KernelState,
+    lease: &DocumentLease,
+    config_hash: [u8; 32],
+) -> Result<Option<AnalysisPublicationReceipt>, KernelError> {
+    let Some(publication) = state.analysis_publication else {
+        return Ok(None);
+    };
+    let Some(analysis) = state.document_analysis.as_deref() else {
+        return Ok(None);
+    };
+    let Some(structural) = state.structural_analysis.as_deref() else {
+        return Ok(None);
+    };
+    let Some(nli) = state.nli_analysis.as_deref() else {
+        return Ok(None);
+    };
+    let Some(coordinator) = state.producer_coordinator.as_deref() else {
+        return Ok(None);
+    };
+    let binding = &analysis.ner.binding;
+    if binding.native_document_id != lease.entry_id.0
+        || binding.document_revision != lease.revision.0
+        || binding.content_hash != lease.content_hash.0
+        || binding.target_registry_revision != state.entity_registry.revision()
+        || publication.native_document_id != binding.native_document_id
+        || publication.document_revision != binding.document_revision
+        || publication.analysis_generation != binding.analysis_generation
+        || publication.registry_revision != binding.target_registry_revision
+    {
+        return Ok(None);
+    }
+    let directory = analysis_directory(workspace_path)?;
+    let stem = artifact_stem(&DocumentAnalysisRequestBinding {
+        source_document_id: String::new(),
+        native_document_id: binding.native_document_id,
+        document_revision: binding.document_revision,
+        content_hash: binding.content_hash,
+        analysis_generation: binding.analysis_generation,
+        source_registry_revision: binding.source_registry_revision,
+        target_registry_revision: binding.target_registry_revision,
+    });
+    let analysis_path = directory.join(format!("{stem}.analysis.{ANALYSIS_ARTIFACT_EXTENSION}"));
+    let marker_path = analysis_reuse_marker_path(&analysis_path);
+    let Ok(marker) = fs::read(&marker_path) else {
+        return Ok(None);
+    };
+    if marker != analysis_reuse_marker(config_hash) {
+        return Ok(None);
+    }
+
+    // A matching marker must still pass every immutable artifact check.  A
+    // truncated or replaced file therefore fails closed instead of silently
+    // falling back to a slower analysis under the same apparent key.
+    let verified = open_analysis_artifact(&analysis_path)?;
+    if verified.artifact_hash() != publication.analysis_artifact_hash
+        || verified.analysis().as_ref() != analysis
+    {
+        return Err(KernelError::AnalysisAuthorityMismatch);
+    }
+    let nli_path = nli_path_for(&analysis_path);
+    let verified_nli = open_nli_artifact(&nli_path)?;
+    if verified_nli.artifact_hash() != publication.nli_artifact_hash
+        || verified_nli.nli().as_ref() != nli
+    {
+        return Err(KernelError::AnalysisAuthorityMismatch);
+    }
+    let verified_structural = open_structural_artifact(&structural_path_for(&analysis_path))?;
+    if verified_structural.structural().as_ref() != structural {
+        return Err(KernelError::AnalysisAuthorityMismatch);
+    }
+    let verified_coordinator =
+        open_producer_coordinator(&producer_coordinator_path_for(&analysis_path))?;
+    if verified_coordinator.coordinator().as_ref() != coordinator
+        || verified_coordinator
+            .coordinator()
+            .validate_final(verified.analysis(), verified_structural.structural())
+            .is_err()
+    {
+        return Err(KernelError::AnalysisAuthorityMismatch);
+    }
+    let receipt = publication_receipt(
+        verified.analysis(),
+        verified.artifact_hash(),
+        verified_nli.artifact_hash(),
+        verified_coordinator.artifact_hash(),
+    )?;
+    if receipt != publication {
+        return Err(KernelError::AnalysisAuthorityMismatch);
+    }
+    Ok(Some(receipt))
 }
 
 fn artifact_stem(binding: &DocumentAnalysisRequestBinding) -> String {

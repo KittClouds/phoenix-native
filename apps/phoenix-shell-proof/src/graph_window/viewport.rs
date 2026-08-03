@@ -48,6 +48,16 @@ impl ViewportGeometry {
         }
         Ok(self)
     }
+
+    pub(super) fn position_changed_from(self, previous: Self) -> bool {
+        self.x != previous.x || self.y != previous.y
+    }
+
+    pub(super) fn framebuffer_changed_from(self, previous: Self) -> bool {
+        self.width != previous.width
+            || self.height != previous.height
+            || self.scale_factor.to_bits() != previous.scale_factor.to_bits()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -280,6 +290,26 @@ mod tests {
         let mut invalid = geometry(300);
         invalid.scale_factor = f32::NAN;
         assert!(mailbox.publish_ui(invalid).is_err());
+    }
+
+    #[test]
+    fn position_only_change_does_not_resize_the_framebuffer() {
+        let previous = geometry(300);
+        let mut moved = previous;
+        moved.x += 12;
+        moved.y += 20;
+
+        assert!(moved.position_changed_from(previous));
+        assert!(!moved.framebuffer_changed_from(previous));
+    }
+
+    #[test]
+    fn scale_change_requires_a_framebuffer_reconfiguration() {
+        let previous = geometry(300);
+        let mut scaled = previous;
+        scaled.scale_factor = 2.0;
+
+        assert!(scaled.framebuffer_changed_from(previous));
     }
 
     #[test]

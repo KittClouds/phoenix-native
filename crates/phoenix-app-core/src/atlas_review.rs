@@ -4,7 +4,7 @@ use phoenix_graph_generation_v2::{
     CandidateEvidenceBindingRecord, CandidateId, DecisionAction, EvidenceRecord, PageKind,
     VerifiedGraphGenerationV2,
 };
-use phoenix_scene_compiler::{compile_graph_generation_v2, NativeSceneCompilerV2Input};
+use phoenix_scene_compiler::{compile_graph_generation_v3, NativeSceneCompilerV3Input};
 use phoenix_scene_contract::{GraphReviewOverride, ReviewMask};
 use phoenix_semantic_review::{
     publish_reviewed_generation_new, DecisionCommand, DecisionLedger, ReviewCatalog,
@@ -534,7 +534,7 @@ fn publish_reviewed_decisions_inner(
     let reviewed_generation = Arc::new(reviewed_generation);
     let reviewed_catalog = super::scene_authority_v2::review_catalog(&reviewed_generation)?;
     let generation_id = publisher.next_generation()?;
-    let compiled = compile_graph_generation_v2(NativeSceneCompilerV2Input {
+    let compiled = compile_graph_generation_v3(NativeSceneCompilerV3Input {
         scene_generation_id: generation_id,
         generation: reviewed_generation.as_ref(),
         review_catalog: &reviewed_catalog,
@@ -548,6 +548,7 @@ fn publish_reviewed_decisions_inner(
             compiled.publication,
             anchors,
             compiled.receipt,
+            compiled.visual,
             run_id,
             reviewed_generation,
             reviewed_catalog,

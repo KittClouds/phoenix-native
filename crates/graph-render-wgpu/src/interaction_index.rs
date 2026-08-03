@@ -30,6 +30,8 @@ pub(crate) struct InteractionIndex {
     visit_generation: u32,
     route_nodes: Vec<u32>,
     route_edges: Vec<u32>,
+    active_nodes: Vec<u64>,
+    active_edges: Vec<u64>,
 }
 
 impl InteractionIndex {
@@ -98,6 +100,13 @@ impl InteractionIndex {
             self.route_edges
                 .reserve_exact(MAX_ROUTE_EDGES - self.route_edges.capacity());
         }
+        self.active_nodes.clear();
+        self.active_nodes.resize(node_count.div_ceil(64), u64::MAX);
+        self.active_edges.clear();
+        let edge_count = scene.edge_capacity_slots();
+        self.active_edges.resize(edge_count.div_ceil(64), u64::MAX);
+        clear_unused_bits(&mut self.active_nodes, node_count);
+        clear_unused_bits(&mut self.active_edges, edge_count);
     }
 
     pub(crate) fn neighbors(&self, node_slot: u32) -> &[Adjacency] {
@@ -106,6 +115,42 @@ impl InteractionIndex {
             return &[];
         };
         &self.adjacency[start as usize..end as usize]
+    }
+
+    pub(crate) fn visible_neighbors(&self, node_slot: u32) -> impl Iterator<Item = Adjacency> + '_ {
+        self.neighbors(node_slot)
+            .iter()
+            .copied()
+            .filter(|arc| self.node_is_active(arc.node_slot) && self.edge_is_active(arc.edge_slot))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_visibility(&mut self, nodes: &[bool], edges: &[bool]) {
+        self.set_visibility_with(
+            nodes.len(),
+            edges.len(),
+            |slot| nodes[slot],
+            |slot| edges[slot],
+        );
+    }
+
+    pub(crate) fn set_visibility_with(
+        &mut self,
+        node_count: usize,
+        edge_count: usize,
+        node_visible: impl FnMut(usize) -> bool,
+        edge_visible: impl FnMut(usize) -> bool,
+    ) {
+        fill_visibility_bits(&mut self.active_nodes, node_count, node_visible);
+        fill_visibility_bits(&mut self.active_edges, edge_count, edge_visible);
+    }
+
+    pub(crate) fn node_is_active(&self, slot: u32) -> bool {
+        bit_is_set(&self.active_nodes, slot)
+    }
+
+    pub(crate) fn edge_is_active(&self, slot: u32) -> bool {
+        bit_is_set(&self.active_edges, slot)
     }
 
     pub(crate) fn compute_route(&mut self, source: u32, target: u32) {
@@ -135,6 +180,9 @@ impl InteractionIndex {
             let start = self.offsets[node as usize] as usize;
             let end = self.offsets[node as usize + 1] as usize;
             for arc in &self.adjacency[start..end] {
+                if !self.node_is_active(arc.node_slot) || !self.edge_is_active(arc.edge_slot) {
+                    continue;
+                }
                 let next = arc.node_slot as usize;
                 if self.visited[next] == generation {
                     continue;
@@ -187,6 +235,31 @@ impl InteractionIndex {
     }
 }
 
+fn bit_is_set(bits: &[u64], slot: u32) -> bool {
+    let slot = slot as usize;
+    bits.get(slot / 64)
+        .is_some_and(|word| word & (1u64 << (slot % 64)) != 0)
+}
+
+fn clear_unused_bits(bits: &mut [u64], len: usize) {
+    let remainder = len % 64;
+    if remainder != 0 {
+        if let Some(last) = bits.last_mut() {
+            *last &= (1u64 << remainder) - 1;
+        }
+    }
+}
+
+fn fill_visibility_bits(bits: &mut Vec<u64>, len: usize, mut visible: impl FnMut(usize) -> bool) {
+    bits.clear();
+    bits.resize(len.div_ceil(64), 0);
+    for slot in 0..len {
+        if visible(slot) {
+            bits[slot / 64] |= 1u64 << (slot % 64);
+        }
+    }
+}
+
 fn insert_arc(
     adjacency: &mut [Adjacency],
     cursors: &mut [u32],
@@ -200,6 +273,58 @@ fn insert_arc(
         edge_slot,
     };
     *cursor += 1;
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+    use graph_model::{EdgeVisual, GraphRevision, GraphSnapshot, NodeVisual};
+
+    fn snapshot() -> GraphSnapshot {
+        GraphSnapshot {
+            revision: GraphRevision(1),
+            nodes: (0..4)
+                .map(|id| NodeVisual {
+                    id: graph_model::NodeId(id),
+                    position: [id as f32, 0.0, 0.0],
+                    radius: 1.0,
+                    color: [1.0; 4],
+                    kind: 0,
+                    flags: 0,
+                })
+                .collect(),
+            edges: (0..3)
+                .map(|id| EdgeVisual {
+                    id: graph_model::EdgeId(id),
+                    source: graph_model::NodeId(id),
+                    target: graph_model::NodeId(id + 1),
+                    width: 1.0,
+                    color: [1.0; 4],
+                    kind: 0,
+                    flags: 0,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn hidden_nodes_and_edges_do_not_participate_in_hover_walk_or_route() {
+        let mut scene = SceneState::default();
+        scene.set_snapshot(&snapshot()).expect("valid test graph");
+        let mut index = InteractionIndex::default();
+        index.rebuild(&scene);
+        index.set_visibility(&[true, false, true, true], &[false, false, true]);
+
+        assert!(index.visible_neighbors(0).next().is_none());
+        index.compute_route(0, 3);
+        assert!(index.route_nodes().is_empty());
+
+        index.set_visibility(&[true, true, true, true], &[true, true, true]);
+        assert_eq!(index.visible_neighbors(1).count(), 2);
+        index.compute_route(0, 3);
+        assert_eq!(index.route_nodes(), &[3, 2, 1, 0]);
+        assert_eq!(index.route_edges(), &[2, 1, 0]);
+    }
 }
 
 #[cfg(test)]

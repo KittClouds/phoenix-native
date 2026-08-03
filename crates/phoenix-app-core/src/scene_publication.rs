@@ -53,7 +53,22 @@ pub(super) fn initial_production_scene(
 ) -> Result<PublishedScene, KernelError> {
     if let Some(current) = publisher.open_current()? {
         if current.receipt.kind == ScenePublicationKind::Full {
-            scene_compiler_authority::verify(publisher, current.receipt)?;
+            match scene_compiler_authority_v3::verify(publisher, current.receipt) {
+                Ok(visual) => {
+                    let legacy_source_hash =
+                        scene_compiler_authority::verify(publisher, current.receipt)?;
+                    if legacy_source_hash != visual.source_generation_hash {
+                        return Err(KernelError::InvalidV3VisualAuthority);
+                    }
+                }
+                // Historical full generations predate the V3 visual receipt.
+                // They remain readable, but the next production publication
+                // must write the V3 authority before it can become current.
+                Err(KernelError::MissingV3VisualAuthority) => {
+                    scene_compiler_authority::verify(publisher, current.receipt)?;
+                }
+                Err(error) => return Err(error),
+            }
             return Ok(current);
         }
         if current.receipt.registry_revision == atlas.registry_revision {
@@ -118,12 +133,14 @@ pub(super) fn publish_full_scene(
 ) -> Result<CommandReceipt, KernelError> {
     validate_compiled_metadata(&command)?;
     let compile_receipt = command.compile_receipt;
+    let visual_receipt = command.visual_receipt;
     let (publication_receipt, revision) = publish_and_install(
         shared,
         command.publication,
         command.anchors,
         command.source_generation_v2,
         command.review_catalog_v2,
+        visual_receipt,
     )?;
     let (event, outcome) = if let Some(compile) = compile_receipt {
         let run_id = command
@@ -166,6 +183,7 @@ fn validate_compiled_metadata(command: &NativeScenePublishCommand) -> Result<(),
         #[cfg(test)]
         {
             if command.anchors.is_some()
+                || command.visual_receipt.is_some()
                 || command.run_id.is_some()
                 || command.source_generation_v2.is_some()
                 || command.review_catalog_v2.is_some()
@@ -176,6 +194,16 @@ fn validate_compiled_metadata(command: &NativeScenePublishCommand) -> Result<(),
         }
     };
     let generation = command.publication.generation_id;
+    let visual = command
+        .visual_receipt
+        .as_ref()
+        .ok_or(KernelError::MissingV3VisualAuthority)?;
+    if visual.scene_generation_id != generation
+        || visual.node_count != command.publication.identities.len() as u64
+        || visual.edge_count != command.publication.edges.len() as u64
+    {
+        return Err(KernelError::CompiledPublicationMismatch);
+    }
     if command.run_id.is_none_or(|run_id| run_id == 0) {
         return Err(KernelError::CompiledPublicationMismatch);
     }
@@ -250,6 +278,7 @@ fn publish_and_install(
     anchors: Option<Arc<VerifiedDocumentAnchors>>,
     source_generation_v2: Option<Arc<VerifiedGraphGenerationV2>>,
     review_catalog_v2: Option<Arc<ReviewCatalog>>,
+    visual_receipt: Option<VisualContractDraftV3>,
 ) -> Result<(ScenePublicationReceipt, u64), KernelError> {
     if publication.kind != ScenePublicationKind::Full {
         return Err(KernelError::BackendPublicationMustBeFull);
@@ -293,6 +322,13 @@ fn publish_and_install(
             published.receipt,
             source.header().generation_hash,
         )?;
+        let visual = visual_receipt
+            .ok_or(KernelError::MissingV3VisualAuthority)?
+            .bind_publication(published.receipt, source.header().generation_hash)
+            .map_err(|_| KernelError::CompiledPublicationMismatch)?;
+        scene_compiler_authority_v3::write_new(&publisher, visual)?;
+    } else if visual_receipt.is_some() {
+        return Err(KernelError::CompiledPublicationMismatch);
     }
     let mut state = write_state(shared)?;
     if let Some(current) = state.scene_publication {

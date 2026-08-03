@@ -37,6 +37,10 @@ fn main() {
     let require_full_scene = arguments
         .iter()
         .any(|argument| argument == "--require-full-scene");
+    let footer_motion_arm = match footer_motion_argument(&arguments) {
+        Ok(arm) => arm,
+        Err(error) => fail_start("PHOENIX_FOOTER_MOTION_ARGUMENT_FAILED", error),
+    };
     let release_manifest_only = arguments
         .iter()
         .any(|argument| argument == "--release-manifest-only");
@@ -122,6 +126,7 @@ fn main() {
             }
         }
     };
+    report_runtime_identity(&workspace_path, footer_motion_arm, arguments.len());
     let mut publication_receipt = None;
     let mut published_product_index = None;
     let (initial_scene, scene_error) = match publication_root.as_ref() {
@@ -239,6 +244,7 @@ fn main() {
                             proof_mode,
                             soak_mode,
                             design_preview,
+                            footer_motion_arm,
                             kernel,
                             scene_error,
                             window,
@@ -413,6 +419,24 @@ fn initialize_tracing() {
     }
 }
 
+fn report_runtime_identity(
+    workspace_path: &std::path::Path,
+    footer_motion_arm: shell::FooterMotionArm,
+    argument_count: usize,
+) {
+    let executable = std::env::current_exe()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|_| "<unavailable>".to_string());
+    eprintln!(
+        "PHOENIX_RUNTIME_IDENTITY pid={} exe={} workspace={} args={} scheduler=pick-wake-v2 footer_motion={}",
+        std::process::id(),
+        executable,
+        workspace_path.display(),
+        argument_count,
+        footer_motion_arm.as_str(),
+    );
+}
+
 fn mandatory_runtime_filter(filter: EnvFilter) -> EnvFilter {
     const WGPU_VULKAN_CONVERSION_CEILING: &str = "wgpu_hal::vulkan::conv=error";
     match WGPU_VULKAN_CONVERSION_CEILING.parse::<Directive>() {
@@ -442,6 +466,14 @@ fn scene_publication_root_argument(
     arguments: &[OsString],
 ) -> Result<Option<PathBuf>, &'static str> {
     path_argument(arguments, "--scene-publication-root")
+}
+
+fn footer_motion_argument(arguments: &[OsString]) -> Result<shell::FooterMotionArm, &'static str> {
+    match text_argument(arguments, "--footer-motion")? {
+        None => Ok(shell::FooterMotionArm::default()),
+        Some(value) => shell::FooterMotionArm::parse(&value)
+            .ok_or("--footer-motion must be pulse, animated, or static"),
+    }
 }
 
 fn configure_analysis_runtime(arguments: &[OsString]) -> Result<(), &'static str> {
@@ -541,9 +573,10 @@ fn fail_start(marker: &str, error: impl std::fmt::Display) -> ! {
 #[cfg(test)]
 mod tests {
     use super::{
-        configure_analysis_runtime, mandatory_runtime_filter, scene_publication_root_argument,
-        validate_preview_authority,
+        configure_analysis_runtime, footer_motion_argument, mandatory_runtime_filter,
+        scene_publication_root_argument, validate_preview_authority,
     };
+    use crate::shell::FooterMotionArm;
     use std::ffi::OsString;
     use tracing_subscriber::EnvFilter;
 
@@ -587,5 +620,36 @@ mod tests {
             OsString::from(r"C:\bin\producer.exe"),
         ];
         assert!(configure_analysis_runtime(&incomplete).is_err());
+    }
+
+    #[test]
+    fn footer_motion_argument_defaults_to_bounded_motion_and_supports_ab_arms() {
+        let default = [OsString::from("phoenix-shell")];
+        assert_eq!(footer_motion_argument(&default), Ok(FooterMotionArm::Pulse));
+
+        let pulse_arm = [
+            OsString::from("phoenix-shell"),
+            OsString::from("--footer-motion=pulse"),
+        ];
+        assert_eq!(
+            footer_motion_argument(&pulse_arm),
+            Ok(FooterMotionArm::Pulse)
+        );
+
+        let static_arm = [
+            OsString::from("phoenix-shell"),
+            OsString::from("--footer-motion=static"),
+        ];
+        assert_eq!(
+            footer_motion_argument(&static_arm),
+            Ok(FooterMotionArm::Static)
+        );
+
+        let invalid = [
+            OsString::from("phoenix-shell"),
+            OsString::from("--footer-motion"),
+            OsString::from("fast"),
+        ];
+        assert!(footer_motion_argument(&invalid).is_err());
     }
 }

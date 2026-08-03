@@ -19,5 +19,6 @@ thiserror.workspace = true
 phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
 phoenix-document-producer = { path = "../phoenix-document-producer" }
 phoenix-entity-producer = { path = "../phoenix-entity-producer" }
+phoenix-scene-compiler = { path = "../phoenix-scene-compiler" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }
 tempfile = "3.20"

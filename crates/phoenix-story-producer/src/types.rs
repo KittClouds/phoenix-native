@@ -42,6 +42,12 @@ pub enum TemporalRelation {
     After = 2,
     Simultaneous = 3,
     During = 4,
+    Contains = 5,
+    Starts = 6,
+    Finishes = 7,
+    Overlaps = 8,
+    RecursAfter = 9,
+    Supersedes = 10,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,6 +57,8 @@ pub enum CausalRelation {
     Enables = 2,
     Prevents = 3,
     Motivates = 4,
+    Explains = 5,
+    Consequence = 6,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

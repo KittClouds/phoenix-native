@@ -17,7 +17,7 @@ const STORY_CONTEXT: EndpointMask = EndpointMask::CHUNK
     .union(EndpointMask::GROUPING);
 const SEMANTIC_ENDPOINT: EndpointMask = STORY_CONTEXT;
 
-const STORY_CODES: [LensCodeDefinition<'static>; 29] = [
+const STORY_CODES: [LensCodeDefinition<'static>; 37] = [
     relation(1, "relationship.communicates_with"),
     relation(2, "relationship.supports"),
     relation(3, "relationship.opposes"),
@@ -38,10 +38,18 @@ const STORY_CODES: [LensCodeDefinition<'static>; 29] = [
     temporal(2, "temporal.after"),
     temporal(3, "temporal.simultaneous"),
     temporal(4, "temporal.during"),
+    temporal(5, "temporal.contains"),
+    temporal(6, "temporal.starts"),
+    temporal(7, "temporal.finishes"),
+    temporal(8, "temporal.overlaps"),
+    temporal(9, "temporal.recurs_after"),
+    temporal(10, "temporal.supersedes"),
     influence(1, "influence.causes"),
     influence(2, "influence.enables"),
     influence(3, "influence.prevents"),
     influence(4, "influence.motivates"),
+    influence(5, "influence.explains"),
+    influence(6, "influence.consequence"),
     state(1, "state.knows"),
     state(2, "state.believes"),
     state(3, "state.remembers"),

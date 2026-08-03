@@ -44,4 +44,5 @@ impl GraphQueueMetrics {
 pub(super) enum GraphWake {
     CommandsReady,
     ViewportReady,
+    PickReady,
 }

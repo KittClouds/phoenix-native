@@ -38,6 +38,7 @@ pub enum AtlasBuildState {
 pub enum AtlasPrimaryAction {
     OpenDocument,
     ConfigurePipeline,
+    WarmModels,
     RunPipeline,
     Wait,
 }
@@ -275,7 +276,7 @@ impl PhoenixKernel {
             .as_ref()
             .map(|anchors| anchors.anchors().len() as u64)
             .unwrap_or_default();
-        let analysis_runtime = NativeProducerRuntimeConfig::runtime_info();
+        let analysis_runtime = self.analysis_runtime_info();
         let pipeline_ready = analysis_runtime.ready || cfg!(test);
         let analysis = analysis_summary(&state);
         let publication = state.scene_publication;
@@ -310,15 +311,17 @@ impl PhoenixKernel {
         let build_in_progress = runtime.active_run.is_some();
         let failed = runtime.last_error.is_some();
         let cancelled = runtime.cancelled;
-        let (build_state, primary_action, headline, guidance) = decide_control_state(
-            lease.is_some(),
-            pipeline_ready,
-            full_for_document,
-            last_run_matches,
-            build_in_progress,
-            cancelled,
-            failed,
-        );
+        let (build_state, primary_action, headline, guidance) =
+            decide_control_state(ControlStateInput {
+                has_document: lease.is_some(),
+                analysis_configured: analysis_runtime.configured,
+                analysis_ready: pipeline_ready,
+                full_for_document,
+                last_run_matches,
+                build_in_progress,
+                cancelled,
+                failed,
+            });
         let generation_id = publication.map(|receipt| receipt.generation_id);
         let node_count = publication.map_or(0, |receipt| receipt.node_count);
         let edge_count = publication.map_or(0, |receipt| receipt.edge_count);
@@ -659,20 +662,36 @@ fn analysis_summary(state: &KernelState) -> Option<AtlasAnalysisSummary> {
     })
 }
 
-fn decide_control_state(
+#[derive(Clone, Copy)]
+struct ControlStateInput {
     has_document: bool,
+    analysis_configured: bool,
     analysis_ready: bool,
     full_for_document: bool,
     last_run_matches: bool,
     build_in_progress: bool,
     cancelled: bool,
     failed: bool,
+}
+
+fn decide_control_state(
+    input: ControlStateInput,
 ) -> (
     AtlasBuildState,
     AtlasPrimaryAction,
     &'static str,
     &'static str,
 ) {
+    let ControlStateInput {
+        has_document,
+        analysis_configured,
+        analysis_ready,
+        full_for_document,
+        last_run_matches,
+        build_in_progress,
+        cancelled,
+        failed,
+    } = input;
     if build_in_progress {
         return (
             AtlasBuildState::Building,
@@ -686,6 +705,8 @@ fn decide_control_state(
             AtlasBuildState::Cancelled,
             if analysis_ready {
                 AtlasPrimaryAction::RunPipeline
+            } else if analysis_configured {
+                AtlasPrimaryAction::WarmModels
             } else {
                 AtlasPrimaryAction::ConfigurePipeline
             },
@@ -698,6 +719,8 @@ fn decide_control_state(
             AtlasBuildState::Failed,
             if analysis_ready {
                 AtlasPrimaryAction::RunPipeline
+            } else if analysis_configured {
+                AtlasPrimaryAction::WarmModels
             } else {
                 AtlasPrimaryAction::ConfigurePipeline
             },
@@ -714,6 +737,14 @@ fn decide_control_state(
         );
     }
     if !analysis_ready {
+        if analysis_configured {
+            return (
+                AtlasBuildState::RuntimeUnavailable,
+                AtlasPrimaryAction::WarmModels,
+                "Warm the analysis models",
+                "Load GLiNER and ModernBERT once, then run the document pipeline with model startup excluded.",
+            );
+        }
         return (
             AtlasBuildState::RuntimeUnavailable,
             AtlasPrimaryAction::ConfigurePipeline,
@@ -864,31 +895,91 @@ mod tests {
     #[test]
     fn control_state_exposes_exactly_one_next_action() {
         assert_eq!(
-            decide_control_state(true, false, false, false, false, false, false).1,
+            decide_control_state(ControlStateInput {
+                has_document: true,
+                analysis_configured: false,
+                analysis_ready: false,
+                full_for_document: false,
+                last_run_matches: false,
+                build_in_progress: false,
+                cancelled: false,
+                failed: false,
+            })
+            .1,
             AtlasPrimaryAction::ConfigurePipeline
         );
         assert_eq!(
-            decide_control_state(true, true, false, false, false, false, false).1,
+            decide_control_state(ControlStateInput {
+                has_document: true,
+                analysis_configured: true,
+                analysis_ready: false,
+                full_for_document: false,
+                last_run_matches: false,
+                build_in_progress: false,
+                cancelled: false,
+                failed: false,
+            })
+            .1,
+            AtlasPrimaryAction::WarmModels
+        );
+        assert_eq!(
+            decide_control_state(ControlStateInput {
+                has_document: true,
+                analysis_configured: true,
+                analysis_ready: true,
+                full_for_document: false,
+                last_run_matches: false,
+                build_in_progress: false,
+                cancelled: false,
+                failed: false,
+            })
+            .1,
             AtlasPrimaryAction::RunPipeline
         );
         assert_eq!(
-            decide_control_state(true, true, true, true, false, false, false).1,
+            decide_control_state(ControlStateInput {
+                has_document: true,
+                analysis_configured: true,
+                analysis_ready: true,
+                full_for_document: true,
+                last_run_matches: true,
+                build_in_progress: false,
+                cancelled: false,
+                failed: false,
+            })
+            .1,
             AtlasPrimaryAction::RunPipeline
         );
     }
 
     #[test]
     fn failed_build_never_claims_publication() {
-        let (state, action, _, _) =
-            decide_control_state(true, true, true, true, false, false, true);
+        let (state, action, _, _) = decide_control_state(ControlStateInput {
+            has_document: true,
+            analysis_configured: true,
+            analysis_ready: true,
+            full_for_document: true,
+            last_run_matches: true,
+            build_in_progress: false,
+            cancelled: false,
+            failed: true,
+        });
         assert_eq!(state, AtlasBuildState::Failed);
         assert_eq!(action, AtlasPrimaryAction::RunPipeline);
     }
 
     #[test]
     fn cancelled_build_is_not_reported_as_failed() {
-        let (state, action, _, _) =
-            decide_control_state(true, true, true, true, false, true, false);
+        let (state, action, _, _) = decide_control_state(ControlStateInput {
+            has_document: true,
+            analysis_configured: true,
+            analysis_ready: true,
+            full_for_document: true,
+            last_run_matches: true,
+            build_in_progress: false,
+            cancelled: true,
+            failed: false,
+        });
         assert_eq!(state, AtlasBuildState::Cancelled);
         assert_eq!(action, AtlasPrimaryAction::RunPipeline);
     }

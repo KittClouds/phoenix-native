@@ -5,6 +5,7 @@ mod entities;
 mod highlights;
 mod view;
 mod visual;
+mod visual_v3;
 
 use phoenix_scene_archive::{
     ArchiveError, ArchiveManifold, GuidePageView, ManifoldPageSet, PageKey, PageKind, PathPageView,
@@ -34,11 +35,17 @@ pub use view::{
     GraphViewState, RelationFamily, RelationMask, ReviewMask, SceneAuthority, ScopeMask,
 };
 pub use visual::{visual_role, with_visual_role, VisualRole, VISUAL_ROLE_MASK, VISUAL_ROLE_SHIFT};
+pub use visual_v3::{
+    describe_edge, describe_node, VisualEdgeDescriptor, VisualEdgeKind, VisualNodeDescriptor,
+    VisualNodeKind, VisualNodeLane, VISUAL_GRAPH_CONTRACT_V3,
+};
 
 pub const SCENE_CONTRACT: &str = "phoenix.native.resident-scene/v1";
 pub const NATIVE_SCENE_COMPILER_CONTRACT: &str = "phoenix.native.active-document-scene-compiler/v2";
 pub const NATIVE_SCENE_COMPILER_V2_CONTRACT: &str =
     "phoenix.native.graph-generation-scene-compiler/v2";
+pub const NATIVE_SCENE_COMPILER_V3_CONTRACT: &str =
+    "phoenix.native.graph-generation-scene-compiler/v3";
 pub const HOT_MANIFOLD_PAGE_BUDGET_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -111,7 +118,7 @@ impl Default for RuntimeCapabilities {
             scene_archive_contract: ARCHIVE_CONTRACT.into(),
             scene_product_index_contract: phoenix_scene_product_index::PRODUCT_INDEX_CONTRACT
                 .into(),
-            scene_compiler_contract: NATIVE_SCENE_COMPILER_CONTRACT.into(),
+            scene_compiler_contract: NATIVE_SCENE_COMPILER_V3_CONTRACT.into(),
             coordinated_native_windows: true,
             bounded_commands: true,
             bounded_events: true,

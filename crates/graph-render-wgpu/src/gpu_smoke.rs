@@ -18,10 +18,7 @@ use std::sync::Arc;
 
 #[test]
 fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: crate::native_backends(),
-        ..Default::default()
-    });
+    let instance = wgpu::Instance::new(&crate::native_instance_descriptor());
     let Some(adapter) =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,

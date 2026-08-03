@@ -67,7 +67,7 @@ impl From<&EdgeProductRecord> for EdgeProductGpu {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
 pub struct GraphLensUniform {
     pub family_mask: [u32; 2],
     pub entity_family_mask: [u32; 2],
@@ -76,7 +76,10 @@ pub struct GraphLensUniform {
     pub relation_mask: [u32; 2],
     pub review_mask: u32,
     pub product_index_enabled: u32,
-    pub _padding: [u32; 4],
+    pub focus_active: u32,
+    pub dimmed_node_opacity: f32,
+    pub dimmed_edge_opacity: f32,
+    pub _padding: u32,
 }
 
 impl GraphLensUniform {
@@ -88,7 +91,10 @@ impl GraphLensUniform {
         relation_mask: [u32::MAX; 2],
         review_mask: u32::MAX,
         product_index_enabled: 0,
-        _padding: [0; 4],
+        focus_active: 0,
+        dimmed_node_opacity: 1.0,
+        dimmed_edge_opacity: 1.0,
+        _padding: 0,
     };
 
     #[must_use]
@@ -101,8 +107,19 @@ impl GraphLensUniform {
             relation_mask: split_u64(view.relations.0),
             review_mask: view.reviews.0,
             product_index_enabled: u32::from(product_index_enabled),
-            _padding: [0; 4],
+            focus_active: 0,
+            dimmed_node_opacity: 1.0,
+            dimmed_edge_opacity: 1.0,
+            _padding: 0,
         }
+    }
+
+    #[must_use]
+    pub fn with_focus(mut self, active: bool) -> Self {
+        self.focus_active = if active { 1 } else { 0 };
+        self.dimmed_node_opacity = if active { 0.14 } else { 1.0 };
+        self.dimmed_edge_opacity = if active { 0.08 } else { 1.0 };
+        self
     }
 }
 

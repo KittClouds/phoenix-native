@@ -17,7 +17,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::{
-    SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA,
+    SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOWNA,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -35,6 +35,7 @@ use viewport::{hwnd_for_window, prepare_child_window, ViewportMailbox};
 pub use viewport::{ParentWindowHandle, ViewportGeometry};
 
 const COMMAND_CAPACITY: usize = 64;
+const PICK_POLL_INTERVAL: Duration = Duration::from_millis(16);
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct InteractionStressProof {
@@ -331,10 +332,7 @@ impl EmbeddedGraphApp {
         );
         let size = window.inner_size();
         let hwnd = prepare_child_window(window.as_ref())?;
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: graph_render_wgpu::native_backends(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(&graph_render_wgpu::native_instance_descriptor());
         let surface = instance
             .create_surface(Arc::clone(&window))
             .context("create embedded graph surface")?;
@@ -493,10 +491,7 @@ impl EmbeddedGraphApp {
         // Release the old renderer, surface, device, and queue before creating
         // their replacements against the same child window.
         drop(self.renderer.take());
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: graph_render_wgpu::native_backends(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(&graph_render_wgpu::native_instance_descriptor());
         let surface = instance
             .create_surface(Arc::clone(window))
             .context("recreate embedded graph surface")?;
@@ -689,6 +684,15 @@ impl EmbeddedGraphApp {
             self.applied_geometry = geometry;
             return Ok(());
         }
+        let position_changed = geometry.position_changed_from(self.applied_geometry);
+        let framebuffer_changed = geometry.framebuffer_changed_from(self.applied_geometry);
+        let mut flags = SWP_NOACTIVATE;
+        if !position_changed {
+            flags |= SWP_NOMOVE;
+        }
+        if !framebuffer_changed {
+            flags |= SWP_NOSIZE;
+        }
         unsafe {
             SetWindowPos(
                 hwnd,
@@ -697,15 +701,17 @@ impl EmbeddedGraphApp {
                 geometry.y,
                 geometry.width as i32,
                 geometry.height as i32,
-                SWP_NOACTIVATE,
+                flags,
             )
             .context("position embedded graph child")?;
         }
-        self.send_input(GraphInput::Resize {
-            width: geometry.width,
-            height: geometry.height,
-            scale_factor: geometry.scale_factor,
-        });
+        if framebuffer_changed {
+            self.send_input(GraphInput::Resize {
+                width: geometry.width,
+                height: geometry.height,
+                scale_factor: geometry.scale_factor,
+            });
+        }
         if !self.applied_geometry.visible {
             self.send_input(GraphInput::FitGraph);
             unsafe {
@@ -933,14 +939,15 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
             return;
         }
         if let (Some(renderer), Some(window)) = (&self.renderer, &self.window) {
-            renderer.poll_async_work();
+            if renderer.pick_in_flight() {
+                renderer.poll_async_work();
+            }
             if renderer.needs_redraw() {
                 window.request_redraw();
             }
             if renderer.pick_in_flight() {
-                event_loop.set_control_flow(ControlFlow::WaitUntil(
-                    Instant::now() + Duration::from_millis(4),
-                ));
+                event_loop
+                    .set_control_flow(ControlFlow::WaitUntil(Instant::now() + PICK_POLL_INTERVAL));
             } else {
                 event_loop.set_control_flow(ControlFlow::Wait);
             }

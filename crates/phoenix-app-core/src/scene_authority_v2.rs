@@ -691,7 +691,7 @@ fn write_fixture_generation(
         fixture_edge(lease, 0, document_id, chapter_id),
         fixture_edge(lease, 1, chapter_id, paragraph_id),
         fixture_edge(lease, 2, paragraph_id, sentence_id),
-        fixture_edge(lease, 3, sentence_id, chunk_id),
+        fixture_edge(lease, 3, document_id, chunk_id),
     ];
     Ok(write_generation_new(
         path,

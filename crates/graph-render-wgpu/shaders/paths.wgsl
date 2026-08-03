@@ -53,7 +53,10 @@ struct GraphLensUniform {
     relation_mask: vec2<u32>,
     review_mask: u32,
     product_index_enabled: u32,
-    _padding: vec4<u32>,
+    focus_active: u32,
+    dimmed_node_opacity: f32,
+    dimmed_edge_opacity: f32,
+    _padding: u32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -83,6 +86,22 @@ fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
     return ((left.x & right.x) | (left.y & right.y)) != 0u;
 }
 
+fn family_visible(product_mask: vec2<u32>) -> bool {
+    if (intersects(product_mask, lens.family_mask)) {
+        return true;
+    }
+    let entity_detail = (product_mask.x & 0x00ff0000u) != 0u
+        && (lens.family_mask.x & 0x000000ffu) != 0u;
+    let structure_detail = (product_mask.x & 0x7f000000u) != 0u
+        && (lens.family_mask.x & 0x00000100u) != 0u;
+    let fact_detail = ((product_mask.x & 0x80000000u) != 0u
+        || (product_mask.y & 0x0000001fu) != 0u)
+        && (lens.family_mask.x & 0x00000200u) != 0u;
+    let discourse_detail = (product_mask.y & 0x00000030u) != 0u
+        && (lens.family_mask.x & 0x00000400u) != 0u;
+    return entity_detail || structure_detail || fact_detail || discourse_detail;
+}
+
 fn entity_lane_visible(product_mask: vec2<u32>) -> bool {
     let product_lanes = product_mask.x & 0x00ff0000u;
     return product_lanes == 0u
@@ -100,7 +119,7 @@ fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
 
 fn node_visible(product: NodeProductGpu) -> bool {
     return product.enabled != 0u
-        && intersects(product.family_mask, lens.family_mask)
+        && family_visible(product.family_mask)
         && entity_lane_visible(product.family_mask)
         && topology_lane_visible(product.family_mask)
         && intersects(product.scope_mask, lens.scope_mask)
@@ -114,7 +133,7 @@ fn visible(segment: PreparedSegmentGpu) -> bool {
     let product = edge_products[segment.edge_slot];
     let edge = edges[segment.edge_slot];
     return product.enabled != 0u
-        && intersects(product.family_mask, lens.family_mask)
+        && family_visible(product.family_mask)
         && entity_lane_visible(product.family_mask)
         && topology_lane_visible(product.family_mask)
         && intersects(product.scope_mask, lens.scope_mask)
@@ -182,6 +201,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             color = mix(color, vec4<f32>(1.0, 0.147, 0.022, 0.96), 0.84);
         } else if ((runtime_flags & 16384u) != 0u) {
             color = mix(color, vec4<f32>(0.040, 0.672, 0.420, 0.76), 0.56);
+        }
+        if (lens.focus_active != 0u
+            && (runtime_flags & 32768u) == 0u
+            && (runtime_flags & 16384u) == 0u) {
+            color.a *= lens.dimmed_edge_opacity;
         }
     }
     color.a *= 1.0 - smoothstep(1.0 - derivative, 1.0, abs(input.side));

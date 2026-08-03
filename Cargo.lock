@@ -5728,6 +5728,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "bytemuck",
+ "hashbrown 0.15.5",
  "memmap2",
  "phoenix-graph-generation",
  "thiserror 2.0.19",
@@ -5983,6 +5984,7 @@ dependencies = [
  "phoenix-document-producer",
  "phoenix-entity-producer",
  "phoenix-graph-generation-v2",
+ "phoenix-scene-compiler",
  "phoenix-scene-contract",
  "phoenix-semantic-lens",
  "phoenix-semantic-review",

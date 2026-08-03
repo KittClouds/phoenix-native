@@ -147,6 +147,16 @@ impl Camera {
     }
 
     pub fn zoom_at(&mut self, delta: f32, screen_x: f32, screen_y: f32) {
+        self.zoom_at_anchor(delta, screen_x, screen_y, None);
+    }
+
+    pub fn zoom_at_anchor(
+        &mut self,
+        delta: f32,
+        screen_x: f32,
+        screen_y: f32,
+        preferred_anchor: Option<[f32; 3]>,
+    ) {
         let previous_distance = self.distance;
         let next_distance = (previous_distance * (-delta * 0.12).exp()).clamp(0.05, 100_000.0);
         if next_distance == previous_distance {
@@ -156,7 +166,10 @@ impl Camera {
         // Angular only retargets on zoom-in. Zoom-out keeps the current framing,
         // which avoids target drift during repeated wheel reversals.
         if next_distance < previous_distance {
-            if let Some(anchor) = self.target_plane_anchor(screen_x, screen_y) {
+            let anchor = preferred_anchor
+                .map(Vec3::from_array)
+                .or_else(|| self.target_plane_anchor(screen_x, screen_y));
+            if let Some(anchor) = anchor {
                 let ratio = next_distance / previous_distance;
                 self.target = anchor + (self.target - anchor) * ratio;
             }
@@ -453,6 +466,20 @@ mod tests {
         let expected = anchor + (old_target - anchor) * ratio;
         assert!((camera.target - expected).length() < 0.0001);
         assert!(camera.target.x > old_target.x);
+    }
+
+    #[test]
+    fn zoom_in_keeps_an_off_plane_world_anchor_under_the_pointer() {
+        let mut camera = Camera::new(1000.0, 800.0);
+        camera.orient(0.35, 0.28);
+        let anchor = [18.0, -9.0, 14.0];
+        let (screen_x, screen_y, _) = camera.project_to_viewport(anchor).unwrap();
+
+        camera.zoom_at_anchor(2.0, screen_x, screen_y, Some(anchor));
+
+        let (projected_x, projected_y, _) = camera.project_to_viewport(anchor).unwrap();
+        assert!((projected_x - screen_x).abs() < 0.001);
+        assert!((projected_y - screen_y).abs() < 0.001);
     }
 
     #[test]

@@ -1167,12 +1167,12 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
         KernelOutcome::GraphRebuilt(receipt) => receipt,
         other => return Err(format!("unexpected rebuild outcome: {other:?}").into()),
     };
-    assert_eq!(receipt.compile.node_count, 6);
-    assert_eq!(receipt.compile.edge_count, 5);
+    assert_eq!(receipt.compile.node_count, 9);
+    assert_eq!(receipt.compile.edge_count, 8);
     assert_eq!(receipt.compile.verified_mentions, 2);
     assert_eq!(receipt.publication.kind, ScenePublicationKind::Full);
-    assert_eq!(receipt.publication.node_count, 6);
-    assert_eq!(receipt.publication.edge_count, 5);
+    assert_eq!(receipt.publication.node_count, 9);
+    assert_eq!(receipt.publication.edge_count, 8);
 
     let snapshot = kernel.snapshot()?;
     assert_eq!(snapshot.graph_view.surface, GraphSurface::Atlas);
@@ -1191,8 +1191,8 @@ fn native_rebuild_compiles_active_evidence_and_reopens_exact_generation(
     assert_eq!(review_authority.source_generation_hash, generation_hash);
     let scene = snapshot.resident_scene.as_ref().ok_or("scene missing")?;
     assert_eq!(scene.source(), phoenix_scene_contract::SceneSource::Backend);
-    assert_eq!(scene.inventory().node_count, 6);
-    assert_eq!(scene.inventory().edge_count, 5);
+    assert_eq!(scene.inventory().node_count, 9);
+    assert_eq!(scene.inventory().edge_count, 8);
     let anchors = snapshot
         .document_anchors
         .as_ref()

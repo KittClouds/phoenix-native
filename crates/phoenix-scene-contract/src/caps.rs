@@ -31,18 +31,24 @@ pub const GUIDE_FLAG_CONCENTRATION_AXIS: u32 = 3;
 #[repr(u8)]
 pub enum CapsRole {
     Document = 0,
-    Episode = 1,
-    Chunk = 2,
-    Evidence = 3,
-    Event = 4,
-    Fact = 5,
-    Entity = 6,
-    Memory = 7,
+    Chapter = 1,
+    Paragraph = 2,
+    Sentence = 3,
+    Episode = 4,
+    Chunk = 5,
+    Evidence = 6,
+    Event = 7,
+    Fact = 8,
+    Entity = 9,
+    Memory = 10,
 }
 
 impl CapsRole {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 11] = [
         Self::Document,
+        Self::Chapter,
+        Self::Paragraph,
+        Self::Sentence,
         Self::Episode,
         Self::Chunk,
         Self::Evidence,
@@ -57,12 +63,15 @@ impl CapsRole {
     pub const fn klein_radius(self) -> f32 {
         match self {
             Self::Document => 0.90,
-            Self::Episode => 0.78,
-            Self::Chunk => 0.67,
+            Self::Chapter => 0.87,
+            Self::Paragraph => 0.84,
+            Self::Sentence => 0.81,
+            Self::Episode => 0.76,
+            Self::Chunk => 0.66,
             Self::Evidence => 0.55,
-            Self::Event => 0.50,
-            Self::Fact => 0.45,
-            Self::Entity => 0.39,
+            Self::Event => 0.49,
+            Self::Fact => 0.44,
+            Self::Entity => 0.38,
             Self::Memory => 0.26,
         }
     }

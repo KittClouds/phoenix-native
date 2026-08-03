@@ -1,6 +1,6 @@
 use super::{
-    action_button, kicker, status_badge, AtlasControlSnapshot, PhoenixShell, ATTENTION, BLOCKED,
-    BORDER, CARD_BG, CARD_RAISED, READY, TEXT, TEXT_MUTED,
+    kicker, pipeline_action_row, status_badge, AtlasControlSnapshot, PhoenixShell, ATTENTION,
+    BLOCKED, BORDER, CARD_BG, CARD_RAISED, READY, TEXT, TEXT_MUTED,
 };
 use gpui::{div, prelude::*, rgb, Context, IntoElement};
 use gpui_component::button::{Button, ButtonVariants};
@@ -44,7 +44,7 @@ pub(super) fn render(
                                 .mt_1()
                                 .text_sm()
                                 .text_color(rgb(TEXT_MUTED))
-                                .child("One bounded run: structure, Dynamic NER, candidate-only NLI, compiler, atomic publication."),
+                                .child("Warm models once. Then measure structure, Dynamic NER, candidate-only NLI, compiler, and atomic publication without startup noise."),
                         ),
                 )
                 .child(
@@ -53,7 +53,7 @@ pub(super) fn render(
                         .items_center()
                         .gap_2()
                         .child(status_badge(control.build_state))
-                        .child(action_button(shell, control.primary_action, cx))
+                        .child(pipeline_action_row(shell, control, cx))
                         .when(shell.graph_rebuild_pending, |row| {
                             row.child(
                                 Button::new("atlas-cancel-run")
@@ -73,6 +73,32 @@ pub(super) fn render(
                 ),
         )
         .child(stages)
+        .when_some(control.analysis_runtime.warm_receipt.as_ref(), |page, receipt| {
+            page.child(
+                div()
+                    .mt_4()
+                    .p_4()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(rgb(BORDER))
+                    .bg(rgb(CARD_BG))
+                    .child(kicker("MODEL WARM RECEIPT", READY))
+                    .child(
+                        div()
+                            .mt_2()
+                            .grid()
+                            .grid_cols(4)
+                            .gap_2()
+                            .child(receipt_metric("GLINER LOAD", receipt.ner_load_micros))
+                            .child(receipt_metric("NLI LOAD", receipt.nli_load_micros))
+                            .child(receipt_metric("WARM TOTAL", receipt.total_micros))
+                            .child(receipt_metric(
+                                "PRODUCER PID",
+                                u64::from(receipt.producer_pid),
+                            )),
+                    ),
+            )
+        })
         .child(
             div()
                 .mt_4()

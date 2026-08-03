@@ -200,12 +200,60 @@ impl PhoenixShell {
             .unwrap_or(0)
     }
 
+    pub(super) fn start_analysis_model_warm(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.analysis_warm_pending || self.graph_rebuild_pending {
+            return;
+        }
+        self.analysis_warm_pending = true;
+        self.status = "MODELS / WARMING GLINER-BI V2 + MODERNBERT NLI".into();
+        cx.notify();
+        let kernel = Arc::clone(&self.kernel);
+        let background = cx.background_executor().clone();
+        cx.spawn_in(window, async move |shell, async_cx| {
+            let result = background
+                .spawn(async move { kernel.warm_analysis_models() })
+                .await;
+            if let Err(error) = shell.update_in(async_cx, |this, _window, cx| {
+                this.analysis_warm_pending = false;
+                this.status = match result {
+                    Ok(receipt) => {
+                        let cache = match (receipt.ner_cache_hit, receipt.nli_cache_hit) {
+                            (true, true) => " / CACHE HIT",
+                            (false, false) => " / CACHE BUILT",
+                            _ => " / CACHE MIXED",
+                        };
+                        format!(
+                            "MODELS READY / PID {} / GLINER {} US / NLI {} US / TOTAL {} US{}{}",
+                            receipt.producer_pid,
+                            receipt.ner_load_micros,
+                            receipt.nli_load_micros,
+                            receipt.total_micros,
+                            cache,
+                            if receipt.reused { " / REUSED" } else { "" }
+                        )
+                        .into()
+                    }
+                    Err(error) => format!("MODEL WARM BLOCKED / {error}").into(),
+                };
+                cx.notify();
+            }) {
+                lifecycle::mark_proof_failed();
+                eprintln!("PHOENIX_MODEL_WARM_DELIVERY_FAILED {error:#}");
+            }
+        })
+        .detach();
+    }
+
     pub(super) fn start_native_scene_rebuild(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.graph_rebuild_pending {
+        if self.graph_rebuild_pending || self.analysis_warm_pending {
             return;
         }
         self.graph_rebuild_pending = true;

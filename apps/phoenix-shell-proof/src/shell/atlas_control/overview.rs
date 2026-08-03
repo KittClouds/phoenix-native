@@ -1,5 +1,5 @@
 use super::{
-    action_button, build_tone, kicker, status_badge, AtlasBuildState, AtlasControlSnapshot,
+    build_tone, kicker, pipeline_action_row, status_badge, AtlasBuildState, AtlasControlSnapshot,
     PhoenixShell, ATTENTION, BLUE, BORDER, BORDER_BRIGHT, CARD_BG, CARD_RAISED, READY, TEXT,
     TEXT_MUTED,
 };
@@ -82,7 +82,7 @@ pub(super) fn render_compact(
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(action_button(shell, control.primary_action, cx))
+                        .child(pipeline_action_row(shell, control, cx))
                         .when(shell.graph_rebuild_pending, |row| {
                             row.child(
                                 Button::new("atlas-cancel-compact")
@@ -148,7 +148,7 @@ pub(super) fn render_full(
                         .items_center()
                         .gap_2()
                         .child(status_badge(control.build_state))
-                        .child(action_button(shell, control.primary_action, cx)),
+                        .child(pipeline_action_row(shell, control, cx)),
                 ),
         )
         .child(

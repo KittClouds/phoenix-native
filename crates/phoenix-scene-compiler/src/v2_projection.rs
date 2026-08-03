@@ -299,7 +299,12 @@ fn hub_degree_threshold(degrees: &[u32]) -> u32 {
 fn visual_role_for(caps_role: CapsRole, degree: u32, hub_threshold: u32) -> VisualRole {
     let base = match caps_role {
         CapsRole::Document | CapsRole::Episode => VisualRole::Root,
-        CapsRole::Entity | CapsRole::Chunk | CapsRole::Evidence => VisualRole::Anchor,
+        CapsRole::Chapter
+        | CapsRole::Paragraph
+        | CapsRole::Sentence
+        | CapsRole::Entity
+        | CapsRole::Chunk
+        | CapsRole::Evidence => VisualRole::Anchor,
         CapsRole::Event | CapsRole::Fact | CapsRole::Memory => VisualRole::Ordinary,
     };
     if base != VisualRole::Root && degree >= hub_threshold {

@@ -33,7 +33,10 @@ struct GraphLensUniform {
     relation_mask: vec2<u32>,
     review_mask: u32,
     product_index_enabled: u32,
-    _padding: vec4<u32>,
+    focus_active: u32,
+    dimmed_node_opacity: f32,
+    dimmed_edge_opacity: f32,
+    _padding: u32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -273,6 +276,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         color = mix(color, vec4<f32>(0.019, 0.890, 0.745, 1.0), ring);
     } else if (neighbor) {
         color = mix(color, vec4<f32>(0.064, 0.749, 0.477, color.a), 0.32);
+    }
+    if (lens.focus_active != 0u && !hovered && !selected && !neighbor && !route) {
+        color.a *= lens.dimmed_node_opacity;
     }
     return color;
 }

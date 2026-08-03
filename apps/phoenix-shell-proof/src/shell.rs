@@ -11,6 +11,8 @@ mod shell_state;
 mod style_hub;
 mod view;
 
+pub(crate) use footer::FooterMotionArm;
+
 use crate::graph_window::{GraphWindow, ViewportGeometry};
 use crate::lifecycle;
 use crate::proof;
@@ -25,7 +27,7 @@ use phoenix_workspace::{DocumentLease, EntryId, EntryKind, WorkspaceEntry, ROOT_
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const CANVAS: u32 = 0x151718;
 const SURFACE: u32 = 0x1a1c1d;
@@ -40,6 +42,7 @@ const LEFT_SIDEBAR_MAX_WIDTH: f32 = 520.;
 const RIGHT_SIDEBAR_INITIAL_WIDTH: f32 = 320.;
 const RIGHT_SIDEBAR_MIN_WIDTH: f32 = 260.;
 const RIGHT_SIDEBAR_MAX_WIDTH: f32 = 480.;
+const FOOTER_WARNING_PULSE: Duration = Duration::from_millis(1_400);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum EditMode {
@@ -67,6 +70,7 @@ pub struct PhoenixShell {
     scene_error: Option<ResidentSceneLoadError>,
     graph_init_error: Option<String>,
     graph_host_start_pending: bool,
+    analysis_warm_pending: bool,
     graph_rebuild_pending: bool,
     graph_provenance: Option<GraphProvenanceReceipt>,
     proof_pending: bool,
@@ -85,7 +89,10 @@ pub struct PhoenixShell {
     drawer_layout: drawer::DrawerLayout,
     drawer_resize_state: Entity<ResizableState>,
     drawer_tab: drawer::DrawerTab,
+    footer_motion_arm: FooterMotionArm,
+    footer_pulse_until: Option<Instant>,
     graph_sidebar_panel: style_hub::GraphSidebarPanel,
+    style_hub_summary_cache: RefCell<style_hub::TopologySummaryCache>,
     atlas_control_section: atlas_control::AtlasControlSection,
     atlas_control_focus: FocusHandle,
     atlas_selected_candidate: Option<phoenix_app_core::AtlasCandidateId>,
@@ -99,6 +106,7 @@ impl PhoenixShell {
         proof_mode: bool,
         soak_mode: bool,
         design_preview: bool,
+        footer_motion_arm: FooterMotionArm,
         kernel: Arc<PhoenixKernel>,
         scene_error: Option<ResidentSceneLoadError>,
         window: &mut Window,
@@ -162,6 +170,16 @@ impl PhoenixShell {
             .map(|lease| lease.content.to_string())
             .unwrap_or_default();
         let document_metrics = footer::DocumentMetrics::from_text(&initial_markdown);
+        let footer_pulse_until =
+            initial_footer_pulse_deadline(footer_motion_arm, document_metrics, Instant::now());
+        let (word_band, character_band) = document_metrics.band_names();
+        let (word_count, character_count) = document_metrics.counts();
+        eprintln!(
+            "PHOENIX_FOOTER_AB arm={} words={} chars={} word_band={word_band} char_band={character_band}",
+            footer_motion_arm.as_str(),
+            word_count,
+            character_count,
+        );
         let editor = cx.new(|cx| velotype::Editor::embedded_from_markdown(cx, initial_markdown));
         cx.subscribe(&editor, Self::on_editor_event).detach();
         let restored_layout = restored_shell_state
@@ -181,6 +199,7 @@ impl PhoenixShell {
                 .is_none()
                 .then(|| "GPUI parent window handle is unavailable".into()),
             graph_host_start_pending: false,
+            analysis_warm_pending: false,
             graph_rebuild_pending: false,
             graph_provenance: None,
             proof_pending: proof_mode || soak_mode,
@@ -217,11 +236,14 @@ impl PhoenixShell {
             drawer_tab: restored_shell_state
                 .as_ref()
                 .map_or(drawer::DrawerTab::Graph, |state| state.drawer_tab),
+            footer_motion_arm,
+            footer_pulse_until,
             graph_sidebar_panel: restored_shell_state
                 .as_ref()
                 .map_or(style_hub::GraphSidebarPanel::Registry, |state| {
                     state.graph_sidebar_panel
                 }),
+            style_hub_summary_cache: RefCell::new(style_hub::TopologySummaryCache::default()),
             atlas_control_section: atlas_control::AtlasControlSection::Overview,
             atlas_control_focus,
             atlas_selected_candidate: None,
@@ -230,6 +252,18 @@ impl PhoenixShell {
             status,
         };
         shell.initialize_highlights(cx);
+        if shell.kernel.analysis_runtime_info().configured
+            && std::env::var("PHOENIX_NATIVE_PREWARM_MODELS")
+                .ok()
+                .is_some_and(|value| {
+                    matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "1" | "true" | "yes"
+                    )
+                })
+        {
+            shell.start_analysis_model_warm(window, cx);
+        }
         if shell.scene_error.is_none() {
             if let Some(parent) = parent {
                 shell.start_graph_host(parent, window, cx);
@@ -275,6 +309,13 @@ impl PhoenixShell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Diagnostic-only A/B arm. Production never sets this variable. Keeping
+        // the switch in the same binary lets memory probes isolate GPUI/editor
+        // residency from wgpu/driver residency without comparing stale builds.
+        if std::env::var_os("PHOENIX_MEMORY_PROBE_DISABLE_GRAPH").is_some() {
+            self.status = "MEMORY PROBE / GRAPH HOST DISABLED".into();
+            return;
+        }
         if self.graph_host_start_pending || self.graph.borrow().is_some() {
             return;
         }
@@ -620,9 +661,11 @@ impl PhoenixShell {
         cx: &mut Context<Self>,
     ) {
         if matches!(event, velotype::EditorEvent::DocumentChanged { .. }) {
-            self.document_metrics = editor.read_with(cx, |editor, cx| {
+            let next_metrics = editor.read_with(cx, |editor, cx| {
                 footer::DocumentMetrics::from_text(&editor.host_document_text(cx))
             });
+            self.arm_footer_pulse_for_band_change(next_metrics);
+            self.document_metrics = next_metrics;
             self.schedule_highlight_reprojection(editor, cx);
             cx.notify();
             return;
@@ -691,11 +734,26 @@ impl PhoenixShell {
             .as_ref()
             .map(|lease| lease.content.to_string())
             .unwrap_or_default();
-        self.document_metrics = footer::DocumentMetrics::from_text(&markdown);
+        let next_metrics = footer::DocumentMetrics::from_text(&markdown);
+        self.document_metrics = next_metrics;
+        self.footer_pulse_until =
+            initial_footer_pulse_deadline(self.footer_motion_arm, next_metrics, Instant::now());
         self.editor.update(cx, |editor, cx| {
             editor.replace_embedded_document(markdown, cx)
         });
         self.editor_lease = next;
+    }
+
+    fn arm_footer_pulse_for_band_change(&mut self, next: footer::DocumentMetrics) {
+        if self.document_metrics.band_names() != next.band_names() {
+            self.footer_pulse_until =
+                initial_footer_pulse_deadline(self.footer_motion_arm, next, Instant::now());
+        }
+    }
+
+    fn footer_pulse_active(&self) -> bool {
+        self.footer_pulse_until
+            .is_some_and(|deadline| Instant::now() < deadline)
     }
 
     fn kernel_snapshot(&self) -> Option<KernelSnapshot> {
@@ -712,4 +770,16 @@ impl PhoenixShell {
         let snapshot = self.kernel_snapshot()?;
         snapshot.workspace.entry(snapshot.active_entry).cloned()
     }
+}
+
+fn initial_footer_pulse_deadline(
+    arm: FooterMotionArm,
+    metrics: footer::DocumentMetrics,
+    now: Instant,
+) -> Option<Instant> {
+    let (word_band, character_band) = metrics.band_names();
+    let actionable = [word_band, character_band]
+        .into_iter()
+        .any(|band| matches!(band, "warning" | "danger" | "over_limit"));
+    (arm == FooterMotionArm::Pulse && actionable).then(|| now + FOOTER_WARNING_PULSE)
 }

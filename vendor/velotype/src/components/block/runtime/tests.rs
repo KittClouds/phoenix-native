@@ -1,6 +1,8 @@
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Duration;
 
+use super::caret_opacity_at_elapsed;
 use super::projection::{
     expanded_display_cursor_offset_for_clean, expanded_display_offset_for_clean,
 };
@@ -28,6 +30,15 @@ fn assert_only_code_range(block: &Block, expected: Range<usize>) {
         .map(|span| span.range.clone())
         .collect::<Vec<_>>();
     assert_eq!(code_ranges, vec![expected]);
+}
+
+#[test]
+fn caret_opacity_changes_only_at_half_second_boundaries() {
+    assert_eq!(caret_opacity_at_elapsed(Duration::ZERO), 1.0);
+    assert_eq!(caret_opacity_at_elapsed(Duration::from_millis(499)), 1.0);
+    assert_eq!(caret_opacity_at_elapsed(Duration::from_millis(500)), 0.0);
+    assert_eq!(caret_opacity_at_elapsed(Duration::from_millis(999)), 0.0);
+    assert_eq!(caret_opacity_at_elapsed(Duration::from_millis(1_000)), 1.0);
 }
 
 #[gpui::test]

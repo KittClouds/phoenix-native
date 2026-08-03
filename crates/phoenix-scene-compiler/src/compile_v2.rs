@@ -2,18 +2,18 @@ use crate::v2_projection::{projection_id, EdgeDraft, NodeDraft, ProjectionBuilde
 use crate::{NativeSceneCompilerError, VerifiedStructuralSource};
 use hashbrown::HashMap;
 use phoenix_graph_generation_v2::{
-    CandidateEvidenceBindingRecord, CandidateId, CandidateStatus, ChunkRecord, DecisionAction,
-    DecisionRecord, EntityRecord, EpisodeMemberKind, EpisodeMembershipRecord, EpisodeRecord,
-    EventRecord, EvidenceRecord, IdentityCandidateRecord, MemoryStateCandidateRecord, PageKind,
+    CandidateEvidenceBindingRecord, CandidateId, CandidateStatus, DecisionAction, DecisionRecord,
+    EntityRecord, EpisodeMemberKind, EpisodeMembershipRecord, EpisodeRecord, EventRecord,
+    EvidenceRecord, IdentityCandidateRecord, MemoryStateCandidateRecord, PageKind,
     PublicationReceiptRecord, StructuralEdgeRecord, TemporalCandidateRecord,
-    TypedRelationshipCandidateRecord, VerifiedGraphGenerationV2,
+    TypedRelationshipCandidateRecord, VerifiedGraphGenerationV2, VerifiedTopologyV2,
 };
 use phoenix_scene_contract::{
     CapsRole, EntityFamily, EntityKind, FamilyMask, HighlightPalette, RelationFamily, ReviewMask,
-    ScopeMask, CAUSAL_MIDPOINT_NODE_KIND, CHUNK_NODE_KIND, CONTEXTUAL_MIDPOINT_NODE_KIND,
-    DOCUMENT_NODE_KIND, EPISODE_NODE_KIND, EVENT_NODE_KIND, EVIDENCE_NODE_KIND,
-    IDENTITY_MIDPOINT_NODE_KIND, MEMORY_STATE_NODE_KIND, RELATIONSHIP_FACT_NODE_KIND,
-    TEMPORAL_MIDPOINT_NODE_KIND,
+    ScopeMask, CAUSAL_MIDPOINT_NODE_KIND, CHAPTER_NODE_KIND, CHUNK_NODE_KIND,
+    CONTEXTUAL_MIDPOINT_NODE_KIND, DOCUMENT_NODE_KIND, EPISODE_NODE_KIND, EVENT_NODE_KIND,
+    EVIDENCE_NODE_KIND, IDENTITY_MIDPOINT_NODE_KIND, MEMORY_STATE_NODE_KIND, PARAGRAPH_NODE_KIND,
+    RELATIONSHIP_FACT_NODE_KIND, SENTENCE_NODE_KIND, TEMPORAL_MIDPOINT_NODE_KIND,
 };
 use phoenix_scene_product_index::ProductReferenceRecord;
 use phoenix_scene_publisher::NativeScenePublication;
@@ -22,6 +22,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 const DOCUMENT_COLOR: [f32; 4] = [0.24, 0.55, 0.95, 0.92];
+const CHAPTER_COLOR: [f32; 4] = [0.40, 0.32, 0.92, 0.86];
+const PARAGRAPH_COLOR: [f32; 4] = [0.64, 0.30, 0.86, 0.82];
+const SENTENCE_COLOR: [f32; 4] = [0.82, 0.30, 0.68, 0.78];
 const CHUNK_COLOR: [f32; 4] = [0.94, 0.28, 0.52, 0.82];
 const EVIDENCE_EDGE_COLOR: [f32; 4] = [0.22, 0.73, 0.78, 0.34];
 const EPISODE_COLOR: [f32; 4] = [0.72, 0.32, 0.94, 0.82];
@@ -232,6 +235,7 @@ pub fn compile_graph_generation_v2(
         .validate()
         .map_err(|_| NativeSceneCompilerError::InvalidPalette)?;
     let structural = VerifiedStructuralSource::open(input.generation)?;
+    let _topology = VerifiedTopologyV2::open(input.generation)?;
     let review = ReviewAuthority::open(input.generation, input.review_catalog)?;
     let entities: &[EntityRecord] = typed(input.generation, PageKind::Entities)?;
     let evidence: &[EvidenceRecord] = typed(input.generation, PageKind::Evidence)?;
@@ -259,10 +263,10 @@ pub fn compile_graph_generation_v2(
         .collect::<Result<Vec<_>, _>>()?;
     let accepted_memberships = accepted_membership_parents(memberships, &membership_statuses)?;
 
-    // Chapters, paragraphs, and sentences remain exact source authority pages.
-    // They are not graph products. The canvas projects the semantic read model:
-    // document, dynamic chunks, evidence, entities, and real semantic records.
     let node_capacity = 1
+        + structural.chapters().len()
+        + structural.paragraphs().len()
+        + structural.sentences().len()
         + structural.chunks().len()
         + entities.len()
         + evidence.len()
@@ -319,12 +323,6 @@ pub fn compile_graph_generation_v2(
         entities,
         &accepted_memberships,
         document.id,
-    )?;
-    add_chunk_membership_edges(
-        &mut builder,
-        document.id,
-        structural.chunks(),
-        structural.structural_edges(),
     )?;
     add_source_edges(&mut builder, structural.structural_edges())?;
     add_evidence_projection_edges(&mut builder, evidence, entities)?;
@@ -433,6 +431,42 @@ fn add_structural_nodes(
         kind: 1,
         flags: 0,
     });
+    for chapter in source.chapters() {
+        let label = text(generation, chapter.title)?;
+        let label = if label.is_empty() {
+            Arc::from(format!("Chapter {}", chapter.ordinal.saturating_add(1)))
+        } else {
+            label
+        };
+        push_structure(
+            builder,
+            chapter.id,
+            label,
+            CHAPTER_NODE_KIND,
+            CapsRole::Chapter,
+            Some(document.id),
+        )?;
+    }
+    for paragraph in source.paragraphs() {
+        push_structure(
+            builder,
+            paragraph.id,
+            Arc::from(format!("Paragraph {}", paragraph.ordinal.saturating_add(1))),
+            PARAGRAPH_NODE_KIND,
+            CapsRole::Paragraph,
+            Some(paragraph.chapter_id),
+        )?;
+    }
+    for sentence in source.sentences() {
+        push_structure(
+            builder,
+            sentence.id,
+            Arc::from(format!("Sentence {}", sentence.ordinal.saturating_add(1))),
+            SENTENCE_NODE_KIND,
+            CapsRole::Sentence,
+            Some(sentence.paragraph_id),
+        )?;
+    }
     for chunk in source.chunks() {
         let parent = memberships.get(&chunk.id).copied();
         push_structure(
@@ -455,6 +489,13 @@ fn push_structure(
     caps_role: CapsRole,
     parent: Option<u64>,
 ) -> Result<(), NativeSceneCompilerError> {
+    let (color, base_radius) = match caps_role {
+        CapsRole::Chapter => (CHAPTER_COLOR, 1.08),
+        CapsRole::Paragraph => (PARAGRAPH_COLOR, 0.92),
+        CapsRole::Sentence => (SENTENCE_COLOR, 0.80),
+        CapsRole::Chunk => (CHUNK_COLOR, 0.74),
+        _ => (CHUNK_COLOR, 0.74),
+    };
     builder.push_node(NodeDraft {
         id,
         label,
@@ -462,8 +503,8 @@ fn push_structure(
         family_mask: FamilyMask::STRUCTURE.0 | structure_detail_mask(kind),
         scope_mask: SCOPE,
         review_mask: ReviewMask::ACCEPTED.0,
-        color: CHUNK_COLOR,
-        base_radius: 0.74,
+        color,
+        base_radius,
         flags: 0,
         caps_role,
         caps_parent: parent,
@@ -582,7 +623,7 @@ fn add_event_nodes(
     evidence: EventEvidence<'_>,
     entities: &[EntityRecord],
     memberships: &HashMap<u64, u64>,
-    document_id: u64,
+    _document_id: u64,
 ) -> Result<(), NativeSceneCompilerError> {
     let entity_families: HashMap<u64, EntityFamily> = entities
         .iter()
@@ -621,11 +662,7 @@ fn add_event_nodes(
             base_radius: 0.78,
             flags: event.flags as u16,
             caps_role: CapsRole::Event,
-            caps_parent: memberships
-                .get(&event.id)
-                .copied()
-                .or(evidence_parent)
-                .or(Some(document_id)),
+            caps_parent: memberships.get(&event.id).copied().or(evidence_parent),
             inspector_ref: 0,
             provenance_ref: 0,
         })?;
@@ -645,7 +682,13 @@ fn add_source_edges(
 ) -> Result<(), NativeSceneCompilerError> {
     for edge in edges {
         if !builder.contains_node(edge.source_id) || !builder.contains_node(edge.target_id) {
-            continue;
+            return Err(NativeSceneCompilerError::V2MissingEndpoint(
+                if !builder.contains_node(edge.source_id) {
+                    edge.source_id
+                } else {
+                    edge.target_id
+                },
+            ));
         }
         builder.push_edge(EdgeDraft {
             id: edge.id,
@@ -659,43 +702,6 @@ fn add_source_edges(
             width: f32::from_bits(edge.weight_bits).max(0.3),
             kind: edge.relation,
             flags: edge.flags,
-            inspector_ref: 0,
-            provenance_ref: 0,
-        })?;
-    }
-    Ok(())
-}
-
-fn add_chunk_membership_edges(
-    builder: &mut ProjectionBuilder,
-    document_id: u64,
-    chunks: &[ChunkRecord],
-    source_edges: &[StructuralEdgeRecord],
-) -> Result<(), NativeSceneCompilerError> {
-    for chunk in chunks {
-        if source_edges
-            .iter()
-            .any(|edge| edge.source_id == document_id && edge.target_id == chunk.id)
-        {
-            continue;
-        }
-        let document_bytes = document_id.to_le_bytes();
-        let chunk_bytes = chunk.id.to_le_bytes();
-        builder.push_edge(EdgeDraft {
-            id: projection_id(
-                b"document-chunk-membership",
-                &[&document_bytes, &chunk_bytes],
-            ),
-            source: document_id,
-            target: chunk.id,
-            family_mask: FamilyMask::STRUCTURE.0,
-            scope_mask: SCOPE,
-            relation_mask: RelationFamily::Structural.mask().0,
-            review_mask: ReviewMask::ACCEPTED.0,
-            color: [0.28, 0.58, 0.84, 0.34],
-            width: 0.42,
-            kind: 0,
-            flags: 0,
             inspector_ref: 0,
             provenance_ref: 0,
         })?;
@@ -794,7 +800,9 @@ fn add_candidate_edges(
             event.evidence_count,
         )?
         .filter(|evidence_id| evidence.iter().any(|record| record.id == *evidence_id))
-        .unwrap_or(document_id);
+        .ok_or(NativeSceneCompilerError::V2InvalidPage(
+            PageKind::CandidateEvidenceBindings,
+        ))?;
         // Events are first-class fact nodes, but their semantic lane is
         // inherited from the entity evidence that caused them.  Retain that
         // mapping for later temporal/causal/state candidates whose endpoints
@@ -1350,6 +1358,9 @@ fn entity_node_family_mask(family: EntityFamily) -> u64 {
 
 const fn structure_detail_mask(kind: u16) -> u64 {
     match kind {
+        CHAPTER_NODE_KIND => FamilyMask::CHAPTERS.0,
+        PARAGRAPH_NODE_KIND => FamilyMask::PARAGRAPHS.0,
+        SENTENCE_NODE_KIND => FamilyMask::SENTENCES.0,
         CHUNK_NODE_KIND => FamilyMask::CHUNKS.0,
         EVIDENCE_NODE_KIND => FamilyMask::EVIDENCE.0,
         EPISODE_NODE_KIND => FamilyMask::EPISODES.0,

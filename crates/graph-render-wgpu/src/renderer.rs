@@ -420,13 +420,8 @@ impl GraphRenderer {
         &mut self,
         view: GraphViewState,
     ) -> Result<LensUpdateMetrics, RenderError> {
-        let authority_changed = self.active_view.authority != view.authority;
-        let framing_changed = authority_changed
-            || self.active_view.surface != view.surface
-            || self.active_view.families != view.families
-            || self.active_view.scope != view.scope
-            || self.active_view.reviews != view.reviews
-            || self.active_view.manifold != view.manifold;
+        let visibility_changed = interaction_visibility_changed(self.active_view, view);
+        let framing_changed = visibility_changed || self.active_view.manifold != view.manifold;
         let _index_hash = validate_view_authority(
             view,
             self.scene.revision(),
@@ -435,9 +430,14 @@ impl GraphRenderer {
         )?;
         let before = self.scene.allocation_stats();
         self.active_view = view;
-        self.scene.set_interaction_visibility(view, &self.queue);
+        let bytes_uploaded = if visibility_changed {
+            self.scene.set_interaction_visibility(view, &self.queue);
+            self.refresh_interaction_lens();
+            size_of::<GraphLensUniform>()
+        } else {
+            0
+        };
         self.picking.invalidate();
-        self.refresh_interaction_lens();
         if framing_changed {
             self.fit_active_graph();
             self.write_camera();
@@ -446,7 +446,7 @@ impl GraphRenderer {
         self.redraw_requested = true;
         let after = self.scene.allocation_stats();
         Ok(LensUpdateMetrics {
-            bytes_uploaded: size_of::<GraphLensUniform>(),
+            bytes_uploaded,
             uniform_writes: self.lens_uniform_writes,
             topology_buffer_generation_before: before
                 .node_buffer_generation
@@ -942,9 +942,16 @@ impl GraphRenderer {
         if width == 0 || height == 0 {
             return;
         }
+        let scale_factor = scale_factor.max(0.01);
+        if self.width == width
+            && self.height == height
+            && self.scale_factor.to_bits() == scale_factor.to_bits()
+        {
+            return;
+        }
         self.width = width;
         self.height = height;
-        self.scale_factor = scale_factor.max(0.01);
+        self.scale_factor = scale_factor;
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
@@ -1011,6 +1018,45 @@ impl GraphRenderer {
         let uniform = GraphLensUniform::from_view(self.active_view, product_index_enabled)
             .with_focus(self.scene.focus_active());
         self.write_lens_uniform(uniform);
+    }
+}
+
+fn interaction_visibility_changed(current: GraphViewState, next: GraphViewState) -> bool {
+    current.authority != next.authority
+        || current.surface != next.surface
+        || current.families != next.families
+        || current.entity_families != next.entity_families
+        || current.topology_families != next.topology_families
+        || current.scope != next.scope
+        || current.reviews != next.reviews
+        || current.relations != next.relations
+}
+
+#[cfg(test)]
+mod view_delta_tests {
+    use super::*;
+    use phoenix_scene_contract::{FamilyMask, Manifold};
+
+    #[test]
+    fn manifold_only_change_reuses_interaction_visibility() {
+        let current = GraphViewState::default();
+        let next = GraphViewState {
+            manifold: Manifold::Hopf,
+            ..current
+        };
+
+        assert!(!interaction_visibility_changed(current, next));
+    }
+
+    #[test]
+    fn granular_topology_change_rebuilds_interaction_visibility() {
+        let current = GraphViewState::default();
+        let next = GraphViewState {
+            topology_families: current.topology_families.toggled(FamilyMask::EPISODES),
+            ..current
+        };
+
+        assert!(interaction_visibility_changed(current, next));
     }
 }
 mod geometry;

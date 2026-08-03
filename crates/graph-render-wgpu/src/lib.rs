@@ -53,11 +53,39 @@ pub const fn native_backends() -> wgpu::Backends {
     }
 }
 
+/// Baseline instance flags for Phoenix's native renderer.
+///
+/// `wgpu` enables debug validation implicitly in debug builds. On systems
+/// without the optional Vulkan validation layer that produces loader warnings
+/// even though the renderer is healthy. Phoenix keeps the live-app baseline
+/// deterministic and lets diagnostics opt in explicitly through wgpu's
+/// standard `WGPU_*` environment flags.
+pub const fn native_instance_flags() -> wgpu::InstanceFlags {
+    wgpu::InstanceFlags::empty()
+}
+
+/// Complete instance descriptor shared by the live renderer, recovery path,
+/// and GPU smoke tests.
+pub fn native_instance_descriptor() -> wgpu::InstanceDescriptor {
+    wgpu::InstanceDescriptor {
+        backends: native_backends(),
+        flags: native_instance_flags().with_env(),
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod backend_tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn windows_native_backend_is_vulkan_only() {
         assert_eq!(super::native_backends(), wgpu::Backends::VULKAN);
+    }
+
+    #[test]
+    fn native_instance_baseline_does_not_implicitly_request_validation() {
+        let flags = super::native_instance_flags();
+        assert!(!flags.contains(wgpu::InstanceFlags::VALIDATION));
+        assert!(!flags.contains(wgpu::InstanceFlags::GPU_BASED_VALIDATION));
     }
 }

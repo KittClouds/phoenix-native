@@ -508,6 +508,7 @@ impl PhoenixShell {
         cx: &mut Context<Self>,
     ) {
         match action {
+            AtlasPrimaryAction::WarmModels => self.start_analysis_model_warm(window, cx),
             AtlasPrimaryAction::RunPipeline => self.start_native_scene_rebuild(window, cx),
             AtlasPrimaryAction::OpenDocument => {
                 if self.drawer_layout.is_open() {
@@ -598,6 +599,7 @@ pub(super) fn primary_action_label(action: AtlasPrimaryAction) -> &'static str {
     match action {
         AtlasPrimaryAction::OpenDocument => "CHOOSE A NOTE",
         AtlasPrimaryAction::ConfigurePipeline => "CONNECT RUNTIME",
+        AtlasPrimaryAction::WarmModels => "WARM MODELS",
         AtlasPrimaryAction::RunPipeline => "RUN PIPELINE",
         AtlasPrimaryAction::Wait => "PIPELINE RUNNING",
     }
@@ -664,7 +666,8 @@ pub(super) fn action_button(
     let enabled = !matches!(
         action,
         AtlasPrimaryAction::Wait | AtlasPrimaryAction::ConfigurePipeline
-    ) && !shell.graph_rebuild_pending;
+    ) && !shell.graph_rebuild_pending
+        && !shell.analysis_warm_pending;
     Button::new("atlas-primary-action")
         .label(primary_action_label(action))
         .small()
@@ -673,6 +676,52 @@ pub(super) fn action_button(
         .on_click(cx.listener(move |this, _, window, cx| {
             this.dispatch_atlas_action(action, window, cx);
         }))
+}
+
+pub(super) fn pipeline_action_row(
+    shell: &PhoenixShell,
+    control: &AtlasControlSnapshot,
+    cx: &mut Context<PhoenixShell>,
+) -> impl IntoElement {
+    if !control.analysis_runtime.configured
+        || matches!(control.primary_action, AtlasPrimaryAction::OpenDocument)
+    {
+        return div().child(action_button(shell, control.primary_action, cx));
+    }
+    let busy = shell.analysis_warm_pending || shell.graph_rebuild_pending;
+    div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(
+            Button::new("atlas-warm-models")
+                .label(if shell.analysis_warm_pending {
+                    "WARMING MODELS"
+                } else if control.analysis_runtime.ready {
+                    "MODELS READY"
+                } else {
+                    "WARM MODELS"
+                })
+                .small()
+                .disabled(busy)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.start_analysis_model_warm(window, cx);
+                })),
+        )
+        .child(
+            Button::new("atlas-run-warm-pipeline")
+                .label(if shell.graph_rebuild_pending {
+                    "PIPELINE RUNNING"
+                } else {
+                    "RUN PIPELINE"
+                })
+                .small()
+                .primary()
+                .disabled(busy || !control.analysis_runtime.ready)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.start_native_scene_rebuild(window, cx);
+                })),
+        )
 }
 
 pub(super) fn focus_handle(cx: &mut Context<PhoenixShell>) -> FocusHandle {

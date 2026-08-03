@@ -15,12 +15,14 @@ mod release_lock;
 mod resident_memory;
 mod scene_authority_v2;
 mod scene_compiler_authority;
+mod scene_compiler_authority_v3;
 mod scene_publication;
 mod scene_rebuild;
 mod state;
 
 pub use analysis::{
-    AnalysisPublicationReceipt, AnalysisRuntimeInfo, NativeProducerRuntimeConfig, NliPublication,
+    AnalysisModelWarmReceipt, AnalysisPublicationReceipt, AnalysisRuntimeInfo,
+    NativeProducerRuntimeConfig, NliPublication,
 };
 pub use atlas::{AtlasEntity, AtlasRegistry, NerEntityBatch};
 pub use atlas_control::{
@@ -41,7 +43,8 @@ pub use atlas_run::{
 pub use metrics::KernelMetrics;
 pub use phoenix_scene_compiler::{
     NativeSceneCompileReceiptV2 as NativeSceneCompileReceipt, NativeSceneCompilerError,
-    NATIVE_SCENE_COMPILER_V2_CONTRACT as NATIVE_SCENE_COMPILER_CONTRACT,
+    VisualContractDraftV3, VisualContractReceiptV3,
+    NATIVE_SCENE_COMPILER_V3_CONTRACT as NATIVE_SCENE_COMPILER_CONTRACT,
 };
 pub use phoenix_scene_publisher::{
     NativeScenePublication, SceneEdgeProduct, SceneNodeProduct, ScenePublicationKind,
@@ -175,6 +178,12 @@ pub enum KernelError {
     InvalidV2CompilerAuthority,
     #[error("V2 compiler authority I/O failed: {0}")]
     V2CompilerAuthorityIo(String),
+    #[error("the selected full scene has no verified V3 visual authority")]
+    MissingV3VisualAuthority,
+    #[error("the V3 visual compiler authority sidecar is corrupt or mismatched")]
+    InvalidV3VisualAuthority,
+    #[error("V3 visual compiler authority I/O failed: {0}")]
+    V3VisualAuthorityIo(String),
     #[error(
         "scene publication registry revision {publication} does not match current revision {current}"
     )]
@@ -201,6 +210,8 @@ pub enum KernelError {
     AnalysisProducerUnavailable(&'static str),
     #[error("native producer runtime failed: {0}")]
     AnalysisProducerFailed(String),
+    #[error("analysis models are not resident; warm the configured runtime before running")]
+    AnalysisModelsNotWarm,
     #[error("semantic producer coordinator was cancelled")]
     AnalysisProducerCancelled,
     #[error("no Atlas pipeline run is active")]
@@ -279,6 +290,8 @@ struct KernelShared {
     graph_build: Mutex<atlas_control::GraphBuildRuntime>,
     atlas_review: Mutex<atlas_review::AtlasReviewLedger>,
     resident_memory: Arc<ResidentMemory>,
+    analysis_producer: Mutex<Option<analysis::ResidentAnalysisProducer>>,
+    analysis_warming: AtomicBool,
     producer_cancel: AtomicBool,
     metrics: KernelMetricAtoms,
 }
@@ -407,7 +420,20 @@ impl PhoenixKernel {
             scene_publication.filter(|receipt| receipt.kind == ScenePublicationKind::Full),
         ) {
             (Some(publisher), Some(receipt)) => {
-                let source_hash = scene_compiler_authority::verify(publisher, receipt)?;
+                let source_hash = match scene_compiler_authority_v3::verify(publisher, receipt) {
+                    Ok(visual) => {
+                        let legacy_source_hash =
+                            scene_compiler_authority::verify(publisher, receipt)?;
+                        if legacy_source_hash != visual.source_generation_hash {
+                            return Err(KernelError::InvalidV3VisualAuthority);
+                        }
+                        visual.source_generation_hash
+                    }
+                    Err(KernelError::MissingV3VisualAuthority) => {
+                        scene_compiler_authority::verify(publisher, receipt)?
+                    }
+                    Err(error) => return Err(error),
+                };
                 match scene_authority_v2::open_exact(
                     &workspace_path,
                     receipt
@@ -428,8 +454,8 @@ impl PhoenixKernel {
                                     &restored.structural,
                                     &restored.coordinator,
                                 )?;
-                                let compiled = phoenix_scene_compiler::compile_graph_generation_v2(
-                                    phoenix_scene_compiler::NativeSceneCompilerV2Input {
+                                let compiled = phoenix_scene_compiler::compile_graph_generation_v3(
+                                    phoenix_scene_compiler::NativeSceneCompilerV3Input {
                                         scene_generation_id: publisher.next_generation()?,
                                         generation: &authority.generation,
                                         review_catalog: &authority.catalog,
@@ -442,6 +468,14 @@ impl PhoenixKernel {
                                     published.receipt,
                                     authority.generation.header().generation_hash,
                                 )?;
+                                let visual = compiled
+                                    .visual
+                                    .bind_publication(
+                                        published.receipt,
+                                        authority.generation.header().generation_hash,
+                                    )
+                                    .map_err(|_| KernelError::CompiledPublicationMismatch)?;
+                                scene_compiler_authority_v3::write_new(publisher, visual)?;
                                 scene_publication = Some(published.receipt);
                                 initial_scene = Some(published.scene);
                                 initial_product_index = Some(published.product_index);
@@ -544,6 +578,8 @@ impl PhoenixKernel {
             )),
             atlas_review: Mutex::new(atlas_review),
             resident_memory,
+            analysis_producer: Mutex::new(None),
+            analysis_warming: AtomicBool::new(false),
             producer_cancel: AtomicBool::new(false),
             metrics: KernelMetricAtoms::default(),
         });
@@ -702,6 +738,12 @@ impl PhoenixKernel {
 
     pub fn shutdown(&self) -> Result<(), KernelError> {
         self.shared.producer_cancel.store(true, Ordering::Release);
+        if let Ok(mut producer) = self.shared.analysis_producer.lock() {
+            if let Some(runtime) = producer.as_mut() {
+                runtime.shutdown();
+            }
+            *producer = None;
+        }
         if self.shutdown_started.swap(true, Ordering::AcqRel) {
             return self.join_worker();
         }

@@ -334,9 +334,12 @@ fn tangent_basis(direction: Vec3) -> (Vec3, Vec3) {
 }
 
 fn caps_shell_color(role: CapsRole, plane: usize) -> u32 {
-    const COLORS: [[f32; 3]; 8] = [
+    const COLORS: [[f32; 3]; 11] = [
         [0.92, 0.18, 0.25],
         [0.34, 0.65, 0.95],
+        [0.42, 0.76, 0.96],
+        [0.50, 0.84, 0.80],
+        [0.86, 0.32, 0.65],
         [0.96, 0.60, 0.10],
         [0.34, 0.78, 0.49],
         [0.63, 0.53, 0.92],

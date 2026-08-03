@@ -4,6 +4,7 @@ mod format;
 mod ids;
 mod open;
 mod records;
+mod topology;
 mod validate;
 mod write;
 
@@ -35,6 +36,11 @@ pub use records::{
     ModelIdentityRecord, NliAdjudicationRecord, ParagraphRecord, PublicationReceiptRecord,
     SentenceRecord, SpanRecord, StageReceiptRecord, StringRef, StructuralEdgeRecord,
     TemporalCandidateRecord, TypedRelationshipCandidateRecord,
+};
+pub use topology::{
+    CausalRelationKind, SemanticEndpointKind, StructuralRelationKind, TemporalRelationKind,
+    TopologyNodeKind, TopologyValidationError, VerifiedTopologyV2, ENDPOINT_SOURCE_SHIFT,
+    ENDPOINT_TARGET_SHIFT,
 };
 pub use validate::{
     align_up, compute_generation_hash, validate_directory, validate_header, validate_page_payload,
