@@ -42,7 +42,7 @@ Exit codes:
 
 The lock computes the same dual-lane byte hash used by Angular V2 packets for
 native node IDs, edge IDs, slot topology, positions, and RGBA8 colors. It also
-opens and binds the native product index, verifies all five native manifold
+opens and binds the native product index, verifies all six native manifold
 inventories, and records archive/index generation and BLAKE3 identities.
 
 Known STOP conditions in the initial run are intentionally explicit:

@@ -25,6 +25,7 @@ phoenix-scene-contract = { path = "../../crates/phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../../crates/phoenix-scene-product-index" }
 phoenix-scene-publisher = { path = "../../crates/phoenix-scene-publisher" }
 phoenix-workspace = { path = "../../crates/phoenix-workspace" }
+phoenix-text-analytics = { path = "../../crates/phoenix-text-analytics" }
 hashbrown.workspace = true
 pollster.workspace = true
 raw-window-handle.workspace = true
@@ -36,3 +37,9 @@ velotype = { path = "../../vendor/velotype" }
 wgpu.workspace = true
 windows.workspace = true
 winit.workspace = true
+openrouter-rs.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+keyring.workspace = true
+uuid.workspace = true
+blake3.workspace = true

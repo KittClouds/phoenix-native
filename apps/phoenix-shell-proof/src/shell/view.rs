@@ -1,4 +1,5 @@
 use super::drawer::DRAWER_MIN_HEIGHT;
+use super::layout::{shell_width_budget, NAV_RAIL_WIDTH};
 use super::{
     EditMode, PhoenixShell, BORDER, CANVAS, DANGER, LEFT_SIDEBAR_MAX_WIDTH, LEFT_SIDEBAR_MIN_WIDTH,
     RIGHT_SIDEBAR_MAX_WIDTH, RIGHT_SIDEBAR_MIN_WIDTH, SURFACE, TEXT, TEXT_MUTED,
@@ -17,12 +18,11 @@ use phoenix_workspace::{EntryKind, ROOT_ID};
 
 const ACCENT_BRIGHT: u32 = 0x57e2bb;
 pub(super) const SHELL_HEADER_HEIGHT: f32 = 44.;
-const CENTER_MIN_WIDTH: f32 = 480.;
 
 impl PhoenixShell {
     fn render_nav_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .w(px(56.))
+            .w(px(NAV_RAIL_WIDTH))
             .flex_shrink_0()
             .flex()
             .flex_col()
@@ -114,10 +114,12 @@ impl PhoenixShell {
         }
         div()
             .w_full()
+            .min_w_0()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
+            .overflow_hidden()
             .border_r_1()
             .border_color(rgb(BORDER))
             .bg(linear_gradient(
@@ -128,10 +130,12 @@ impl PhoenixShell {
             .child(
                 div()
                     .h(px(SHELL_HEADER_HEIGHT))
+                    .min_w_0()
                     .flex_shrink_0()
                     .flex()
                     .items_center()
                     .justify_between()
+                    .overflow_hidden()
                     .px_3()
                     .border_b_1()
                     .border_color(rgb(BORDER))
@@ -188,28 +192,36 @@ impl PhoenixShell {
             .unwrap_or_else(|| "NO DOCUMENT LEASE".into());
         div()
             .flex_1()
+            .min_w_0()
             .min_h_0()
             .flex()
             .flex_col()
+            .overflow_hidden()
             .bg(rgb(CANVAS))
             .child(
                 div()
                     .h(px(SHELL_HEADER_HEIGHT))
+                    .min_w_0()
                     .flex_shrink_0()
                     .flex()
                     .items_center()
                     .justify_between()
+                    .overflow_hidden()
                     .px_4()
                     .border_b_1()
                     .border_color(rgb(BORDER))
                     .bg(rgb(SURFACE))
                     .child(
                         div()
+                            .min_w_0()
+                            .flex_1()
                             .flex()
                             .items_center()
                             .gap_2()
                             .child(
                                 div()
+                                    .min_w_0()
+                                    .truncate()
                                     .text_xs()
                                     .text_color(rgb(ACCENT_BRIGHT))
                                     .child(format!(
@@ -230,6 +242,8 @@ impl PhoenixShell {
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.right_sidebar_page =
                                             super::kammi::RightSidebarPage::Kammi;
+                                        this.analytics_highlight = None;
+                                        this.apply_kernel_highlights(cx);
                                         this.right_open = true;
                                         cx.notify();
                                     })),
@@ -237,6 +251,10 @@ impl PhoenixShell {
                     )
                     .child(
                         div()
+                            .ml_2()
+                            .min_w_0()
+                            .flex_shrink()
+                            .truncate()
                             .text_xs()
                             .text_color(rgb(TEXT_MUTED))
                             .child(lease_label),
@@ -306,10 +324,12 @@ impl PhoenixShell {
             .unwrap_or(0);
         div()
             .w_full()
+            .min_w_0()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
+            .overflow_hidden()
             .border_l_1()
             .border_color(rgb(BORDER))
             .bg(rgb(SURFACE))
@@ -481,18 +501,27 @@ impl Render for PhoenixShell {
             (false, true) => "shell-panels-right",
             (false, false) => "shell-panels-center",
         };
+        let width_budget = shell_width_budget(
+            f32::from(window.viewport_size().width),
+            self.left_open,
+            self.right_open,
+            self.left_sidebar_width,
+            self.right_sidebar_width,
+        );
         let mut panels = h_resizable(panel_group_id);
         if self.left_open {
             panels = panels.child(
                 resizable_panel()
-                    .size(px(self.left_sidebar_width))
-                    .size_range(px(LEFT_SIDEBAR_MIN_WIDTH)..px(LEFT_SIDEBAR_MAX_WIDTH))
+                    .size(px(width_budget.left_width))
+                    .size_range(px(width_budget.left_min)..px(LEFT_SIDEBAR_MAX_WIDTH))
                     .child(
                         div()
                             .size_full()
+                            .min_w_0()
                             .min_h_0()
                             .flex()
                             .flex_col()
+                            .overflow_hidden()
                             .child(self.render_workspace_sidebar(cx))
                             .child(self.render_left_footer(cx)),
                     ),
@@ -500,16 +529,19 @@ impl Render for PhoenixShell {
         }
         panels = panels.child(
             resizable_panel()
-                .size_range(px(CENTER_MIN_WIDTH)..gpui::Pixels::MAX)
+                .size_range(px(width_budget.center_min)..gpui::Pixels::MAX)
                 .child(
                     div()
                         .size_full()
+                        .min_w_0()
                         .min_h_0()
                         .flex()
                         .flex_col()
+                        .overflow_hidden()
                         .child(
                             div()
                                 .w_full()
+                                .min_w_0()
                                 .flex_1()
                                 .min_h_0()
                                 .flex()
@@ -522,14 +554,16 @@ impl Render for PhoenixShell {
         if self.right_open {
             panels = panels.child(
                 resizable_panel()
-                    .size(px(self.right_sidebar_width))
-                    .size_range(px(RIGHT_SIDEBAR_MIN_WIDTH)..px(RIGHT_SIDEBAR_MAX_WIDTH))
+                    .size(px(width_budget.right_width))
+                    .size_range(px(width_budget.right_min)..px(RIGHT_SIDEBAR_MAX_WIDTH))
                     .child(
                         div()
                             .size_full()
+                            .min_w_0()
                             .min_h_0()
                             .flex()
                             .flex_col()
+                            .overflow_hidden()
                             .child(self.render_right_sidebar(cx))
                             .child(self.render_right_footer(cx)),
                     ),
@@ -570,13 +604,18 @@ impl Render for PhoenixShell {
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .min_h_0()
                     .flex()
+                    .overflow_hidden()
                     .when(!self.left_open, |layout| {
                         layout.child(self.render_nav_rail(cx))
                     })
                     .child(panels),
             )
+            .when(self.entity_editor.is_some(), |root| {
+                root.child(self.render_registry_editor(cx))
+            })
     }
 }
 

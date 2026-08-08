@@ -1,6 +1,8 @@
-use crate::renderer::{preferred_present_mode, validate_view_authority};
+use crate::renderer::{
+    graph_view_change_requires_fit, preferred_present_mode, validate_view_authority,
+};
 use graph_model::GraphRevision;
-use phoenix_scene_contract::{GraphGeneration, GraphViewState};
+use phoenix_scene_contract::{FamilyMask, GraphGeneration, GraphViewState, Manifold};
 
 #[test]
 fn mailbox_is_the_low_latency_first_choice() {
@@ -43,6 +45,18 @@ fn graph_view_authority_fails_closed_on_every_mismatch() {
     );
     view = GraphViewState::for_archive(GraphGeneration(8), [3; 32], None);
     assert!(validate_view_authority(view, Some(GraphRevision(8)), Some([3; 32]), None).is_ok());
+}
+
+#[test]
+fn visibility_only_view_changes_preserve_camera_framing() {
+    let current = GraphViewState::default();
+    let mut next = current;
+    next.families = FamilyMask::ENTITIES;
+    next.topology_families = FamilyMask::EVENT_FACTS;
+    assert!(!graph_view_change_requires_fit(current, next));
+
+    next.manifold = Manifold::Caps;
+    assert!(graph_view_change_requires_fit(current, next));
 }
 
 #[test]

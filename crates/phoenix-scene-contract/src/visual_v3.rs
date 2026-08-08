@@ -45,6 +45,33 @@ pub enum VisualNodeKind {
     Unknown = 255,
 }
 
+impl VisualNodeKind {
+    pub const ALL: [Self; 22] = [
+        Self::EntityCharacter,
+        Self::EntityLocation,
+        Self::EntityNetwork,
+        Self::EntityCreature,
+        Self::EntityNpc,
+        Self::EntityEvent,
+        Self::EntityConcept,
+        Self::EntityOther,
+        Self::Document,
+        Self::Episode,
+        Self::Chapter,
+        Self::Paragraph,
+        Self::Sentence,
+        Self::Chunk,
+        Self::Evidence,
+        Self::EventFact,
+        Self::RelationshipFact,
+        Self::TemporalFact,
+        Self::CausalFact,
+        Self::MemoryStateFact,
+        Self::IdentityDiscourse,
+        Self::ContextualDiscourse,
+    ];
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum VisualEdgeKind {
@@ -74,6 +101,70 @@ pub struct VisualNodeDescriptor {
 pub struct VisualEdgeDescriptor {
     pub kind: VisualEdgeKind,
     pub relation_mask: u64,
+}
+
+/// Returns the one topology family that owns a node's body and visibility.
+///
+/// Product masks may also carry entity-family context for the aura. That
+/// context must never replace or suppress this primary semantic identity.
+#[must_use]
+pub const fn primary_node_family_mask(family_mask: u64) -> FamilyMask {
+    let descriptor = describe_node(family_mask);
+    let detail = match descriptor.kind {
+        VisualNodeKind::Document => FamilyMask::DOCUMENTS.0,
+        VisualNodeKind::Episode => FamilyMask::EPISODES.0,
+        VisualNodeKind::Chapter => FamilyMask::CHAPTERS.0,
+        VisualNodeKind::Paragraph => FamilyMask::PARAGRAPHS.0,
+        VisualNodeKind::Sentence => FamilyMask::SENTENCES.0,
+        VisualNodeKind::Chunk => FamilyMask::CHUNKS.0,
+        VisualNodeKind::Evidence => FamilyMask::EVIDENCE.0,
+        VisualNodeKind::EventFact => FamilyMask::EVENT_FACTS.0,
+        VisualNodeKind::RelationshipFact => FamilyMask::RELATIONSHIP_FACTS.0,
+        VisualNodeKind::TemporalFact => FamilyMask::TEMPORAL_FACTS.0,
+        VisualNodeKind::CausalFact => FamilyMask::CAUSAL_FACTS.0,
+        VisualNodeKind::MemoryStateFact => FamilyMask::MEMORY_STATE_FACTS.0,
+        VisualNodeKind::IdentityDiscourse => FamilyMask::IDENTITY_DISCOURSE.0,
+        VisualNodeKind::ContextualDiscourse => FamilyMask::CONTEXTUAL_DISCOURSE.0,
+        VisualNodeKind::EntityCharacter
+        | VisualNodeKind::EntityLocation
+        | VisualNodeKind::EntityNetwork
+        | VisualNodeKind::EntityCreature
+        | VisualNodeKind::EntityNpc
+        | VisualNodeKind::EntityEvent
+        | VisualNodeKind::EntityConcept
+        | VisualNodeKind::EntityOther => FamilyMask::ENTITIES.0,
+        VisualNodeKind::Unknown => 0,
+    };
+    let broad = match descriptor.lane {
+        VisualNodeLane::Entities => FamilyMask::ENTITIES.0,
+        VisualNodeLane::Structure => FamilyMask::STRUCTURE.0,
+        VisualNodeLane::Facts => FamilyMask::FACTS.0,
+        VisualNodeLane::Discourse => FamilyMask::DISCOURSE.0,
+    };
+    FamilyMask(broad | detail)
+}
+
+/// Returns the one topology family owned by an edge's relation identity.
+/// Endpoint product lanes are context and are deliberately discarded.
+#[must_use]
+pub const fn primary_edge_family_mask(family_mask: u64, relation_mask: u64) -> FamilyMask {
+    let relation = describe_edge(relation_mask).kind;
+    let mask = match relation {
+        VisualEdgeKind::Relationship => FamilyMask::FACTS.0 | FamilyMask::RELATIONSHIP_FACTS.0,
+        VisualEdgeKind::Event => FamilyMask::FACTS.0 | FamilyMask::EVENT_FACTS.0,
+        VisualEdgeKind::Temporal => FamilyMask::FACTS.0 | FamilyMask::TEMPORAL_FACTS.0,
+        VisualEdgeKind::Causal => FamilyMask::FACTS.0 | FamilyMask::CAUSAL_FACTS.0,
+        VisualEdgeKind::MemoryState => FamilyMask::FACTS.0 | FamilyMask::MEMORY_STATE_FACTS.0,
+        VisualEdgeKind::Identity => FamilyMask::DISCOURSE.0 | FamilyMask::IDENTITY_DISCOURSE.0,
+        VisualEdgeKind::CoOccurrence if family_mask & FamilyMask::DISCOURSE.0 != 0 => {
+            FamilyMask::DISCOURSE.0 | FamilyMask::CONTEXTUAL_DISCOURSE.0
+        }
+        VisualEdgeKind::Structural | VisualEdgeKind::Observation => {
+            FamilyMask::STRUCTURE.0 | (family_mask & FamilyMask::STRUCTURE_LANES.0)
+        }
+        _ => family_mask & (FamilyMask::ALL.0 | FamilyMask::TOPOLOGY_LANES.0),
+    };
+    FamilyMask(mask)
 }
 
 #[must_use]
@@ -205,5 +296,25 @@ mod tests {
     fn relation_masks_decode_without_color_inference() {
         assert_eq!(describe_edge(1 << 3).kind, VisualEdgeKind::Causal);
         assert_eq!(describe_edge(1 << 5).kind, VisualEdgeKind::Structural);
+    }
+
+    #[test]
+    fn primary_identity_discards_secondary_node_and_endpoint_context() {
+        assert_eq!(
+            primary_node_family_mask(
+                FamilyMask::FACTS.0 | FamilyMask::CAUSAL_FACTS.0 | FamilyMask::CHARACTERS.0,
+            ),
+            FamilyMask(FamilyMask::FACTS.0 | FamilyMask::CAUSAL_FACTS.0)
+        );
+        assert_eq!(
+            primary_edge_family_mask(
+                FamilyMask::FACTS.0
+                    | FamilyMask::CAUSAL_FACTS.0
+                    | FamilyMask::EVENT_FACTS.0
+                    | FamilyMask::CHARACTERS.0,
+                1 << 3,
+            ),
+            FamilyMask(FamilyMask::FACTS.0 | FamilyMask::CAUSAL_FACTS.0)
+        );
     }
 }

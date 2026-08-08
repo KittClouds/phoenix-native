@@ -212,6 +212,7 @@ fn run_pipeline(
         source_document_id: Some(source_document_id),
         max_nli_candidates: 65_536,
     };
+    kernel.warm_analysis_models_with(&config)?;
     let command = kernel.run_active_document_pipeline_with(&config)?;
     let snapshot = kernel.snapshot()?;
     let lease = snapshot
@@ -283,16 +284,15 @@ fn seed_and_publish(
         lease: lease.token(),
         content: Arc::from(text),
     })?;
-    let receipt = kernel.analyze_active_document_with(
-        2,
-        &NativeProducerRuntimeConfig {
-            producer_executable: producer,
-            ner_model_root,
-            nli_model_root,
-            source_document_id: Some(source_document_id),
-            max_nli_candidates: 65_536,
-        },
-    )?;
+    let config = NativeProducerRuntimeConfig {
+        producer_executable: producer,
+        ner_model_root,
+        nli_model_root,
+        source_document_id: Some(source_document_id),
+        max_nli_candidates: 65_536,
+    };
+    kernel.warm_analysis_models_with(&config)?;
+    let receipt = kernel.analyze_active_document_with(2, &config)?;
     let snapshot = kernel.snapshot()?;
     let lease = snapshot
         .active_document_lease

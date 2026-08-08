@@ -42,6 +42,24 @@ pub enum GraphSurface {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum GraphCanvas {
+    #[default]
+    Ink,
+    Grid,
+}
+
+impl GraphCanvas {
+    #[must_use]
+    pub const fn toggled(self) -> Self {
+        match self {
+            Self::Ink => Self::Grid,
+            Self::Grid => Self::Ink,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GraphLens {
     #[default]
     Entities,
@@ -206,6 +224,42 @@ impl FamilyMask {
     pub const fn is_valid_topology_selection(self) -> bool {
         self.0 != 0 && self.0 & !Self::TOPOLOGY_LANES.0 == 0
     }
+
+    #[must_use]
+    pub const fn topology_details_for(broad: Self) -> Self {
+        if broad.0 == Self::STRUCTURE.0 {
+            Self::STRUCTURE_LANES
+        } else if broad.0 == Self::FACTS.0 {
+            Self::FACT_LANES
+        } else if broad.0 == Self::DISCOURSE.0 {
+            Self::DISCOURSE_LANES
+        } else {
+            Self(0)
+        }
+    }
+
+    #[must_use]
+    pub const fn broad_for_topology_detail(detail: Self) -> Option<Self> {
+        if detail.0.count_ones() != 1 || detail.0 & !Self::TOPOLOGY_LANES.0 != 0 {
+            None
+        } else if detail.intersects(Self::STRUCTURE_LANES) {
+            Some(Self::STRUCTURE)
+        } else if detail.intersects(Self::FACT_LANES) {
+            Some(Self::FACTS)
+        } else if detail.intersects(Self::DISCOURSE_LANES) {
+            Some(Self::DISCOURSE)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn is_broad_family(self) -> bool {
+        self.0 == Self::ENTITIES.0
+            || self.0 == Self::STRUCTURE.0
+            || self.0 == Self::FACTS.0
+            || self.0 == Self::DISCOURSE.0
+    }
 }
 
 impl Default for FamilyMask {
@@ -331,6 +385,10 @@ impl RelationMask {
 pub struct GraphViewState {
     pub authority: SceneAuthority,
     pub surface: GraphSurface,
+    /// Presentation-only canvas treatment. It never changes topology,
+    /// visibility, manifold projection, or camera framing.
+    #[serde(default)]
+    pub canvas: GraphCanvas,
     /// Combined topology lanes selected by the Style Hub.
     ///
     /// `lens` remains as a compatibility name for a preferred lane, but it no
@@ -360,6 +418,7 @@ impl GraphViewState {
         Self {
             authority: SceneAuthority::Unavailable,
             surface: GraphSurface::Entities,
+            canvas: GraphCanvas::Ink,
             families: FamilyMask::ALL,
             entity_families: FamilyMask::ENTITY_LANES,
             topology_families: FamilyMask::TOPOLOGY_LANES,
@@ -391,7 +450,73 @@ impl GraphViewState {
     pub const fn family_mask(self) -> FamilyMask {
         match self.surface {
             GraphSurface::Entities => FamilyMask::ENTITIES,
-            GraphSurface::Atlas => self.families,
+            GraphSurface::Atlas => self.effective_families(),
+        }
+    }
+
+    #[must_use]
+    pub const fn family_is_visible(self, family: FamilyMask) -> bool {
+        if !self.families.contains(family) {
+            return false;
+        }
+        let details = FamilyMask::topology_details_for(family);
+        details.0 == 0 || self.topology_families.intersects(details)
+    }
+
+    #[must_use]
+    pub const fn effective_families(self) -> FamilyMask {
+        let mut mask = self.families.0;
+        let broad = [
+            FamilyMask::STRUCTURE,
+            FamilyMask::FACTS,
+            FamilyMask::DISCOURSE,
+        ];
+        let mut slot = 0;
+        while slot < broad.len() {
+            let family = broad[slot];
+            if !self.family_is_visible(family) {
+                mask &= !family.0;
+            }
+            slot += 1;
+        }
+        FamilyMask(mask)
+    }
+
+    pub fn toggle_family(&mut self, family: FamilyMask) {
+        if !family.is_broad_family() {
+            return;
+        }
+        let mut candidate = *self;
+        if self.family_is_visible(family) {
+            candidate.families = candidate.families.toggled(family);
+        } else {
+            candidate.families = FamilyMask(candidate.families.0 | family.0);
+            let details = FamilyMask::topology_details_for(family);
+            if details.0 != 0 && !candidate.topology_families.intersects(details) {
+                candidate.topology_families = FamilyMask(candidate.topology_families.0 | details.0);
+            }
+        }
+        if candidate.is_valid() {
+            *self = candidate;
+        }
+    }
+
+    pub fn toggle_topology_family(&mut self, detail: FamilyMask) {
+        let Some(broad) = FamilyMask::broad_for_topology_detail(detail) else {
+            return;
+        };
+        let mut candidate = *self;
+        candidate.topology_families = candidate.topology_families.toggled(detail);
+        if candidate.topology_families.contains(detail) {
+            candidate.families = FamilyMask(candidate.families.0 | broad.0);
+        } else {
+            let siblings = FamilyMask::topology_details_for(broad);
+            if !candidate.topology_families.intersects(siblings) {
+                candidate.families = FamilyMask(candidate.families.0 & !broad.0);
+            }
+        }
+        if candidate.is_valid() {
+            *self = candidate;
         }
     }
 
@@ -410,20 +535,45 @@ impl GraphViewState {
         self.families.is_valid_selection()
             && self.entity_families.is_valid_entity_selection()
             && self.topology_families.is_valid_topology_selection()
+            && self.topology_visibility_is_coupled()
             && self.reviews.is_visible_selection()
             && self.relations.is_valid_selection()
     }
 
-    /// Migrates the short-lived shell-state encoding that placed granular
-    /// entity bits in the broad `families` field.  Published scene authority
-    /// is unaffected; this only repairs persisted view preferences.
-    pub fn normalize_legacy_family_masks(&mut self) {
+    #[must_use]
+    pub const fn topology_visibility_is_coupled(self) -> bool {
+        (!self.families.contains(FamilyMask::STRUCTURE)
+            || self
+                .topology_families
+                .intersects(FamilyMask::STRUCTURE_LANES))
+            && (!self.families.contains(FamilyMask::FACTS)
+                || self.topology_families.intersects(FamilyMask::FACT_LANES))
+            && (!self.families.contains(FamilyMask::DISCOURSE)
+                || self
+                    .topology_families
+                    .intersects(FamilyMask::DISCOURSE_LANES))
+    }
+
+    /// Repairs persisted view preferences without changing scene authority.
+    /// Legacy entity bits move to their dedicated mask, while a selected broad
+    /// topology lane with no selected products regains its complete subtype set.
+    pub fn normalize_persisted_masks(&mut self) {
         let legacy_entity_lanes = self.families.0 & FamilyMask::ENTITY_LANES.0;
         if legacy_entity_lanes != 0 {
             self.entity_families = FamilyMask(
                 (self.entity_families.0 | legacy_entity_lanes) & FamilyMask::ENTITY_LANES.0,
             );
             self.families = FamilyMask(self.families.0 & FamilyMask::ALL.0);
+        }
+        for broad in [
+            FamilyMask::STRUCTURE,
+            FamilyMask::FACTS,
+            FamilyMask::DISCOURSE,
+        ] {
+            let details = FamilyMask::topology_details_for(broad);
+            if self.families.contains(broad) && !self.topology_families.intersects(details) {
+                self.topology_families = FamilyMask(self.topology_families.0 | details.0);
+            }
         }
     }
 }
@@ -457,11 +607,20 @@ mod tests {
     fn default_view_is_entities_without_authority() {
         let view = GraphViewState::default();
         assert_eq!(view.surface, GraphSurface::Entities);
+        assert_eq!(view.canvas, GraphCanvas::Ink);
         assert_eq!(view.family_mask(), FamilyMask::ENTITIES);
         assert_eq!(view.entity_families, FamilyMask::ENTITY_LANES);
         assert_eq!(view.topology_families, FamilyMask::TOPOLOGY_LANES);
         assert_eq!(view.authority, SceneAuthority::Unavailable);
         assert!(view.is_valid());
+    }
+
+    #[test]
+    fn canvas_toggle_is_two_state_and_defaults_to_ink() {
+        let canvas = GraphCanvas::default();
+        assert_eq!(canvas, GraphCanvas::Ink);
+        assert_eq!(canvas.toggled(), GraphCanvas::Grid);
+        assert_eq!(canvas.toggled().toggled(), GraphCanvas::Ink);
     }
 
     #[test]
@@ -538,7 +697,7 @@ mod tests {
             ..GraphViewState::default()
         };
 
-        view.normalize_legacy_family_masks();
+        view.normalize_persisted_masks();
 
         assert_eq!(
             view.families,
@@ -573,6 +732,56 @@ mod tests {
         }
         assert!(FamilyMask::TOPOLOGY_LANES.is_valid_topology_selection());
         assert!(!FamilyMask::ALL.is_valid_topology_selection());
+    }
+
+    #[test]
+    fn broad_topology_visibility_fails_closed_without_a_selected_product() {
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::FACTS,
+            topology_families: FamilyMask::DISCOURSE_LANES,
+            ..GraphViewState::default()
+        };
+
+        assert!(!view.family_is_visible(FamilyMask::FACTS));
+        assert_eq!(view.family_mask(), FamilyMask(0));
+        assert!(!view.is_valid());
+    }
+
+    #[test]
+    fn broad_and_granular_topology_toggles_remain_coupled() {
+        let mut view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::ENTITIES,
+            topology_families: FamilyMask::EVENT_FACTS,
+            ..GraphViewState::default()
+        };
+
+        view.toggle_family(FamilyMask::DISCOURSE);
+        assert!(view.family_is_visible(FamilyMask::DISCOURSE));
+        assert!(view.topology_families.contains(FamilyMask::DISCOURSE_LANES));
+
+        view.toggle_topology_family(FamilyMask::IDENTITY_DISCOURSE);
+        assert!(view.family_is_visible(FamilyMask::DISCOURSE));
+        view.toggle_topology_family(FamilyMask::CONTEXTUAL_DISCOURSE);
+        assert!(!view.families.contains(FamilyMask::DISCOURSE));
+        assert!(!view.family_is_visible(FamilyMask::DISCOURSE));
+        assert!(view.is_valid());
+    }
+
+    #[test]
+    fn persisted_broad_lane_without_products_is_repaired_once() {
+        let mut view = GraphViewState {
+            families: FamilyMask(FamilyMask::ENTITIES.0 | FamilyMask::DISCOURSE.0),
+            topology_families: FamilyMask::EVENT_FACTS,
+            ..GraphViewState::default()
+        };
+
+        view.normalize_persisted_masks();
+
+        assert!(view.topology_families.contains(FamilyMask::DISCOURSE_LANES));
+        assert!(view.family_is_visible(FamilyMask::DISCOURSE));
+        assert!(view.is_valid());
     }
 
     #[test]

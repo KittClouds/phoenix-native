@@ -47,7 +47,9 @@ mod memory_policy_tests {
 }
 use graph_model::{GraphDiff, GraphRevision, GraphSnapshot};
 use phoenix_scene_archive::{LabelPriorityRecord, ManifoldPageSet, PositionRecord};
-use phoenix_scene_contract::{GraphReviewOverride, GraphSurface, GraphViewState, Manifold};
+use phoenix_scene_contract::{
+    GraphCanvas, GraphReviewOverride, GraphSurface, GraphViewState, Manifold,
+};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
 use std::sync::Arc;
@@ -405,6 +407,22 @@ impl GraphRenderer {
         Ok(metrics)
     }
 
+    pub fn set_graph_palette(
+        &mut self,
+        index: &PhoenixSceneProductIndexV1,
+        palette: phoenix_scene_contract::GraphPalette,
+    ) -> Result<SnapshotMetrics, RenderError> {
+        let metrics = self
+            .scene
+            .apply_graph_palette(index, palette, &self.queue)?;
+        if metrics.bindings_changed {
+            self.refresh_scene_bindings();
+        }
+        self.picking.invalidate();
+        self.redraw_requested = true;
+        Ok(metrics)
+    }
+
     pub fn set_product_index_shared(
         &mut self,
         index: Arc<PhoenixSceneProductIndexV1>,
@@ -421,7 +439,8 @@ impl GraphRenderer {
         view: GraphViewState,
     ) -> Result<LensUpdateMetrics, RenderError> {
         let visibility_changed = interaction_visibility_changed(self.active_view, view);
-        let framing_changed = visibility_changed || self.active_view.manifold != view.manifold;
+        let framing_changed = graph_view_change_requires_fit(self.active_view, view);
+        let canvas_changed = self.active_view.canvas != view.canvas;
         let _index_hash = validate_view_authority(
             view,
             self.scene.revision(),
@@ -431,15 +450,17 @@ impl GraphRenderer {
         let before = self.scene.allocation_stats();
         self.active_view = view;
         let bytes_uploaded = if visibility_changed {
-            self.scene.set_interaction_visibility(view, &self.queue);
+            let context_bytes = self.scene.set_interaction_visibility(view, &self.queue);
             self.refresh_interaction_lens();
-            size_of::<GraphLensUniform>()
+            context_bytes.saturating_add(size_of::<GraphLensUniform>())
         } else {
             0
         };
         self.picking.invalidate();
         if framing_changed {
             self.fit_active_graph();
+            self.write_camera();
+        } else if canvas_changed {
             self.write_camera();
         }
         self.labels.mark_dirty();
@@ -976,6 +997,10 @@ impl GraphRenderer {
     fn write_camera(&self) {
         let mut uniform = self.camera.uniform();
         uniform.edge_opacity = crate::color::dense_edge_opacity(self.scene.state().edge_count());
+        uniform.canvas_style = match self.active_view.canvas {
+            GraphCanvas::Ink => 0.0,
+            GraphCanvas::Grid => 1.0,
+        };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
     }
@@ -1021,6 +1046,14 @@ impl GraphRenderer {
     }
 }
 
+#[inline]
+pub(crate) fn graph_view_change_requires_fit(
+    current: GraphViewState,
+    next: GraphViewState,
+) -> bool {
+    current.manifold != next.manifold
+}
+
 fn interaction_visibility_changed(current: GraphViewState, next: GraphViewState) -> bool {
     current.authority != next.authority
         || current.surface != next.surface
@@ -1035,7 +1068,7 @@ fn interaction_visibility_changed(current: GraphViewState, next: GraphViewState)
 #[cfg(test)]
 mod view_delta_tests {
     use super::*;
-    use phoenix_scene_contract::{FamilyMask, Manifold};
+    use phoenix_scene_contract::{FamilyMask, GraphCanvas, Manifold};
 
     #[test]
     fn manifold_only_change_reuses_interaction_visibility() {
@@ -1057,6 +1090,18 @@ mod view_delta_tests {
         };
 
         assert!(interaction_visibility_changed(current, next));
+    }
+
+    #[test]
+    fn canvas_only_change_preserves_framing_and_interaction_indexes() {
+        let current = GraphViewState::default();
+        let next = GraphViewState {
+            canvas: GraphCanvas::Grid,
+            ..current
+        };
+
+        assert!(!graph_view_change_requires_fit(current, next));
+        assert!(!interaction_visibility_changed(current, next));
     }
 }
 mod geometry;

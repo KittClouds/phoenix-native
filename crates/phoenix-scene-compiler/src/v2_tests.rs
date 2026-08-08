@@ -7,8 +7,8 @@ use phoenix_graph_generation_v2::{
 };
 use phoenix_scene_archive::{ArchiveManifold, PageKey, PageKind};
 use phoenix_scene_contract::{
-    EntityKind, FamilyMask, GraphGeneration, HighlightPalette, Manifold, ReviewMask,
-    RELATIONSHIP_FACT_NODE_KIND,
+    EntityKind, FamilyMask, GraphColorKey, GraphGeneration, GraphPalette, HighlightPalette,
+    Manifold, ReviewMask, RELATIONSHIP_FACT_NODE_KIND,
 };
 use phoenix_scene_publisher::ScenePublicationStore;
 use phoenix_semantic_lens::{
@@ -232,10 +232,11 @@ fn v2_source_truth_publishes_without_synthetic_episodes() {
             && reference.source_len == 4));
     for (archive_manifold, manifold) in ArchiveManifold::ALL.into_iter().zip([
         Manifold::Hybrid,
-        Manifold::Hopf,
+        Manifold::Torus,
         Manifold::Caps,
         Manifold::Transit,
         Manifold::Siegel,
+        Manifold::Hopf,
     ]) {
         let active = published
             .scene
@@ -514,6 +515,15 @@ fn accepted_status_without_receipt_fails_closed() {
     assert_eq!(
         fact.family_mask,
         FamilyMask::FACTS.0 | FamilyMask::RELATIONSHIP_FACTS.0 | FamilyMask::CHARACTERS.0
+    );
+    assert_eq!(
+        compiled.publication.styles[fact_slot].color,
+        GraphPalette::default().color(GraphColorKey::RelationshipFacts),
+        "the fact midpoint body follows its semantic identity, not its character context"
+    );
+    assert_ne!(
+        compiled.publication.styles[fact_slot].color,
+        GraphPalette::default().color(GraphColorKey::Characters)
     );
     assert_eq!(fact.review_mask, ReviewMask::PROPOSED.0);
     drop(proposed);

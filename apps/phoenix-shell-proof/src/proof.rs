@@ -62,6 +62,7 @@ struct SoakAuthority {
     kernel_commands_pending: u64,
     kernel_event_queue_high_water: u64,
     kernel_events_pending: u64,
+    kernel_events_evicted: u64,
 }
 
 #[derive(Serialize)]
@@ -304,6 +305,7 @@ fn inspect_soak_authority(kernel: &Arc<PhoenixKernel>) -> Result<SoakAuthority, 
         kernel_commands_pending: metrics.commands_pending,
         kernel_event_queue_high_water: metrics.event_queue_high_water,
         kernel_events_pending: metrics.events_pending,
+        kernel_events_evicted: metrics.events_evicted,
     })
 }
 

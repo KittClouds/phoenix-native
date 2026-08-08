@@ -1,4 +1,5 @@
 use phoenix_graph_generation_v2::PageKind;
+use phoenix_scene_contract::{CapsRole, VisualNodeKind};
 use thiserror::Error;
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -47,8 +48,16 @@ pub enum NativeSceneCompilerError {
     RangeOverflow(&'static str),
     #[error("highlight palette is invalid")]
     InvalidPalette,
+    #[error("scene {resource} {id} has no graph palette key")]
+    PaletteKeyMissing { resource: &'static str, id: u64 },
     #[error("CAPS node slot {slot} has reserved identity zero")]
     CapsZeroIdentity { slot: usize },
+    #[error("CAPS node slot {slot} maps semantic kind {kind:?} into incompatible role {role:?}")]
+    CapsSemanticRole {
+        slot: usize,
+        role: CapsRole,
+        kind: VisualNodeKind,
+    },
     #[error("CAPS node slot {slot} has parent slot {parent} outside the node page")]
     CapsParentOutOfRange { slot: usize, parent: u32 },
     #[error("CAPS node slot {slot} cannot descend from parent slot {parent}")]
@@ -57,6 +66,10 @@ pub enum NativeSceneCompilerError {
     CapsSiblingRange { slot: usize, rank: u32, count: u32 },
     #[error("CAPS node slot {slot} produced a non-finite or out-of-ball projection")]
     CapsProjectionInvalid { slot: usize },
+    #[error(transparent)]
+    HybridLayout(#[from] phoenix_hybrid_space::HybridLayoutError),
+    #[error(transparent)]
+    HopfLayout(#[from] phoenix_hopf_space::HopfLayoutError),
     #[error(transparent)]
     V2Structural(#[from] crate::StructuralSourceError),
     #[error(transparent)]

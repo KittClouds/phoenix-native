@@ -21,14 +21,6 @@ use phoenix_semantic_review::{ReviewCandidate, ReviewCatalog, ReviewPage};
 use std::sync::Arc;
 use std::time::Instant;
 
-const DOCUMENT_COLOR: [f32; 4] = [0.24, 0.55, 0.95, 0.92];
-const CHAPTER_COLOR: [f32; 4] = [0.40, 0.32, 0.92, 0.86];
-const PARAGRAPH_COLOR: [f32; 4] = [0.64, 0.30, 0.86, 0.82];
-const SENTENCE_COLOR: [f32; 4] = [0.82, 0.30, 0.68, 0.78];
-const CHUNK_COLOR: [f32; 4] = [0.94, 0.28, 0.52, 0.82];
-const EVIDENCE_EDGE_COLOR: [f32; 4] = [0.22, 0.73, 0.78, 0.34];
-const EPISODE_COLOR: [f32; 4] = [0.72, 0.32, 0.94, 0.82];
-const EVENT_COLOR: [f32; 4] = [0.98, 0.43, 0.15, 0.84];
 const SCOPE: u64 = ScopeMask::NOTE.0 | ScopeMask::NARRATIVE.0;
 
 pub struct NativeSceneCompilerV2Input<'a> {
@@ -296,14 +288,8 @@ pub fn compile_graph_generation_v2(
         input.generation,
         &accepted_memberships,
     )?;
-    add_entity_nodes(&mut builder, input.generation, entities, input.palette)?;
-    add_evidence_nodes(
-        &mut builder,
-        input.generation,
-        evidence,
-        entities,
-        input.palette,
-    )?;
+    add_entity_nodes(&mut builder, input.generation, entities)?;
+    add_evidence_nodes(&mut builder, input.generation, evidence, entities)?;
     add_episode_nodes(
         &mut builder,
         input.generation,
@@ -416,7 +402,6 @@ fn add_structural_nodes(
         family_mask: FamilyMask::STRUCTURE.0 | FamilyMask::DOCUMENTS.0,
         scope_mask: SCOPE,
         review_mask: ReviewMask::ACCEPTED.0,
-        color: DOCUMENT_COLOR,
         base_radius: 1.25,
         flags: 0,
         caps_role: CapsRole::Document,
@@ -489,12 +474,12 @@ fn push_structure(
     caps_role: CapsRole,
     parent: Option<u64>,
 ) -> Result<(), NativeSceneCompilerError> {
-    let (color, base_radius) = match caps_role {
-        CapsRole::Chapter => (CHAPTER_COLOR, 1.08),
-        CapsRole::Paragraph => (PARAGRAPH_COLOR, 0.92),
-        CapsRole::Sentence => (SENTENCE_COLOR, 0.80),
-        CapsRole::Chunk => (CHUNK_COLOR, 0.74),
-        _ => (CHUNK_COLOR, 0.74),
+    let base_radius = match caps_role {
+        CapsRole::Chapter => 1.08,
+        CapsRole::Paragraph => 0.92,
+        CapsRole::Sentence => 0.80,
+        CapsRole::Chunk => 0.74,
+        _ => 0.74,
     };
     builder.push_node(NodeDraft {
         id,
@@ -503,7 +488,6 @@ fn push_structure(
         family_mask: FamilyMask::STRUCTURE.0 | structure_detail_mask(kind),
         scope_mask: SCOPE,
         review_mask: ReviewMask::ACCEPTED.0,
-        color,
         base_radius,
         flags: 0,
         caps_role,
@@ -517,7 +501,6 @@ fn add_entity_nodes(
     builder: &mut ProjectionBuilder,
     generation: &VerifiedGraphGenerationV2,
     entities: &[EntityRecord],
-    palette: HighlightPalette,
 ) -> Result<(), NativeSceneCompilerError> {
     for entity in entities {
         let kind = entity_kind(entity.kind)?;
@@ -529,7 +512,6 @@ fn add_entity_nodes(
             family_mask: entity_node_family_mask(family),
             scope_mask: SCOPE,
             review_mask: ReviewMask::ACCEPTED.0,
-            color: palette.for_family(family).primary,
             base_radius: 0.63,
             flags: entity.flags as u16,
             caps_role: CapsRole::Entity,
@@ -547,7 +529,6 @@ fn add_evidence_nodes(
     generation: &VerifiedGraphGenerationV2,
     evidence: &[EvidenceRecord],
     entities: &[EntityRecord],
-    palette: HighlightPalette,
 ) -> Result<(), NativeSceneCompilerError> {
     let families: HashMap<u64, EntityFamily> = entities
         .iter()
@@ -567,7 +548,6 @@ fn add_evidence_nodes(
                 | entity_family_mask(family),
             scope_mask: SCOPE,
             review_mask: ReviewMask::ACCEPTED.0,
-            color: palette.for_family(family).secondary,
             base_radius: 0.38,
             flags: record.flags,
             caps_role: CapsRole::Evidence,
@@ -602,7 +582,6 @@ fn add_episode_nodes(
             family_mask: FamilyMask::STRUCTURE.0 | FamilyMask::EPISODES.0,
             scope_mask: SCOPE,
             review_mask: status.mask,
-            color: color_for_status(EPISODE_COLOR, *status),
             base_radius: 0.96,
             flags: episode.flags as u16,
             caps_role: CapsRole::Episode,
@@ -658,7 +637,6 @@ fn add_event_nodes(
             family_mask: FamilyMask::FACTS.0 | FamilyMask::EVENT_FACTS.0 | event_lane,
             scope_mask: SCOPE,
             review_mask: status.mask,
-            color: color_for_status(EVENT_COLOR, *status),
             base_radius: 0.78,
             flags: event.flags as u16,
             caps_role: CapsRole::Event,
@@ -698,7 +676,6 @@ fn add_source_edges(
             scope_mask: SCOPE,
             relation_mask: RelationFamily::Structural.mask().0,
             review_mask: ReviewMask::ACCEPTED.0,
-            color: [0.28, 0.58, 0.84, 0.34],
             width: f32::from_bits(edge.weight_bits).max(0.3),
             kind: edge.relation,
             flags: edge.flags,
@@ -732,7 +709,6 @@ fn add_evidence_projection_edges(
             scope_mask: SCOPE,
             relation_mask: RelationFamily::Observation.mask().0,
             review_mask: ReviewMask::ACCEPTED.0,
-            color: EVIDENCE_EDGE_COLOR,
             width: 0.32,
             kind: 0,
             flags: 0,
@@ -747,7 +723,6 @@ fn add_evidence_projection_edges(
             scope_mask: SCOPE,
             relation_mask: RelationFamily::Observation.mask().0,
             review_mask: ReviewMask::ACCEPTED.0,
-            color: [0.28, 0.84, 0.65, 0.42],
             width: 0.34,
             kind: 0,
             flags: 0,
@@ -901,7 +876,7 @@ fn add_candidate_edges(
             f32::from_bits(record.confidence_bits),
             "Identity proposal",
             IDENTITY_MIDPOINT_NODE_KIND,
-            CapsRole::Fact,
+            CapsRole::Discourse,
             document_id,
             accepted_count,
             overlay_count,
@@ -1048,7 +1023,7 @@ fn add_candidate_edges(
             f32::from_bits(record.weight_bits),
             "Context evidence",
             CONTEXTUAL_MIDPOINT_NODE_KIND,
-            CapsRole::Fact,
+            CapsRole::Discourse,
             document_id,
             accepted_count,
             overlay_count,
@@ -1110,7 +1085,6 @@ fn push_candidate_through_node(
 ) -> Result<(), NativeSceneCompilerError> {
     let candidate = status.candidate_id.0;
     let node_id = projection_id(b"semantic-midpoint-node/v2", &[&candidate]);
-    let color = color_for_status(relation_color(relation), status);
     builder.push_node(NodeDraft {
         id: node_id,
         label: Arc::from(label),
@@ -1118,7 +1092,6 @@ fn push_candidate_through_node(
         family_mask,
         scope_mask: SCOPE,
         review_mask: status.mask,
-        color,
         base_radius: if caps_role == CapsRole::Memory {
             0.58
         } else {
@@ -1145,7 +1118,6 @@ fn push_candidate_through_node(
             scope_mask: SCOPE,
             relation_mask: relation.mask().0,
             review_mask: status.mask,
-            color,
             width: confidence.clamp(0.22, 1.0) * 0.62,
             kind,
             flags: 0,
@@ -1186,7 +1158,6 @@ fn push_candidate_with_domain(
         scope_mask: SCOPE,
         relation_mask: relation.mask().0,
         review_mask: status.mask,
-        color: color_for_status(relation_color(relation), status),
         width: confidence.clamp(0.22, 1.0) * 0.62,
         kind,
         flags: 0,
@@ -1288,32 +1259,6 @@ fn semantic_midpoint_count(
                 "V2 semantic midpoint count",
             ))
     })
-}
-
-fn color_for_status(mut color: [f32; 4], status: ProjectedStatus) -> [f32; 4] {
-    color[3] *= match status.mask {
-        value if value == ReviewMask::ACCEPTED.0 => 1.0,
-        value if value == ReviewMask::REJECTED.0 => 0.18,
-        value if value == ReviewMask::DEFERRED.0 => 0.32,
-        value if value == ReviewMask::SUPERSEDED.0 => 0.12,
-        _ => 0.52,
-    };
-    color
-}
-
-const fn relation_color(relation: RelationFamily) -> [f32; 4] {
-    match relation {
-        RelationFamily::CoOccurrence => [0.42, 0.58, 0.56, 0.38],
-        RelationFamily::Observation => [0.24, 0.76, 0.86, 0.52],
-        RelationFamily::Communication => [0.32, 0.58, 0.96, 0.56],
-        RelationFamily::Causal => [0.94, 0.28, 0.34, 0.62],
-        RelationFamily::Temporal => [0.94, 0.76, 0.16, 0.58],
-        RelationFamily::Structural => [0.34, 0.62, 0.88, 0.48],
-        RelationFamily::Identity => [0.61, 0.38, 0.96, 0.58],
-        RelationFamily::Relationship => [0.94, 0.32, 0.62, 0.58],
-        RelationFamily::Event => [0.98, 0.43, 0.15, 0.58],
-        RelationFamily::MemoryState => [0.28, 0.82, 0.52, 0.56],
-    }
 }
 
 fn relation_for(family: u16) -> RelationFamily {

@@ -1,0 +1,48 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase4-ledger-lock/v1",
+  "frozen_at": "2026-08-04",
+  "disposition": "phase_4_verified",
+  "full_receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase4-relevance-ledger-tier-provenance-v3-e5a659d.json",
+    "bytes": 104438,
+    "sha256": "4a4902ead88df3afc1bcbc009aa394121a6b1155eededca72991509515f72428"
+  },
+  "phase_3_receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase3-constitutional-tiers-e5a659d.json",
+    "bytes": 44441042,
+    "sha256": "ed7a4561fd37272ab302480ea533bb1b44584cb837e7e5e0a3a0e8d8558d2d32"
+  },
+  "producer_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 2255360,
+    "sha256": "1cff27dfe68d86ae3313dc6e7867e9b7d5ac60e5c4adda330e34b667534fa77b"
+  },
+  "workspace_key_id": "49e8b24ba91ab572980ca4c1187ee4536509aaf37a035970929eaaf960641778",
+  "workspace_key_path_recorded": false,
+  "audit": {
+    "judgments": 9,
+    "authoritative": 4,
+    "strong_evidence": 1,
+    "mining_signals": 2,
+    "position_biased_clicks": 1,
+    "review_candidates": 1,
+    "unresolved_authoritative_contradictions": 0
+  },
+  "gates": {
+    "schema_is_v3": true,
+    "workspace_key_is_not_serialized": true,
+    "query_identities_are_keyed_not_raw_sha256": true,
+    "every_source_class_is_represented": true,
+    "ordinary_click_is_non_authoritative": true,
+    "candidate_pools_and_positions_are_complete": true,
+    "constitutional_fixtures_are_frozen_holdouts": true,
+    "positive_and_negative_constitutional_tiers_are_recorded": true,
+    "cross_tier_pairs_are_excluded_from_model_training": true,
+    "feature_and_provenance_completeness_is_100_percent": true,
+    "duplicate_identities_are_zero": true,
+    "unresolved_authoritative_contradictions_are_zero": true,
+    "supersession_and_contradiction_lineage_is_valid": true,
+    "deterministic_round_trip": true
+  },
+  "phase_4_verified": true
+}

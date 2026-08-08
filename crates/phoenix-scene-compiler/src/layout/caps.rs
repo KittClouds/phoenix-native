@@ -1,56 +1,166 @@
 use crate::NativeSceneCompilerError;
 use glam::Vec3;
 use phoenix_scene_archive::PositionRecord;
-use phoenix_scene_contract::{CapsRole, CAPS_KLEIN_BOUND, CAPS_WORLD_SCALE};
+use phoenix_scene_contract::{CapsRole, VisualNodeKind, CAPS_KLEIN_BOUND, CAPS_WORLD_SCALE};
 use std::f32::consts::PI;
 
 const GOLDEN_ANGLE: f32 = 2.399_963_1;
-const MIN_CAP_APERTURE: f32 = 0.055;
-const CAP_RING_STEP: f32 = 0.032;
-const MAX_CAP_APERTURE: f32 = 0.30;
-const ROOT_CAP_MIN_APERTURE: f32 = 0.85;
-const ROOT_CAP_MAX_APERTURE: f32 = PI - 0.12;
-const ROOT_CAP_SATURATION: f32 = 6.0;
+const SUPER_ROOT_APERTURE: f32 = PI - 0.12;
+const CAP_MARGIN: f32 = 0.006;
+const MAX_LAYOUT_GUIDES: usize = 96;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CapsNode {
     pub stable_id: u64,
     pub role: CapsRole,
+    pub semantic_kind: VisualNodeKind,
     pub parent_slot: Option<u32>,
     pub sibling_rank: u32,
     pub sibling_count: u32,
     pub membership_count: u16,
 }
 
-pub fn layout(nodes: &[CapsNode]) -> Result<Vec<PositionRecord>, NativeSceneCompilerError> {
-    validate(nodes)?;
-    let mut directions = vec![Vec3::ZERO; nodes.len()];
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CapsGuide {
+    pub stable_id: u64,
+    pub center: [f32; 3],
+    pub aperture: f32,
+    pub radius: f32,
+    pub role: CapsRole,
+    pub weight: u32,
+}
 
-    // Roles are processed from abstract outer shells to concrete inner shells.
-    // A parent can therefore appear later in node-slot order without forcing
-    // pointer chasing, recursion, or a graph-sized temporary object model.
-    for role in CapsRole::ALL {
+#[derive(Debug, PartialEq)]
+pub struct CapsLayout {
+    pub positions: Vec<PositionRecord>,
+    pub guides: Vec<CapsGuide>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CapFrame {
+    center: Vec3,
+    aperture: f32,
+}
+
+impl Default for CapFrame {
+    fn default() -> Self {
+        Self {
+            center: Vec3::Z,
+            aperture: 0.0,
+        }
+    }
+}
+
+struct ChildIndex {
+    offsets: Vec<usize>,
+    slots: Vec<usize>,
+}
+
+impl ChildIndex {
+    fn build(nodes: &[CapsNode]) -> Self {
+        let mut offsets = vec![0_usize; nodes.len() + 1];
+        for node in nodes {
+            if let Some(parent) = node.parent_slot {
+                offsets[parent as usize + 1] += 1;
+            }
+        }
+        for slot in 1..offsets.len() {
+            offsets[slot] += offsets[slot - 1];
+        }
+        let mut cursors = offsets[..nodes.len()].to_vec();
+        let mut slots = vec![0_usize; offsets[nodes.len()]];
         for (slot, node) in nodes.iter().enumerate() {
+            if let Some(parent) = node.parent_slot {
+                let cursor = &mut cursors[parent as usize];
+                slots[*cursor] = slot;
+                *cursor += 1;
+            }
+        }
+        for parent in 0..nodes.len() {
+            slots[offsets[parent]..offsets[parent + 1]].sort_unstable_by_key(|slot| {
+                (
+                    nodes[*slot].semantic_kind as u8,
+                    stable_hash(nodes[*slot].stable_id, 19),
+                    nodes[*slot].stable_id,
+                )
+            });
+        }
+        Self { offsets, slots }
+    }
+
+    fn children(&self, parent: usize) -> &[usize] {
+        &self.slots[self.offsets[parent]..self.offsets[parent + 1]]
+    }
+}
+
+pub fn layout(nodes: &[CapsNode]) -> Result<Vec<PositionRecord>, NativeSceneCompilerError> {
+    layout_with_guides(nodes).map(|layout| layout.positions)
+}
+
+/// Build a deterministic nested-cap mosaic in the Klein ball.
+///
+/// A virtual super-root allocates disjoint chart regions to authoritative
+/// roots. Every parent then allocates subtree-weighted child caps in its local
+/// tangent disk. Role controls a nonzero depth interval instead of an exact
+/// Euclidean sphere, so the graph occupies the interior volume of H3.
+pub fn layout_with_guides(nodes: &[CapsNode]) -> Result<CapsLayout, NativeSceneCompilerError> {
+    validate(nodes)?;
+    if nodes.is_empty() {
+        return Ok(CapsLayout {
+            positions: Vec::new(),
+            guides: Vec::new(),
+        });
+    }
+
+    let children = ChildIndex::build(nodes);
+    let weights = subtree_weights(nodes)?;
+    let mut frames = vec![CapFrame::default(); nodes.len()];
+    let mut roots = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, node)| node.parent_slot.is_none().then_some(slot))
+        .collect::<Vec<_>>();
+    roots.sort_unstable_by_key(|slot| {
+        (
+            nodes[*slot].semantic_kind as u8,
+            stable_hash(nodes[*slot].stable_id, 23),
+            nodes[*slot].stable_id,
+        )
+    });
+
+    let super_root = CapFrame {
+        center: Vec3::new(0.18, 0.31, 0.93).normalize(),
+        aperture: SUPER_ROOT_APERTURE,
+    };
+    allocate_group(&roots, super_root, nodes, &weights, &mut frames, true);
+
+    // Parent roles are strictly ordered before child roles by contract. This
+    // gives a cache-linear hierarchy pass without recursion or pointer trees.
+    for role in CapsRole::ALL {
+        for (parent, node) in nodes.iter().enumerate() {
             if node.role != role {
                 continue;
             }
-            directions[slot] = match node.parent_slot {
-                Some(parent_slot) => child_direction(
-                    node,
-                    nodes[parent_slot as usize],
-                    directions[parent_slot as usize],
-                ),
-                None => root_direction(node),
-            };
+            let child_slots = children.children(parent);
+            if !child_slots.is_empty() {
+                allocate_group(
+                    child_slots,
+                    frames[parent],
+                    nodes,
+                    &weights,
+                    &mut frames,
+                    false,
+                );
+            }
         }
     }
 
-    directions
-        .into_iter()
-        .zip(nodes)
+    let positions = nodes
+        .iter()
         .enumerate()
-        .map(|(slot, (direction, node))| {
-            let klein = lorentz_to_klein(direction, node.role.klein_radius());
+        .map(|(slot, node)| {
+            let depth = volumetric_depth(*node);
+            let klein = lorentz_to_klein(frames[slot].center, depth);
             if !klein.is_finite() || klein.length() >= CAPS_KLEIN_BOUND {
                 return Err(NativeSceneCompilerError::CapsProjectionInvalid { slot });
             }
@@ -58,13 +168,43 @@ pub fn layout(nodes: &[CapsNode]) -> Result<Vec<PositionRecord>, NativeSceneComp
                 position: (klein * CAPS_WORLD_SCALE).to_array(),
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut guide_slots = (0..nodes.len())
+        .filter(|slot| !children.children(*slot).is_empty())
+        .collect::<Vec<_>>();
+    guide_slots.sort_unstable_by(|left, right| {
+        weights[*right]
+            .cmp(&weights[*left])
+            .then_with(|| nodes[*left].stable_id.cmp(&nodes[*right].stable_id))
+    });
+    guide_slots.truncate(MAX_LAYOUT_GUIDES);
+    let guides = guide_slots
+        .into_iter()
+        .map(|slot| CapsGuide {
+            stable_id: nodes[slot].stable_id,
+            center: frames[slot].center.to_array(),
+            aperture: frames[slot].aperture,
+            radius: Vec3::from_array(positions[slot].position).length(),
+            role: nodes[slot].role,
+            weight: u32::try_from(weights[slot]).unwrap_or(u32::MAX),
+        })
+        .collect();
+
+    Ok(CapsLayout { positions, guides })
 }
 
 fn validate(nodes: &[CapsNode]) -> Result<(), NativeSceneCompilerError> {
     for (slot, node) in nodes.iter().enumerate() {
         if node.stable_id == 0 {
             return Err(NativeSceneCompilerError::CapsZeroIdentity { slot });
+        }
+        if semantic_role(node.semantic_kind) != Some(node.role) {
+            return Err(NativeSceneCompilerError::CapsSemanticRole {
+                slot,
+                role: node.role,
+                kind: node.semantic_kind,
+            });
         }
         if node.sibling_count == 0 || node.sibling_rank >= node.sibling_count {
             return Err(NativeSceneCompilerError::CapsSiblingRange {
@@ -92,63 +232,141 @@ fn validate(nodes: &[CapsNode]) -> Result<(), NativeSceneCompilerError> {
     Ok(())
 }
 
-fn root_direction(node: &CapsNode) -> Vec3 {
-    match node.role {
-        CapsRole::Document => Vec3::Y,
-        CapsRole::Episode => {
-            // A slight stable tilt makes all three spatial axes legible from
-            // the default camera while keeping the shell origin authoritative.
-            Vec3::new(0.24 + signed_unit(node.stable_id, 0) * 0.05, 0.31, 0.92).normalize()
+const fn semantic_role(kind: VisualNodeKind) -> Option<CapsRole> {
+    match kind {
+        VisualNodeKind::EntityCharacter
+        | VisualNodeKind::EntityLocation
+        | VisualNodeKind::EntityNetwork
+        | VisualNodeKind::EntityCreature
+        | VisualNodeKind::EntityNpc
+        | VisualNodeKind::EntityEvent
+        | VisualNodeKind::EntityConcept
+        | VisualNodeKind::EntityOther => Some(CapsRole::Entity),
+        VisualNodeKind::Document => Some(CapsRole::Document),
+        VisualNodeKind::Episode => Some(CapsRole::Episode),
+        VisualNodeKind::Chapter => Some(CapsRole::Chapter),
+        VisualNodeKind::Paragraph => Some(CapsRole::Paragraph),
+        VisualNodeKind::Sentence => Some(CapsRole::Sentence),
+        VisualNodeKind::Chunk => Some(CapsRole::Chunk),
+        VisualNodeKind::Evidence => Some(CapsRole::Evidence),
+        VisualNodeKind::EventFact => Some(CapsRole::Event),
+        VisualNodeKind::RelationshipFact
+        | VisualNodeKind::TemporalFact
+        | VisualNodeKind::CausalFact => Some(CapsRole::Fact),
+        VisualNodeKind::MemoryStateFact => Some(CapsRole::Memory),
+        VisualNodeKind::IdentityDiscourse | VisualNodeKind::ContextualDiscourse => {
+            Some(CapsRole::Discourse)
         }
-        _ => fibonacci_direction(node.sibling_rank, node.sibling_count, node.stable_id),
+        VisualNodeKind::Unknown => None,
     }
 }
 
-fn child_direction(node: &CapsNode, parent: CapsNode, parent_direction: Vec3) -> Vec3 {
-    let center = parent_direction.normalize_or_zero();
-    let fallback = root_direction(&parent);
-    let center = if center.length_squared() > 0.5 {
-        center
+fn subtree_weights(nodes: &[CapsNode]) -> Result<Vec<u64>, NativeSceneCompilerError> {
+    let mut weights = vec![1_u64; nodes.len()];
+    for role in CapsRole::ALL.into_iter().rev() {
+        for (slot, node) in nodes.iter().enumerate() {
+            if node.role != role {
+                continue;
+            }
+            if let Some(parent) = node.parent_slot {
+                weights[parent as usize] =
+                    weights[parent as usize].checked_add(weights[slot]).ok_or(
+                        NativeSceneCompilerError::RangeOverflow("CAPS subtree weight"),
+                    )?;
+            }
+        }
+    }
+    Ok(weights)
+}
+
+fn allocate_group(
+    slots: &[usize],
+    parent: CapFrame,
+    nodes: &[CapsNode],
+    weights: &[u64],
+    frames: &mut [CapFrame],
+    root_group: bool,
+) {
+    if slots.is_empty() {
+        return;
+    }
+    let total = slots
+        .iter()
+        .map(|slot| weights[*slot] as f64)
+        .sum::<f64>()
+        .max(1.0);
+    let mut cumulative = 0.0_f64;
+    for (ordinal, slot) in slots.iter().copied().enumerate() {
+        let weight = weights[slot] as f64;
+        let share = (weight / total) as f32;
+        let aperture = child_aperture(
+            parent.aperture,
+            nodes[slot].role,
+            share,
+            slots.len(),
+            root_group,
+        );
+        let available = (parent.aperture - aperture - CAP_MARGIN).max(0.0);
+        let midpoint = ((cumulative + weight * 0.5) / total) as f32;
+        let ambiguity = f32::from(nodes[slot].membership_count.saturating_sub(1).min(8));
+        let radial = if slots.len() == 1 {
+            0.0
+        } else {
+            (midpoint.sqrt() * available * (0.92 + ambiguity * 0.008)).min(available)
+        };
+        let angle = ordinal as f32 * GOLDEN_ANGLE
+            + stable_signed(nodes[slot].stable_id, 31) * PI
+            + nodes[slot].sibling_rank as f32 * 0.013;
+        frames[slot] = CapFrame {
+            center: cap_direction(parent.center, radial, angle),
+            aperture,
+        };
+        cumulative += weight;
+    }
+}
+
+fn child_aperture(parent: f32, role: CapsRole, share: f32, count: usize, root_group: bool) -> f32 {
+    let role_limit = role_aperture_limit(role);
+    if count == 1 {
+        return (parent * if root_group { 0.92 } else { 0.58 }).min(role_limit);
+    }
+    let scale = if root_group { 0.74 } else { 0.68 };
+    let desired = parent * share.sqrt() * scale;
+    let maximum_factor = if root_group {
+        0.46 + share * 0.42
     } else {
-        fallback
+        0.30 + share * 0.34
     };
-    if parent.role <= CapsRole::Episode {
-        return root_cap_direction(node, parent, center);
-    }
-    let (tangent_u, tangent_v) = tangent_basis(center);
-    let ring = integer_ring(node.sibling_rank);
-    let ambiguity = f32::from(node.membership_count.saturating_sub(1).min(8)) * 0.012;
-    let aperture =
-        (MIN_CAP_APERTURE + ring as f32 * CAP_RING_STEP + ambiguity).min(MAX_CAP_APERTURE);
-    let stable_phase = signed_unit(parent.stable_id, 4) * PI;
-    let angle = node.sibling_rank as f32 * GOLDEN_ANGLE
-        + stable_phase
-        + signed_unit(node.stable_id, 8) * 0.08;
-    let tangent = tangent_u * angle.cos() + tangent_v * angle.sin();
-    (center * aperture.cos() + tangent * aperture.sin()).normalize()
+    let minimum = (parent * 0.018).clamp(0.004, 0.024);
+    desired
+        .clamp(minimum, parent * maximum_factor)
+        .min(role_limit)
 }
 
-fn root_cap_direction(node: &CapsNode, parent: CapsNode, center: Vec3) -> Vec3 {
-    // Document and episode descendants define the global CAPS chart. A
-    // fixed narrow child aperture turns every real document into one dense
-    // lobe regardless of node count, leaving the orthogonal Klein sections
-    // as decorative scenery. Grow the spherical cap toward the full chart as
-    // siblings accumulate, while retaining the parent axis and chronological
-    // rank as stable semantic coordinates.
-    let count = node.sibling_count.max(1) as f32;
-    let coverage = count / (count + ROOT_CAP_SATURATION);
-    let aperture =
-        ROOT_CAP_MIN_APERTURE + coverage * (ROOT_CAP_MAX_APERTURE - ROOT_CAP_MIN_APERTURE);
-    let ordinal = (node.sibling_rank as f32 + 0.5) / count;
-    let cos_theta = 1.0 - ordinal * (1.0 - aperture.cos());
-    let sin_theta = (1.0 - cos_theta * cos_theta).max(0.0).sqrt();
-    let (tangent_u, tangent_v) = tangent_basis(center);
-    let stable_phase = signed_unit(parent.stable_id, 4) * PI;
-    let angle = node.sibling_rank as f32 * GOLDEN_ANGLE
-        + stable_phase
-        + signed_unit(node.stable_id, 8) * 0.08;
-    let tangent = tangent_u * angle.cos() + tangent_v * angle.sin();
-    (center * cos_theta + tangent * sin_theta).normalize()
+const fn role_aperture_limit(role: CapsRole) -> f32 {
+    match role {
+        CapsRole::Document => 2.72,
+        CapsRole::Chapter => 0.72,
+        CapsRole::Paragraph => 0.46,
+        CapsRole::Sentence => 0.30,
+        CapsRole::Episode => 0.82,
+        CapsRole::Chunk => 0.50,
+        CapsRole::Evidence => 0.32,
+        CapsRole::Event => 0.30,
+        CapsRole::Fact => 0.28,
+        CapsRole::Discourse => 0.26,
+        CapsRole::Entity => 0.24,
+        CapsRole::Memory => 0.18,
+    }
+}
+
+fn cap_direction(center: Vec3, offset: f32, angle: f32) -> Vec3 {
+    if offset <= f32::EPSILON {
+        return center;
+    }
+    let (u, v) = tangent_basis(center);
+    let tangent = u * angle.cos() + v * angle.sin();
+    (center * offset.cos() + tangent * offset.sin()).normalize()
 }
 
 fn tangent_basis(direction: Vec3) -> (Vec3, Vec3) {
@@ -162,18 +380,48 @@ fn tangent_basis(direction: Vec3) -> (Vec3, Vec3) {
     (u, v)
 }
 
-fn fibonacci_direction(rank: u32, count: u32, stable_id: u64) -> Vec3 {
-    let count = count.max(1) as f32;
-    let y = 1.0 - 2.0 * (rank as f32 + 0.5) / count;
-    let radial = (1.0 - y * y).max(0.0).sqrt();
-    let phase = rank as f32 * GOLDEN_ANGLE + signed_unit(stable_id, 12) * 0.12;
-    Vec3::new(phase.cos() * radial, y, phase.sin() * radial).normalize()
+fn volumetric_depth(node: CapsNode) -> f32 {
+    let [near, far] = node.role.klein_depth_range();
+    let stable = stable_unit(node.stable_id, 41);
+    let membership = f32::from(node.membership_count.saturating_sub(1).min(8)) / 8.0;
+    let fill = (0.10 + stable * 0.78 + membership * 0.08).min(0.96);
+    let (semantic_band, semantic_band_count) = semantic_depth_band(node.semantic_kind, node.role);
+    let band_width = (far - near) / f32::from(semantic_band_count);
+    near + band_width * (f32::from(semantic_band) + fill)
+}
+
+const fn semantic_depth_band(kind: VisualNodeKind, role: CapsRole) -> (u8, u8) {
+    match role {
+        CapsRole::Fact => match kind {
+            VisualNodeKind::RelationshipFact => (0, 3),
+            VisualNodeKind::TemporalFact => (1, 3),
+            VisualNodeKind::CausalFact => (2, 3),
+            _ => (0, 1),
+        },
+        CapsRole::Discourse => match kind {
+            VisualNodeKind::IdentityDiscourse => (0, 2),
+            VisualNodeKind::ContextualDiscourse => (1, 2),
+            _ => (0, 1),
+        },
+        CapsRole::Entity => match kind {
+            VisualNodeKind::EntityCharacter => (0, 8),
+            VisualNodeKind::EntityLocation => (1, 8),
+            VisualNodeKind::EntityNetwork => (2, 8),
+            VisualNodeKind::EntityCreature => (3, 8),
+            VisualNodeKind::EntityNpc => (4, 8),
+            VisualNodeKind::EntityEvent => (5, 8),
+            VisualNodeKind::EntityConcept => (6, 8),
+            VisualNodeKind::EntityOther => (7, 8),
+            _ => (0, 1),
+        },
+        _ => (0, 1),
+    }
 }
 
 fn lorentz_to_klein(direction: Vec3, klein_radius: f32) -> Vec3 {
-    // Build the H3 point on the unit hyperboloid, then project it into the
-    // Klein ball. Keeping the construction explicit prevents a Euclidean
-    // shell shortcut from quietly replacing the geometry later.
+    // Construct a point on the H3 hyperboloid and project it into the Klein
+    // ball. Geodesics remain straight in this chart, which is CAPS' visual
+    // signature and deliberately differs from Hybrid's horospheres.
     let radius = klein_radius.clamp(0.0, CAPS_KLEIN_BOUND);
     let rho = radius.atanh();
     let time = rho.cosh();
@@ -181,29 +429,21 @@ fn lorentz_to_klein(direction: Vec3, klein_radius: f32) -> Vec3 {
     spatial / time
 }
 
-fn integer_ring(rank: u32) -> u32 {
-    // Ring capacities are 1, 6, 12, 18...; this loop is bounded by sibling
-    // rank and runs once at publication time, never in the renderer.
-    if rank == 0 {
-        return 0;
-    }
-    let mut ring = 1_u32;
-    let mut capacity = 1_u32;
-    while capacity.saturating_add(ring.saturating_mul(6)) <= rank {
-        capacity = capacity.saturating_add(ring.saturating_mul(6));
-        ring = ring.saturating_add(1);
-    }
-    ring
+fn stable_hash(stable_id: u64, lane: u64) -> u64 {
+    let mut value = stable_id ^ lane.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    value ^= value >> 30;
+    value = value.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    value ^= value >> 27;
+    value = value.wrapping_mul(0x94D0_49BB_1331_11EB);
+    value ^ (value >> 31)
 }
 
-fn signed_unit(stable_id: u64, lane: u8) -> f32 {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"phoenix.native.caps-layout/v1\0");
-    hasher.update(&stable_id.to_le_bytes());
-    hasher.update(&[lane]);
-    let mut raw = [0_u8; 4];
-    raw.copy_from_slice(&hasher.finalize().as_bytes()[..4]);
-    (u32::from_le_bytes(raw) as f64 / u32::MAX as f64 * 2.0 - 1.0) as f32
+fn stable_unit(stable_id: u64, lane: u64) -> f32 {
+    (stable_hash(stable_id, lane) >> 40) as f32 / ((1_u32 << 24) - 1) as f32
+}
+
+fn stable_signed(stable_id: u64, lane: u64) -> f32 {
+    stable_unit(stable_id, lane) * 2.0 - 1.0
 }
 
 #[cfg(test)]
@@ -217,9 +457,24 @@ mod tests {
         sibling_rank: u32,
         sibling_count: u32,
     ) -> CapsNode {
+        let semantic_kind = match role {
+            CapsRole::Document => VisualNodeKind::Document,
+            CapsRole::Chapter => VisualNodeKind::Chapter,
+            CapsRole::Paragraph => VisualNodeKind::Paragraph,
+            CapsRole::Sentence => VisualNodeKind::Sentence,
+            CapsRole::Episode => VisualNodeKind::Episode,
+            CapsRole::Chunk => VisualNodeKind::Chunk,
+            CapsRole::Evidence => VisualNodeKind::Evidence,
+            CapsRole::Event => VisualNodeKind::EventFact,
+            CapsRole::Fact => VisualNodeKind::RelationshipFact,
+            CapsRole::Discourse => VisualNodeKind::IdentityDiscourse,
+            CapsRole::Entity => VisualNodeKind::EntityOther,
+            CapsRole::Memory => VisualNodeKind::MemoryStateFact,
+        };
         CapsNode {
             stable_id,
             role,
+            semantic_kind,
             parent_slot,
             sibling_rank,
             sibling_count,
@@ -228,26 +483,21 @@ mod tests {
     }
 
     #[test]
-    fn lorentz_projection_respects_role_shells_and_parent_caps() {
+    fn layout_uses_role_volumes_and_nested_parent_caps() {
         let nodes = [
-            node(1, CapsRole::Episode, None, 0, 1),
-            node(2, CapsRole::Chunk, Some(0), 0, 2),
-            node(3, CapsRole::Chunk, Some(0), 1, 2),
-            node(4, CapsRole::Entity, Some(1), 0, 2),
-            node(5, CapsRole::Entity, Some(1), 1, 2),
+            node(1, CapsRole::Document, None, 0, 1),
+            node(2, CapsRole::Chapter, Some(0), 0, 1),
+            node(3, CapsRole::Paragraph, Some(1), 0, 2),
+            node(4, CapsRole::Paragraph, Some(1), 1, 2),
+            node(5, CapsRole::Sentence, Some(2), 0, 1),
         ];
-        let positions = layout(&nodes).unwrap_or_else(|error| panic!("{error}"));
-        let radii = positions
-            .iter()
-            .map(|position| Vec3::from_array(position.position).length())
-            .collect::<Vec<_>>();
-        assert!((radii[0] - CapsRole::Episode.world_radius()).abs() < 0.001);
-        assert!((radii[1] - CapsRole::Chunk.world_radius()).abs() < 0.001);
-        assert!((radii[3] - CapsRole::Entity.world_radius()).abs() < 0.001);
-        let chunk = Vec3::from_array(positions[1].position).normalize();
-        for entity in &positions[3..] {
-            assert!(chunk.dot(Vec3::from_array(entity.position).normalize()) > 0.93);
+        let result = layout_with_guides(&nodes).unwrap_or_else(|error| panic!("{error}"));
+        for (node, position) in nodes.iter().zip(&result.positions) {
+            let radius = Vec3::from_array(position.position).length() / CAPS_WORLD_SCALE;
+            let [near, far] = node.role.klein_depth_range();
+            assert!((near..=far).contains(&radius));
         }
+        assert_eq!(result.guides.len(), 3);
     }
 
     #[test]
@@ -265,6 +515,12 @@ mod tests {
             layout(&bad_order),
             Err(NativeSceneCompilerError::CapsParentRole { .. })
         ));
+        let mut bad_semantic = node(3, CapsRole::Fact, None, 0, 1);
+        bad_semantic.semantic_kind = VisualNodeKind::IdentityDiscourse;
+        assert!(matches!(
+            layout(&[bad_semantic]),
+            Err(NativeSceneCompilerError::CapsSemanticRole { .. })
+        ));
         let bad_sibling = [node(1, CapsRole::Episode, None, 1, 1)];
         assert!(matches!(
             layout(&bad_sibling),
@@ -273,41 +529,61 @@ mod tests {
     }
 
     #[test]
-    fn integer_rings_are_bounded_and_monotonic() {
-        let mut previous = 0;
-        for rank in 0..10_000 {
-            let ring = integer_ring(rank);
-            assert!(ring >= previous);
-            previous = ring;
-        }
-        assert!(previous < 64);
+    fn fact_and_discourse_subtypes_occupy_distinct_semantic_depths() {
+        let mut relationship = node(21, CapsRole::Fact, None, 0, 3);
+        relationship.semantic_kind = VisualNodeKind::RelationshipFact;
+        let mut temporal = node(22, CapsRole::Fact, None, 1, 3);
+        temporal.semantic_kind = VisualNodeKind::TemporalFact;
+        let mut causal = node(23, CapsRole::Fact, None, 2, 3);
+        causal.semantic_kind = VisualNodeKind::CausalFact;
+        let mut identity = node(31, CapsRole::Discourse, None, 0, 2);
+        identity.semantic_kind = VisualNodeKind::IdentityDiscourse;
+        let mut contextual = node(32, CapsRole::Discourse, None, 1, 2);
+        contextual.semantic_kind = VisualNodeKind::ContextualDiscourse;
+        let result = layout(&[relationship, temporal, causal, identity, contextual])
+            .unwrap_or_else(|error| panic!("semantic CAPS: {error}"));
+        let radii = result
+            .iter()
+            .map(|position| Vec3::from_array(position.position).length())
+            .collect::<Vec<_>>();
+        assert!(radii[0] < radii[1] && radii[1] < radii[2]);
+        assert!(radii[3] < radii[4]);
     }
 
     #[test]
-    fn projection_is_bitwise_deterministic() {
-        let nodes = [
-            node(7, CapsRole::Episode, None, 0, 1),
-            node(8, CapsRole::Chunk, Some(0), 0, 1),
-            node(9, CapsRole::Entity, Some(1), 0, 1),
-        ];
-        assert_eq!(
-            layout(&nodes).unwrap_or_else(|error| panic!("{error}")),
-            layout(&nodes).unwrap_or_else(|error| panic!("{error}"))
-        );
-    }
-
-    #[test]
-    fn episode_children_occupy_the_global_caps_chart() {
-        const CHUNKS: u32 = 128;
-        let mut nodes = Vec::with_capacity(CHUNKS as usize + 1);
-        nodes.push(node(1, CapsRole::Episode, None, 0, 1));
-        for rank in 0..CHUNKS {
+    fn one_role_occupies_radial_volume_instead_of_a_shell() {
+        let mut nodes = Vec::with_capacity(129);
+        nodes.push(node(1, CapsRole::Document, None, 0, 1));
+        for rank in 0..128 {
             nodes.push(node(
                 10 + u64::from(rank),
-                CapsRole::Chunk,
+                CapsRole::Chapter,
                 Some(0),
                 rank,
-                CHUNKS,
+                128,
+            ));
+        }
+        let positions = layout(&nodes).unwrap_or_else(|error| panic!("{error}"));
+        let mut radii = positions[1..]
+            .iter()
+            .map(|position| Vec3::from_array(position.position).length())
+            .collect::<Vec<_>>();
+        radii.sort_unstable_by(f32::total_cmp);
+        assert!(radii.last().unwrap() - radii.first().unwrap() > 1.5);
+    }
+
+    #[test]
+    fn document_chart_uses_positive_and_negative_axes() {
+        const CHILDREN: u32 = 256;
+        let mut nodes = Vec::with_capacity(CHILDREN as usize + 1);
+        nodes.push(node(1, CapsRole::Document, None, 0, 1));
+        for rank in 0..CHILDREN {
+            nodes.push(node(
+                10 + u64::from(rank),
+                CapsRole::Chapter,
+                Some(0),
+                rank,
+                CHILDREN,
             ));
         }
         let positions = layout(&nodes).unwrap_or_else(|error| panic!("{error}"));
@@ -315,59 +591,78 @@ mod tests {
             .iter()
             .map(|position| Vec3::from_array(position.position).normalize())
             .collect::<Vec<_>>();
-        let centroid = directions.iter().copied().sum::<Vec3>() / CHUNKS as f32;
-        assert!(
-            centroid.length() < 0.14,
-            "global chart collapsed into a lobe: {centroid:?}"
-        );
         for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
             let (minimum, maximum) = directions.iter().map(|direction| direction.dot(axis)).fold(
                 (f32::INFINITY, f32::NEG_INFINITY),
                 |(minimum, maximum), value| (minimum.min(value), maximum.max(value)),
             );
-            assert!(minimum < -0.70, "negative axis coverage {minimum}");
-            assert!(maximum > 0.70, "positive axis coverage {maximum}");
+            assert!(minimum < -0.55, "negative axis coverage {minimum}");
+            assert!(maximum > 0.55, "positive axis coverage {maximum}");
         }
     }
 
     #[test]
-    fn local_descendants_remain_inside_their_parent_cap() {
+    fn child_cap_descriptors_remain_inside_their_parent() {
         let nodes = [
-            node(1, CapsRole::Episode, None, 0, 1),
-            node(2, CapsRole::Chunk, Some(0), 0, 1),
-            node(3, CapsRole::Entity, Some(1), 0, 3),
-            node(4, CapsRole::Entity, Some(1), 1, 3),
-            node(5, CapsRole::Entity, Some(1), 2, 3),
+            node(1, CapsRole::Document, None, 0, 1),
+            node(2, CapsRole::Chapter, Some(0), 0, 2),
+            node(3, CapsRole::Chapter, Some(0), 1, 2),
+            node(4, CapsRole::Paragraph, Some(1), 0, 2),
+            node(5, CapsRole::Paragraph, Some(1), 1, 2),
         ];
-        let positions = layout(&nodes).unwrap_or_else(|error| panic!("{error}"));
-        let chunk = Vec3::from_array(positions[1].position).normalize();
-        for entity in &positions[2..] {
-            assert!(chunk.dot(Vec3::from_array(entity.position).normalize()) > 0.95);
+        validate(&nodes).unwrap();
+        let children = ChildIndex::build(&nodes);
+        let weights = subtree_weights(&nodes).unwrap();
+        let mut frames = vec![CapFrame::default(); nodes.len()];
+        allocate_group(
+            &[0],
+            CapFrame {
+                center: Vec3::Z,
+                aperture: SUPER_ROOT_APERTURE,
+            },
+            &nodes,
+            &weights,
+            &mut frames,
+            true,
+        );
+        for parent in 0..nodes.len() {
+            let slots = children.children(parent);
+            if !slots.is_empty() {
+                allocate_group(slots, frames[parent], &nodes, &weights, &mut frames, false);
+                for child in slots {
+                    let angle = frames[parent]
+                        .center
+                        .dot(frames[*child].center)
+                        .clamp(-1.0, 1.0)
+                        .acos();
+                    assert!(angle + frames[*child].aperture <= frames[parent].aperture + 1.0e-4);
+                }
+            }
         }
     }
 
     #[test]
     fn node_slot_permutation_cannot_change_stable_caps_geometry() {
         let canonical = [
-            node(7, CapsRole::Episode, None, 0, 1),
-            node(8, CapsRole::Chunk, Some(0), 0, 1),
-            node(9, CapsRole::Entity, Some(1), 0, 2),
-            node(10, CapsRole::Entity, Some(1), 1, 2),
+            node(7, CapsRole::Document, None, 0, 1),
+            node(8, CapsRole::Chapter, Some(0), 0, 1),
+            node(9, CapsRole::Paragraph, Some(1), 0, 2),
+            node(10, CapsRole::Paragraph, Some(1), 1, 2),
         ];
         let permuted = [
-            node(10, CapsRole::Entity, Some(3), 1, 2),
-            node(7, CapsRole::Episode, None, 0, 1),
-            node(9, CapsRole::Entity, Some(3), 0, 2),
-            node(8, CapsRole::Chunk, Some(1), 0, 1),
+            node(10, CapsRole::Paragraph, Some(3), 1, 2),
+            node(7, CapsRole::Document, None, 0, 1),
+            node(9, CapsRole::Paragraph, Some(3), 0, 2),
+            node(8, CapsRole::Chapter, Some(1), 0, 1),
         ];
         let mut expected = canonical
             .iter()
-            .zip(layout(&canonical).unwrap_or_else(|error| panic!("{error}")))
+            .zip(layout(&canonical).unwrap())
             .map(|(node, position)| (node.stable_id, position))
             .collect::<Vec<_>>();
         let mut actual = permuted
             .iter()
-            .zip(layout(&permuted).unwrap_or_else(|error| panic!("{error}")))
+            .zip(layout(&permuted).unwrap())
             .map(|(node, position)| (node.stable_id, position))
             .collect::<Vec<_>>();
         expected.sort_unstable_by_key(|(stable_id, _)| *stable_id);

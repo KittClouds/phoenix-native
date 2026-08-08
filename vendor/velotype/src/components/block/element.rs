@@ -143,7 +143,7 @@ fn build_text_runs(
             run_color = match semantic.mode {
                 SemanticHighlightMode::Off => run_color,
                 SemanticHighlightMode::Subtle => semantic_gradient_color(span, start),
-                SemanticHighlightMode::Vivid => rgba_to_hsla(span.primary),
+                SemanticHighlightMode::Vivid => semantic_tag_foreground(span.primary, run_color),
             };
         }
         let underline = (inline_style.underline || is_marked || is_link || is_footnote).then_some(
@@ -212,6 +212,40 @@ fn semantic_gradient_color(span: &SemanticHighlight, offset: usize) -> Hsla {
             span.primary[channel] + (span.secondary[channel] - span.primary[channel]) * progress;
     }
     rgba_to_hsla(color)
+}
+
+/// Mirrors the role separation used by GPUI Component color tags: the raw
+/// semantic hue chooses the family, while foreground, surface, and border get
+/// independent contrast levels. This keeps prose readable in both dark and
+/// light editor themes instead of painting glyphs with the saturated source.
+fn semantic_tag_foreground(primary: [f32; 4], base_text: Hsla) -> Hsla {
+    let dark_theme = base_text.l >= 0.5;
+    semantic_tag_tone(primary, if dark_theme { 0.74 } else { 0.38 }, 1.0, 0.82)
+}
+
+fn semantic_tag_surfaces(primary: [f32; 4], editor_background: Hsla) -> (Hsla, Hsla) {
+    let dark_theme = editor_background.l < 0.5;
+    if dark_theme {
+        (
+            semantic_tag_tone(primary, 0.30, 0.48, 0.68),
+            semantic_tag_tone(primary, 0.11, 0.74, 0.52),
+        )
+    } else {
+        (
+            semantic_tag_tone(primary, 0.82, 0.72, 0.58),
+            semantic_tag_tone(primary, 0.96, 0.92, 0.34),
+        )
+    }
+}
+
+fn semantic_tag_tone(primary: [f32; 4], lightness: f32, alpha: f32, saturation_scale: f32) -> Hsla {
+    let mut color = rgba_to_hsla(primary);
+    if color.s > 0.08 {
+        color.s = (color.s * saturation_scale).clamp(0.28, 0.84);
+    }
+    color.l = lightness;
+    color.a = alpha;
+    color
 }
 
 fn rgba_to_hsla(color: [f32; 4]) -> Hsla {
@@ -1214,10 +1248,8 @@ impl Element for BlockTextElement {
             let pad_y = px(1.0);
             let radius = px(4.0);
             for span in &input.semantic_highlights().spans {
-                let mut border_color = rgba_to_hsla(span.primary);
-                border_color.a = 0.62;
-                let mut background_color = rgba_to_hsla(span.primary);
-                background_color.a = 0.20;
+                let (border_color, background_color) =
+                    semantic_tag_surfaces(span.primary, theme.colors.editor_background);
                 for segment in range_segment_bounds(
                     &lines,
                     text_bounds,
@@ -1376,8 +1408,9 @@ impl Element for BlockTextElement {
 #[cfg(test)]
 mod tests {
     use super::{
-        link_at_position, push_semantic_boundaries, source_line_number_gutter_width,
-        source_line_number_tops, source_text_bounds, wrapped_line_height,
+        link_at_position, push_semantic_boundaries, semantic_tag_foreground, semantic_tag_surfaces,
+        source_line_number_gutter_width, source_line_number_tops, source_text_bounds,
+        wrapped_line_height,
     };
     use crate::components::{
         Block, BlockKind, BlockRecord, InlineTextTree, SemanticHighlight, TableCellPosition,
@@ -1430,6 +1463,25 @@ mod tests {
                 .into_iter()
                 .all(|boundary| text.is_char_boundary(boundary))
         );
+    }
+
+    #[test]
+    fn vivid_tag_palette_separates_text_surface_and_border_roles() {
+        let primary = [0.0, 0.78, 0.48, 1.0];
+        let dark_editor = Hsla::from(rgba(0x171918ff));
+        let light_editor = Hsla::from(rgba(0xf7f8fbff));
+
+        let dark_foreground = semantic_tag_foreground(primary, Hsla::from(rgba(0xe8ebeaff)));
+        let (dark_border, dark_surface) = semantic_tag_surfaces(primary, dark_editor);
+        assert!(dark_foreground.l > dark_border.l);
+        assert!(dark_border.l > dark_surface.l);
+        assert!(dark_surface.a > dark_border.a);
+
+        let light_foreground = semantic_tag_foreground(primary, Hsla::from(rgba(0x202423ff)));
+        let (light_border, light_surface) = semantic_tag_surfaces(primary, light_editor);
+        assert!(light_foreground.l < light_border.l);
+        assert!(light_border.l < light_surface.l);
+        assert!(light_surface.a > light_border.a);
     }
 
     #[test]

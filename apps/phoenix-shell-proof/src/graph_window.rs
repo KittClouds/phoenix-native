@@ -10,7 +10,7 @@ use graph_model::{GraphRevision, NodeId};
 use graph_render_wgpu::{GraphEvent, GraphInput, GraphRenderer, PhysicalPointer, PointerButton};
 use phoenix_app_core::{GraphSelectionCommand, GraphSelectionOrigin, KernelCommand, PhoenixKernel};
 use phoenix_scene_archive::{PageKey, PageKind};
-use phoenix_scene_contract::{GraphGeneration, GraphViewState, Manifold};
+use phoenix_scene_contract::{GraphGeneration, GraphViewState, HighlightPalette, Manifold};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -252,6 +252,7 @@ struct EmbeddedGraphApp {
     loaded_graph_view: GraphViewState,
     loaded_selection_revision: u64,
     loaded_review_overlay_revision: u64,
+    loaded_palette: Option<HighlightPalette>,
     pending_switch: Option<PendingManifoldSwitch>,
     switch_cpu_samples: FixedSamples,
     switch_present_samples: FixedSamples,
@@ -292,6 +293,7 @@ impl EmbeddedGraphApp {
             loaded_graph_view: GraphViewState::default(),
             loaded_selection_revision: 0,
             loaded_review_overlay_revision: 0,
+            loaded_palette: None,
             pending_switch: None,
             switch_cpu_samples: FixedSamples::new(),
             switch_present_samples: FixedSamples::new(),
@@ -383,6 +385,10 @@ impl EmbeddedGraphApp {
             renderer
                 .apply_review_overrides(index, &kernel_snapshot.graph_review_overlay.entries)
                 .context("install initial decision-ledger review overlay")?;
+            renderer
+                .set_graph_palette(index, kernel_snapshot.highlight_palette.graph)
+                .context("install initial authoritative graph palette")?;
+            self.loaded_palette = Some(*kernel_snapshot.highlight_palette);
         }
         renderer
             .set_graph_view(kernel_snapshot.graph_view)
@@ -537,6 +543,10 @@ impl EmbeddedGraphApp {
             renderer
                 .apply_review_overrides(index, &kernel_snapshot.graph_review_overlay.entries)
                 .context("restore review overlay after renderer recovery")?;
+            renderer
+                .set_graph_palette(index, kernel_snapshot.highlight_palette.graph)
+                .context("restore authoritative graph palette")?;
+            self.loaded_palette = Some(*kernel_snapshot.highlight_palette);
         }
         renderer
             .set_graph_view(kernel_snapshot.graph_view)
@@ -765,7 +775,7 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
         }
         self.process_commands(event_loop);
         if let Err(error) = self.sync_resident_scene() {
-            tracing::error!(%error, "resident scene synchronization failed");
+            tracing::error!(error = %format_args!("{error:#}"), "resident scene synchronization failed");
             lifecycle::mark_proof_failed();
             event_loop.exit();
             return;
@@ -933,7 +943,7 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
             return;
         }
         if let Err(error) = self.sync_resident_scene() {
-            tracing::error!(%error, "resident scene synchronization failed");
+            tracing::error!(error = %format_args!("{error:#}"), "resident scene synchronization failed");
             lifecycle::mark_proof_failed();
             event_loop.exit();
             return;

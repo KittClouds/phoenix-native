@@ -1,0 +1,52 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase7-linear-readiness-lock/v1",
+  "audited_at": "2026-08-04",
+  "disposition": "implementation_verified_but_phase_6_prerequisite_unavailable",
+  "implementation": {
+    "model_version": 3,
+    "feature_count": 30,
+    "baseline_score_feature_present": false,
+    "candidate_strength_feature_present": false,
+    "normalization": "frozen_identity_over_rank_evidence_v3",
+    "initialization": "all_zero",
+    "objective": "deterministic_pairwise_logistic_with_l2",
+    "constraint": "non_negative_projection_after_each_update",
+    "training_order": "query_positive_negative_judgment_identity",
+    "runtime_training": "forbidden_offline_only",
+    "serving_kernel": "thirty_normalize_multiply_add_operations",
+    "artifact_contract": "phoenix.qps.linear-model-artifact/v3"
+  },
+  "artifact_fields": [
+    "feature_schema_identity",
+    "training_ledger_identity",
+    "model_identity",
+    "model_parameters",
+    "normalization_parameters",
+    "training_receipt",
+    "qualification_receipt",
+    "required_qps_engine_version",
+    "rollback_model_identity"
+  ],
+  "verification": {
+    "phoenix_lexical_qps_tests_passed": 29,
+    "phoenix_memory_lock_tests_passed": 28,
+    "deterministic_training_fixture": true,
+    "fixture_training_judgments": 12,
+    "fixture_correctly_ordered": 12,
+    "fixture_loss_improved": true,
+    "monotonic_scorer_test": true,
+    "invalid_negative_weight_rejected": true,
+    "strict_clippy_passed": true,
+    "v3_serving_candidate_parity_test": true,
+    "v2_score_cannot_change_v3_order_test": true,
+    "stable_external_identity_tie_test": true,
+    "phase_7_artifact_written": false,
+    "reason": "a verified Phase 6 split cannot exist until Phase 5 has eligible evidence"
+  },
+  "producer_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 2438144,
+    "sha256": "260785b1f90643ad782a71bacc14c074e7fa372483424a366a72263a9812df71"
+  },
+  "phase_7_verified": false
+}

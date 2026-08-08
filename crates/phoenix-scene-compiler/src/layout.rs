@@ -1,6 +1,13 @@
 mod caps;
+mod hopf;
+mod hybrid;
 
-pub use caps::{layout as compile_caps_positions, CapsNode};
+pub use caps::{
+    layout as compile_caps_positions, layout_with_guides as compile_caps_layout, CapsGuide,
+    CapsLayout, CapsNode,
+};
+pub use hopf::{layout as compile_hopf_positions, HopfNode};
+pub use hybrid::{layout as compile_hybrid_positions, HybridNode};
 use phoenix_scene_archive::PositionRecord;
 
 /// Projects one stable node into every non-authoritative manifold lane.
@@ -14,7 +21,7 @@ pub fn project_node_positions(
     count: usize,
     family_slot: u16,
     degree: u32,
-) -> [PositionRecord; 5] {
+) -> [PositionRecord; 6] {
     positions(stable_id, ordinal, count, family_slot, degree)
 }
 
@@ -24,30 +31,24 @@ pub(crate) fn positions(
     count: usize,
     family_slot: u16,
     degree: u32,
-) -> [PositionRecord; 5] {
+) -> [PositionRecord; 6] {
     let digest = stable_digest(stable_id);
     let jitter = |offset: usize| unit(&digest[offset..offset + 4]);
     let count = count.max(1) as f32;
     let ordinal = ordinal as f32;
     let phase = std::f32::consts::TAU * (ordinal / count);
-    let elevation = ((ordinal + 0.5) / count * 2.0 - 1.0).clamp(-1.0, 1.0);
-    let radial = (1.0 - elevation * elevation).sqrt();
-    let degree_scale = 18.0 + (degree as f32 + 1.0).ln() * 3.0;
+    // Hybrid is a batch containment layout. The compiler overwrites this
+    // reserved slot after every explicit parent relationship is known.
+    let hybrid = [0.0, 0.0, 0.0];
 
-    let hybrid = [
-        phase.cos() * radial * degree_scale + jitter(0) * 1.5,
-        elevation * degree_scale + jitter(4) * 1.5,
-        phase.sin() * radial * degree_scale + jitter(8) * 1.5,
-    ];
-
-    let hopf_minor = 5.0 + family_slot as f32 * 0.35;
-    let hopf_major = 15.0 + (degree as f32 + 1.0).ln();
-    let hopf_theta = phase + jitter(0) * 0.25;
-    let hopf_phi = phase * 2.0 + jitter(4) * std::f32::consts::PI;
-    let hopf = [
-        (hopf_major + hopf_minor * hopf_phi.cos()) * hopf_theta.cos(),
-        hopf_minor * hopf_phi.sin(),
-        (hopf_major + hopf_minor * hopf_phi.cos()) * hopf_theta.sin(),
+    let torus_minor = 5.0 + family_slot as f32 * 0.35;
+    let torus_major = 15.0 + (degree as f32 + 1.0).ln();
+    let torus_theta = phase + jitter(0) * 0.25;
+    let torus_phi = phase * 2.0 + jitter(4) * std::f32::consts::PI;
+    let torus = [
+        (torus_major + torus_minor * torus_phi.cos()) * torus_theta.cos(),
+        torus_minor * torus_phi.sin(),
+        (torus_major + torus_minor * torus_phi.cos()) * torus_theta.sin(),
     ];
 
     // CAPS is a batch hierarchy layout. The compiler overwrites this reserved
@@ -68,7 +69,11 @@ pub(crate) fn positions(
         (degree as f32 + 1.0).ln() * 2.0 + jitter(8),
     ];
 
-    [hybrid, hopf, caps, transit, siegel].map(|position| PositionRecord { position })
+    // Hopf is a hierarchy batch layout. The compiler overwrites this reserved
+    // slot after authoritative parents and sibling ranks are complete.
+    let hopf = [0.0; 3];
+
+    [hybrid, torus, caps, transit, siegel, hopf].map(|position| PositionRecord { position })
 }
 
 fn stable_digest(stable_id: u64) -> [u8; 32] {

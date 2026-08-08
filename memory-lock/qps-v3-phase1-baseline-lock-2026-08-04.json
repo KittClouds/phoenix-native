@@ -1,0 +1,58 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase1-baseline-lock/v1",
+  "frozen_at": "2026-08-04",
+  "disposition": "phase_1_verified",
+  "architecture": "learned_v3_final_order_over_frozen_v2_retrieval_substrate",
+  "full_receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase1-baseline-e5a659d.json",
+    "bytes": 20483767,
+    "sha256": "a3d9328cb489624ac3305f9d1c710dc1827933d3c6ef5b44cf41ff2e8a23669a"
+  },
+  "v2_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 1548288,
+    "sha256": "71318a00cc547a0ec6200dc4bb9a26dfb85f20e50da3b19f2643bae84babc25d"
+  },
+  "v2_configuration_sha256": "78ab20fef9d55d37d6dec18387d19c189211cc72ee05c82940c80debe0c23574",
+  "frozen_inputs": {
+    "manifest_sha256": "67ce52d73280aa75bc5ac8c1aac37a3a0aed5e23f59ce03747071475c6f399dc",
+    "mixed_suite_sha256": "17400c9d9f3cc93ee5db225caf25a13ce62bf62cfe09f53c89133f56fbfbd4e9",
+    "source_corpus_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+    "workload_sha256": "8935a6aa862237dea65d777aa9c964caf9add88b6a5084660b62bf426451b46e",
+    "gold_sha256": "e5778ddfcf565c68c2fab67ccd50cbaf589c62270807da3e2d1bea4aa65f4375"
+  },
+  "mixed_suite": {
+    "queries": 32,
+    "recorded_candidates": 51,
+    "maximum_candidate_pool": 4,
+    "hit_at_10": 1.0,
+    "mrr": 1.0,
+    "top_1_accuracy": 1.0,
+    "no_result_accuracy": 1.0,
+    "p99_nanos": 1700
+  },
+  "longmemeval_release": {
+    "queries": 500,
+    "recorded_candidates": 22847,
+    "maximum_candidate_pool": 60,
+    "hit_at_10": 0.98,
+    "mrr": 0.8910047619047616,
+    "top_1_accuracy": 0.842,
+    "p99_nanos": 707300
+  },
+  "gates": {
+    "artifact_hashes_match_frozen_inputs": true,
+    "v2_ranker_disabled": true,
+    "candidate_cap_is_160": true,
+    "every_frozen_query_recorded": true,
+    "every_reranked_candidate_recorded": true,
+    "all_evidence_finite": true,
+    "zero_warm_allocation_growth": true,
+    "deterministic_ranking_failures_are_zero": true,
+    "mixed_hit_at_10_is_1": true,
+    "mixed_mrr_is_1": true,
+    "longmemeval_hit_at_10_is_098": true,
+    "longmemeval_mrr_is_0891005": true
+  },
+  "phase_1_verified": true
+}

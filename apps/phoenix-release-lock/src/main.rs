@@ -110,8 +110,8 @@ fn run() -> Result<ReleaseReceipt> {
     });
     gate(
         &mut gates,
-        "NATIVE_FIVE_MANIFOLD_INVENTORY",
-        native_inventory_stable && native_manifolds.len() == 5,
+        "NATIVE_SIX_MANIFOLD_INVENTORY",
+        native_inventory_stable && native_manifolds.len() == 6,
         native_inventory_detail(&native_manifolds),
     );
 
@@ -350,10 +350,27 @@ fn compare_position_pages(
     gates: &mut Vec<GateReceipt>,
 ) {
     for actual in native {
+        if actual.name == "hopf" {
+            gate(
+                gates,
+                position_gate_id(&actual.name),
+                !actual.positions_hash.is_empty(),
+                format!(
+                    "native clean-room Hopf page={}; Angular has no qualifying reference",
+                    actual.positions_hash
+                ),
+            );
+            continue;
+        }
+        let reference_name = if actual.name == "torus" {
+            "hopf"
+        } else {
+            actual.name.as_str()
+        };
         let expected = frozen
             .manifolds
             .iter()
-            .find(|manifold| manifold.name == actual.name);
+            .find(|manifold| manifold.name == reference_name);
         let expected_hash =
             expected.and_then(|manifold| page_hash(manifold, "manifold/positions-3d"));
         compare_hash_gate(
@@ -464,6 +481,7 @@ fn document_receipt(document: model::FrozenDocument) -> DocumentReceipt {
 fn manifold_name(manifold: ArchiveManifold) -> &'static str {
     match manifold {
         ArchiveManifold::Hybrid => "hybrid",
+        ArchiveManifold::Torus => "torus",
         ArchiveManifold::Hopf => "hopf",
         ArchiveManifold::Caps => "caps",
         ArchiveManifold::Transit => "transit",
@@ -474,6 +492,7 @@ fn manifold_name(manifold: ArchiveManifold) -> &'static str {
 fn position_gate_id(name: &str) -> &'static str {
     match name {
         "hybrid" => "POSITION_PAGE_HYBRID",
+        "torus" => "POSITION_PAGE_TORUS",
         "hopf" => "POSITION_PAGE_HOPF",
         "caps" => "POSITION_PAGE_CAPS",
         "transit" => "POSITION_PAGE_TRANSIT",

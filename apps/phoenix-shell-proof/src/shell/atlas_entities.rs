@@ -3,14 +3,15 @@ use super::graph_controls::surface_segment;
 use super::style_hub::GraphSidebarPanel;
 use super::{PhoenixShell, BORDER, TEXT, TEXT_MUTED};
 use gpui::{
-    div, linear_color_stop, linear_gradient, prelude::*, px, rgb, uniform_list, Context,
+    div, linear_color_stop, linear_gradient, prelude::*, px, rgb, uniform_list, Context, Entity,
     IntoElement, SharedString,
 };
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::{Sizable, StyledExt};
 use phoenix_app_core::{AtlasEntity, AtlasRegistry, GraphSelectionCommand, KernelCommand};
-use phoenix_scene_contract::{EntityKind, GraphViewState, HighlightPalette};
+use phoenix_scene_contract::{EntityKind, GraphColorKey, GraphViewState, HighlightPalette};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -38,9 +39,11 @@ impl PhoenixShell {
         let panel = self.graph_sidebar_panel;
         let shell = div()
             .size_full()
+            .min_w_0()
             .min_h_0()
             .flex()
             .flex_col()
+            .overflow_hidden()
             .border_r_1()
             .border_color(rgb(BORDER))
             .bg(linear_gradient(
@@ -75,6 +78,7 @@ impl PhoenixShell {
             .and_then(|snapshot| snapshot.graph_selection.entity_id);
         let kernel = Arc::clone(&self.kernel);
         let graph = Rc::clone(&self.graph);
+        let shell_entity = cx.entity();
         let list = uniform_list(
             "canonical-atlas-entities",
             visible.len(),
@@ -88,6 +92,7 @@ impl PhoenixShell {
                             selected_entity == Some(entity.stable_id),
                             Arc::clone(&kernel),
                             Rc::clone(&graph),
+                            shell_entity.clone(),
                         )
                     })
                     .collect::<Vec<_>>()
@@ -100,9 +105,26 @@ impl PhoenixShell {
                 div()
                     .px_2()
                     .pt_2()
-                    .child(Input::new(&self.atlas_search).small()),
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .child(Input::new(&self.atlas_search).small()),
+                    )
+                    .child(
+                        Button::new("registry-add-entity")
+                            .label("+ ADD")
+                            .small()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_registry_create(window, cx);
+                            })),
+                    ),
             )
-            .child(kind_summary(&atlas, palette))
+            .child(kind_summary(self, &atlas))
             .child(
                 div()
                     .mt_1()
@@ -258,7 +280,7 @@ fn authority_stat(label: &'static str, value: String) -> impl IntoElement {
         .child(div().text_color(rgb(0xb5c2be)).child(value))
 }
 
-fn kind_summary(atlas: &AtlasRegistry, palette: HighlightPalette) -> impl IntoElement {
+fn kind_summary(shell: &PhoenixShell, atlas: &AtlasRegistry) -> impl IntoElement {
     let mut rows = div().mt_2().px_2().grid().grid_cols(3).gap_1();
     for kind in EntityKind::TOOLBAR {
         let count = atlas
@@ -269,6 +291,7 @@ fn kind_summary(atlas: &AtlasRegistry, palette: HighlightPalette) -> impl IntoEl
         if count == 0 {
             continue;
         }
+        let color_key = entity_color_key(kind);
         rows = rows.child(
             div()
                 .h(px(KIND_TILE_HEIGHT))
@@ -280,13 +303,7 @@ fn kind_summary(atlas: &AtlasRegistry, palette: HighlightPalette) -> impl IntoEl
                 .border_1()
                 .border_color(rgb(0x24302c))
                 .bg(rgb(0x121816))
-                .child(
-                    div()
-                        .w(px(6.))
-                        .h(px(6.))
-                        .rounded_full()
-                        .bg(rgb(family_color(kind, palette))),
-                )
+                .child(shell.graph_color_picker(color_key))
                 .child(
                     div()
                         .min_w_0()
@@ -313,6 +330,7 @@ fn atlas_entity_row(
     selected: bool,
     kernel: Arc<phoenix_app_core::PhoenixKernel>,
     graph: Rc<RefCell<Option<crate::graph_window::GraphWindow>>>,
+    shell: Entity<PhoenixShell>,
 ) -> impl IntoElement {
     let stable_id = entity.stable_id;
     let label = Arc::clone(&entity.label);
@@ -324,7 +342,7 @@ fn atlas_entity_row(
     let marker_color = if selected {
         ACCENT
     } else {
-        family_color(entity.kind, palette)
+        super::palette_controls::rgba_u32(palette.graph.color(entity_color_key(entity.kind)))
     };
     div()
         .id(SharedString::from(format!("atlas-entity-{stable_id}")))
@@ -405,6 +423,23 @@ fn atlas_entity_row(
                 .text_color(rgb(TEXT_MUTED))
                 .child(format!("{}x", entity.mention_count)),
         )
+        .child(
+            div()
+                .id(("registry-edit", stable_id as usize))
+                .px_1()
+                .py(px(2.))
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0x29463e))
+                .text_xs()
+                .text_color(rgb(ACCENT))
+                .child("EDIT")
+                .on_click(move |_, window, cx| {
+                    shell.update(cx, |this, cx| {
+                        this.open_registry_edit(stable_id, window, cx);
+                    });
+                }),
+        )
 }
 
 fn source_chip(label: &'static str, background: u32, foreground: u32) -> impl IntoElement {
@@ -430,11 +465,18 @@ fn compact_kind_label(kind: EntityKind) -> &'static str {
     }
 }
 
-fn family_color(kind: EntityKind, palette: HighlightPalette) -> u32 {
-    let [red, green, blue, _] = palette.for_family(kind.family()).primary;
-    ((red * 255.).round() as u32) << 16
-        | ((green * 255.).round() as u32) << 8
-        | (blue * 255.).round() as u32
+pub(super) const fn entity_color_key(kind: EntityKind) -> GraphColorKey {
+    match kind {
+        EntityKind::Character => GraphColorKey::Characters,
+        EntityKind::Location => GraphColorKey::Locations,
+        EntityKind::Npc => GraphColorKey::Npcs,
+        EntityKind::Faction => GraphColorKey::Factions,
+        EntityKind::Event => GraphColorKey::Events,
+        EntityKind::Concept => GraphColorKey::Concepts,
+        EntityKind::Network => GraphColorKey::Networks,
+        EntityKind::Creature => GraphColorKey::Creatures,
+        EntityKind::Custom => GraphColorKey::OtherEntities,
+    }
 }
 
 fn entity_matches(entity: &AtlasEntity, query: &str) -> bool {

@@ -4,7 +4,9 @@ use crate::RenderError;
 use bytemuck::{Pod, Zeroable};
 use phoenix_scene_archive::{GuidePageView, PathPageView, PositionRecord};
 use phoenix_scene_contract::{
-    GUIDE_FLAG_CAP_BOUNDARY, GUIDE_FLAG_CONCENTRATION_AXIS, GUIDE_FLAG_SHELL,
+    validate_topology_projection, GUIDE_FLAG_CAP_BOUNDARY, GUIDE_FLAG_CONCENTRATION_AXIS,
+    GUIDE_FLAG_HOPF_BASE_LINK, GUIDE_FLAG_HOPF_BASE_SPHERE, GUIDE_FLAG_HOPF_FIBER,
+    GUIDE_FLAG_SHELL,
 };
 use std::mem::size_of;
 
@@ -152,13 +154,8 @@ impl PreparedPathLayer {
         }
         self.guide_segments = self.segments.len();
         if let Some(paths) = paths {
+            validate_topology_projection(paths, edge_count)?;
             for path in paths.paths {
-                if path.edge_slot as usize >= edge_count {
-                    return Err(RenderError::PreparedGeometryEdgeSlot {
-                        slot: path.edge_slot,
-                        edge_count,
-                    });
-                }
                 let points = page_points(
                     paths.points,
                     path.first_point,
@@ -307,6 +304,9 @@ const fn guide_width(flags: u32) -> f32 {
         GUIDE_FLAG_SHELL => 0.64,
         GUIDE_FLAG_CAP_BOUNDARY => 0.78,
         GUIDE_FLAG_CONCENTRATION_AXIS => 0.92,
+        GUIDE_FLAG_HOPF_FIBER => 0.82,
+        GUIDE_FLAG_HOPF_BASE_SPHERE => 0.52,
+        GUIDE_FLAG_HOPF_BASE_LINK => 0.44,
         _ => 0.70,
     }
 }

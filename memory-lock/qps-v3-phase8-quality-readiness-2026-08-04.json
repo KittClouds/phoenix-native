@@ -1,0 +1,46 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase8-quality-readiness-lock/v1",
+  "audited_at": "2026-08-04",
+  "disposition": "quality_qualification_implemented_but_model_and_graded_suite_unavailable",
+  "implementation": {
+    "qualification_contract": "phoenix.memory.qps-v3-quality-qualification/v1",
+    "same_model_binding": true,
+    "frozen_mixed_suite": true,
+    "frozen_longmemeval_release_cohort": true,
+    "blind_grouped_pairwise_split": true,
+    "separate_graded_and_stretch_suite_required": true,
+    "per_major_failure_class_accuracy_required": true,
+    "worst_query_shape_regression_guard": true,
+    "candidate_pool_and_oracle_recall_guards": true
+  },
+  "targets": {
+    "longmemeval_hit_at_10": 0.984,
+    "longmemeval_mrr": 0.910,
+    "stretch_mrr": 0.920,
+    "graded_ndcg_at_10_absolute_improvement": 0.020,
+    "held_out_top_1_improvement_points": 2.0,
+    "held_out_pairwise_accuracy": 0.80,
+    "per_major_class_pairwise_accuracy": 0.75,
+    "mixed_suite_metrics": 1.0,
+    "no_result_accuracy": 1.0,
+    "constitutional_regressions": 0,
+    "candidate_pool_mismatches": 0,
+    "oracle_recall_regressions": 0,
+    "maximum_worst_shape_mrr_regression": 0.005
+  },
+  "verification": {
+    "phoenix_lexical_qps_tests_passed": 29,
+    "phoenix_memory_lock_tests_passed": 28,
+    "strict_clippy_passed": true,
+    "release_build_passed": true,
+    "phase_8_command_exit_code_without_model": 2,
+    "phase_8_receipt_written": false
+  },
+  "producer_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 2438144,
+    "sha256": "260785b1f90643ad782a71bacc14c074e7fa372483424a366a72263a9812df71"
+  },
+  "phase_8_verified": false,
+  "phase_8_unverified_reason": "Phase 5 has zero eligible pairs, so no Phase 6 split or trained Phase 7 artifact exists; no independent graded stretch suite was supplied"
+}

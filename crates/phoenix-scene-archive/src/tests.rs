@@ -40,7 +40,7 @@ fn frozen_cohort_matches_every_shared_and_manifold_record() -> Result<(), Archiv
     assert_eq!(archive.header().cohort_hash, EXPECTED_HASH);
     let expected = FrozenCohort::generate();
 
-    for (index, manifold) in ArchiveManifold::ALL.into_iter().enumerate() {
+    for (index, manifold) in cohort::FROZEN_MANIFOLDS.into_iter().enumerate() {
         let pages = archive.open_manifold(manifold)?;
         assert_eq!(pages.identities, expected.identities);
         assert_eq!(pages.styles, expected.styles);
@@ -93,7 +93,7 @@ fn shared_pages_exist_once_and_optional_pages_are_lazy() -> Result<(), ArchiveEr
 #[test]
 fn prepared_path_and_guide_pages_are_well_formed() -> Result<(), ArchiveError> {
     let archive = PhoenixSceneArchiveV1::open(fixture_path())?;
-    for manifold in ArchiveManifold::ALL {
+    for manifold in cohort::FROZEN_MANIFOLDS {
         let guides = archive.guides(manifold)?;
         assert_eq!(guides.strokes.len(), 8);
         assert_eq!(guides.points.len(), 520);

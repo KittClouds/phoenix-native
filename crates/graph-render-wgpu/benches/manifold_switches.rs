@@ -27,7 +27,7 @@ fn main() {
     ];
     let topology: Vec<TopologyRecord> = Vec::new();
     let edges: Vec<EdgeRecord> = Vec::new();
-    let manifolds: [Vec<PositionRecord>; 5] = std::array::from_fn(|manifold| {
+    let manifolds: [Vec<PositionRecord>; 6] = std::array::from_fn(|manifold| {
         (0..NODE_COUNT)
             .map(|slot| PositionRecord {
                 position: [

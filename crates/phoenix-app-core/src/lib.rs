@@ -53,8 +53,9 @@ pub use phoenix_scene_publisher::{
 pub use phoenix_workspace::{EntitySourceMask, NerEntityRecord};
 pub use protocol::*;
 pub use release_lock::{
-    PhoenixReleaseManifestV1, ReleaseCohortAuthorityV1, ReleaseCohortCountsV1,
-    ReleaseCohortDigestsV1, ReleaseGateTargetsV1, ReleaseLockError, RELEASE_MANIFEST_CONTRACT,
+    PhoenixReleaseManifestV2, ReleaseCohortAuthorityV1, ReleaseCohortCountsV1,
+    ReleaseCohortDigestsV2, ReleaseGateTargetsV1, ReleaseLockError, RELEASE_MANIFEST_CONTRACT,
+    RELEASE_MANIFOLD_COUNT,
 };
 pub use resident_memory::{
     ResidentMemory, ResidentMemoryError, ResidentMemorySnapshot, ResidentRecallIndexes,
@@ -139,8 +140,6 @@ pub enum KernelError {
     CommandTimedOut(u64),
     #[error("kernel is shutting down")]
     ShuttingDown,
-    #[error("kernel event queue is full at capacity {EVENT_CAPACITY}")]
-    EventQueueFull,
     #[error("kernel lock is poisoned: {0}")]
     Poisoned(&'static str),
     #[error("workspace entry {0:?} is not a note")]
@@ -570,7 +569,9 @@ impl PhoenixKernel {
         atlas_review::refresh_review_overlay(&mut state, &atlas_review)?;
         let shared = Arc::new(KernelShared {
             state: RwLock::new(state),
-            events: Mutex::new(VecDeque::with_capacity(32)),
+            // The event stream is a bounded observation journal, not command
+            // authority. Reserve it once so publishing remains allocation-free.
+            events: Mutex::new(VecDeque::with_capacity(EVENT_CAPACITY)),
             workspace_path,
             publisher,
             graph_build: Mutex::new(atlas_control::GraphBuildRuntime::restored(
@@ -822,7 +823,6 @@ fn apply_command(
     sequence: u64,
     command: KernelCommand,
 ) -> Result<CommandReceipt, KernelError> {
-    ensure_event_space(shared)?;
     match command {
         KernelCommand::SelectEntry(id) => select_entry(shared, sequence, id),
         KernelCommand::CreateEntry { kind, name } => create_entry(shared, sequence, kind, &name),
@@ -844,6 +844,23 @@ fn apply_command(
             command.lease,
             command.content,
             command.tag,
+        ),
+        KernelCommand::CreateRegistryEntity(draft) => entity_tags::edit_registry_entity(
+            shared,
+            sequence,
+            entity_tags::RegistryEdit::Create(draft),
+        ),
+        KernelCommand::UpdateRegistryEntity { entity_id, draft } => {
+            entity_tags::edit_registry_entity(
+                shared,
+                sequence,
+                entity_tags::RegistryEdit::Update { entity_id, draft },
+            )
+        }
+        KernelCommand::DeleteRegistryEntity(entity_id) => entity_tags::edit_registry_entity(
+            shared,
+            sequence,
+            entity_tags::RegistryEdit::Delete(entity_id),
         ),
         KernelCommand::PublishNerEntities(batch) => {
             atlas::publish_ner_batch(shared, sequence, batch)
@@ -1117,7 +1134,6 @@ fn publish_document_anchors(
 }
 
 fn mark_shutting_down(shared: &KernelShared) -> Result<(), KernelError> {
-    ensure_event_space(shared)?;
     shared.resident_memory.cancel();
     let mut state = write_state(shared)?;
     state.shutting_down = true;
@@ -1139,8 +1155,15 @@ fn push_event(shared: &KernelShared, event: KernelEvent) -> Result<(), KernelErr
         .events
         .lock()
         .map_err(|_| KernelError::Poisoned("event write"))?;
-    if events.len() >= EVENT_CAPACITY {
-        return Err(KernelError::EventQueueFull);
+    if events.len() == EVENT_CAPACITY {
+        // Kernel state is authoritative; this queue only carries bounded
+        // notifications. Retain the freshest window rather than allowing a
+        // stalled observer to veto every future state transition.
+        let _ = events.pop_front();
+        shared
+            .metrics
+            .events_evicted
+            .fetch_add(1, Ordering::Relaxed);
     }
     events.push_back(event);
     let pending = u64::try_from(events.len()).unwrap_or(u64::MAX);
@@ -1156,17 +1179,6 @@ fn push_event(shared: &KernelShared, event: KernelEvent) -> Result<(), KernelErr
         .metrics
         .events_published
         .fetch_add(1, Ordering::Relaxed);
-    Ok(())
-}
-
-fn ensure_event_space(shared: &KernelShared) -> Result<(), KernelError> {
-    let events = shared
-        .events
-        .lock()
-        .map_err(|_| KernelError::Poisoned("event capacity"))?;
-    if events.len() >= EVENT_CAPACITY {
-        return Err(KernelError::EventQueueFull);
-    }
     Ok(())
 }
 

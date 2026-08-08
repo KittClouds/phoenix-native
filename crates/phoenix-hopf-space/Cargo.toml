@@ -1,0 +1,11 @@
+[package]
+name = "phoenix-hopf-space"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+phoenix-scene-contract = { path = "../phoenix-scene-contract" }
+thiserror.workspace = true

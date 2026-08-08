@@ -5,6 +5,8 @@ use graph_model::{
 };
 use hashbrown::{HashMap, HashSet};
 use phoenix_scene_archive::{ManifoldPageSet, PositionRecord};
+use phoenix_scene_contract::{describe_node, GraphPalette};
+use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct SceneChanges {
@@ -251,6 +253,54 @@ impl SceneState {
             }
             let node = node.as_mut().ok_or(RenderError::PackedSceneFragmented)?;
             node.position = position.position;
+        }
+        Ok(())
+    }
+
+    pub fn apply_graph_palette(
+        &mut self,
+        index: &PhoenixSceneProductIndexV1,
+        palette: GraphPalette,
+    ) -> Result<(), RenderError> {
+        for product in index.nodes() {
+            let slot = self
+                .node_slots
+                .get(&NodeId(product.node_id))
+                .copied()
+                .ok_or(RenderError::ProductIdentityMismatch {
+                    resource: "palette node",
+                    slot: 0,
+                })?;
+            let node = self.nodes[slot as usize]
+                .as_mut()
+                .ok_or(RenderError::PackedSceneFragmented)?;
+            let key = GraphPalette::node_key(describe_node(product.family_mask), node.kind).ok_or(
+                RenderError::ProductPaletteKeyMissing {
+                    resource: "node",
+                    id: product.node_id,
+                },
+            )?;
+            node.color = palette.color(key);
+        }
+        for product in index.edges() {
+            let slot = self
+                .edge_slots
+                .get(&EdgeId(product.edge_id))
+                .copied()
+                .ok_or(RenderError::ProductIdentityMismatch {
+                    resource: "palette edge",
+                    slot: 0,
+                })?;
+            let key = GraphPalette::edge_key(product.relation_mask, product.review_mask).ok_or(
+                RenderError::ProductPaletteKeyMissing {
+                    resource: "edge",
+                    id: product.edge_id,
+                },
+            )?;
+            self.edges[slot as usize]
+                .as_mut()
+                .ok_or(RenderError::PackedSceneFragmented)?
+                .color = palette.color(key);
         }
         Ok(())
     }

@@ -17,6 +17,7 @@ phoenix-analysis-contract = { path = "../phoenix-analysis-contract" }
 phoenix-document-producer = { path = "../phoenix-document-producer" }
 phoenix-entity-producer = { path = "../phoenix-entity-producer" }
 phoenix-graph-generation-v2 = { path = "../phoenix-graph-generation-v2" }
+phoenix-hopf-space = { path = "../phoenix-hopf-space" }
 phoenix-memory-contract = { path = "../phoenix-memory-contract" }
 phoenix-memory-coordinator = { path = "../phoenix-memory-coordinator" }
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }

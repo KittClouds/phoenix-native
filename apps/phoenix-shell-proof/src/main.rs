@@ -10,7 +10,7 @@ mod shell;
 
 use gpui::{px, size, App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions};
 use gpui_component::Root;
-use phoenix_app_core::{PhoenixKernel, PhoenixReleaseManifestV1};
+use phoenix_app_core::{PhoenixKernel, PhoenixReleaseManifestV2};
 use phoenix_scene_archive::PhoenixSceneArchiveV1;
 use phoenix_scene_contract::{ResidentScene, ResidentSceneLoadError, SceneSource};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
@@ -289,7 +289,7 @@ fn apply_release_manifest_mode(
         .release_manifest()
         .map_err(|error| format!("current authority is not releasable: {error}"))?;
     if let Some(path) = verify_path {
-        let frozen = PhoenixReleaseManifestV1::open(path)
+        let frozen = PhoenixReleaseManifestV2::open(path)
             .map_err(|error| format!("open frozen manifest {}: {error}", path.display()))?;
         let mismatches = frozen.exact_semantic_mismatches(&current);
         if !mismatches.is_empty() {

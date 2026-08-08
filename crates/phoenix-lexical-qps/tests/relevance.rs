@@ -1,5 +1,7 @@
 use phoenix_lexical_qps::{
-    CandidateSelection, DocumentInput, FieldConfig, QpsBuilder, QpsConfig, SearchScratch,
+    rerank_v3_in_place, CandidateSelection, DocumentInput, Expansion, FeatureNormalizationV3,
+    FieldConfig, LinearRankerV3, QpsBuilder, QpsConfig, QueryGroup, RankEvidenceV3, RelevanceTier,
+    SearchScratch, RANK_EVIDENCE_V3_FEATURE_COUNT,
 };
 
 #[test]
@@ -91,7 +93,301 @@ fn frozen_adversarial_and_ordinary_queries_keep_exact_first_rank() {
             .expect("exhaustive query");
         assert_eq!(hits.first().map(|hit| hit.external_id), Some(expected));
         assert_eq!(oracle.first().map(|hit| hit.external_id), Some(expected));
+        assert!(hits.iter().all(|hit| hit.rank_evidence_v3.is_valid()));
     }
+}
+
+#[test]
+fn v3_evidence_is_primitive_complete_and_allocation_free_when_warm() {
+    let fields = [
+        FieldConfig::new("title", 2.5, 0.35, 0.35),
+        FieldConfig::new("body", 1.0, 0.75, 0.10),
+    ];
+    let config = QpsConfig {
+        maximum_candidate_pool: 160,
+        maximum_query_groups: 128,
+        ..QpsConfig::default()
+    };
+    let mut builder = QpsBuilder::new(Vec::from(fields).into_boxed_slice(), config).unwrap();
+    for (external_id, title, body) in [
+        (1, "alpha", "beta gamma"),
+        (2, "alfa", "beta filler gamma"),
+        (3, "alpha", "unrelated"),
+    ] {
+        builder
+            .insert(DocumentInput {
+                external_id,
+                fields: &[title, body],
+            })
+            .unwrap();
+    }
+    let index = builder.build().unwrap();
+    let alpha = [
+        Expansion {
+            term: "alpha",
+            quality: 1.0,
+        },
+        Expansion {
+            term: "alfa",
+            quality: 0.7,
+        },
+    ];
+    let beta = [Expansion {
+        term: "beta",
+        quality: 1.0,
+    }];
+    let groups = [
+        QueryGroup { expansions: &alpha },
+        QueryGroup { expansions: &beta },
+    ];
+    let mut scratch = SearchScratch::with_document_capacity(3, 128);
+    let mut hits = Vec::with_capacity(160);
+    index
+        .search_groups_into(&groups, 10, &mut scratch, &mut hits)
+        .expect("warm V3 primitive evidence");
+    let receipt = index
+        .search_groups_into(&groups, 10, &mut scratch, &mut hits)
+        .expect("measure V3 primitive evidence");
+    assert!(!receipt.allocations_grew);
+    assert!(hits.iter().all(|hit| hit.rank_evidence_v3.is_valid()));
+
+    let exact = hits.iter().find(|hit| hit.external_id == 1).unwrap();
+    let fuzzy = hits.iter().find(|hit| hit.external_id == 2).unwrap();
+    assert_eq!(exact.rank_evidence_v3.matched_groups, 2);
+    assert_eq!(exact.rank_evidence_v3.missing_groups, 0);
+    assert!(exact.rank_evidence_v3.values[RankEvidenceV3::FIELD_LEXICAL_0] > 0.0);
+    assert!(exact.rank_evidence_v3.values[RankEvidenceV3::FIELD_LEXICAL_1] > 0.0);
+    assert_eq!(
+        exact.rank_evidence_v3.values[RankEvidenceV3::COMPLETE_COVERAGE],
+        1.0
+    );
+    assert_eq!(
+        exact.rank_evidence_v3.values[RankEvidenceV3::EXACT_GROUP_FRACTION],
+        1.0
+    );
+    assert_eq!(
+        fuzzy.rank_evidence_v3.values[RankEvidenceV3::MINIMUM_EXPANSION_QUALITY].to_bits(),
+        0.7_f32.to_bits()
+    );
+    assert!(
+        fuzzy.rank_evidence_v3.values[RankEvidenceV3::EXACT_GROUP_FRACTION]
+            < exact.rank_evidence_v3.values[RankEvidenceV3::EXACT_GROUP_FRACTION]
+    );
+}
+
+#[test]
+fn constitutional_tiers_protect_identifiers_exact_coverage_and_expansions() {
+    let fields = [
+        FieldConfig::new("identifier", 1.0, 0.0, 0.0),
+        FieldConfig::new("body", 1.0, 0.75, 0.0),
+    ];
+    let config = QpsConfig {
+        maximum_candidate_pool: 160,
+        maximum_query_groups: 128,
+        v3_exact_identifier_fields: 1,
+        ..QpsConfig::default()
+    };
+    let mut builder = QpsBuilder::new(Vec::from(fields).into_boxed_slice(), config).unwrap();
+    for (external_id, identifier, body) in [
+        (1, "px 9000", "primary record"),
+        (2, "reference", "px px px 9000 9000 9000"),
+        (3, "px 9001", "expanded identifier collision"),
+        (4, "px", "partial repetition px px px px"),
+    ] {
+        builder
+            .insert(DocumentInput {
+                external_id,
+                fields: &[identifier, body],
+            })
+            .unwrap();
+    }
+    let index = builder.build().unwrap();
+    let px = [Expansion {
+        term: "px",
+        quality: 1.0,
+    }];
+    let number = [
+        Expansion {
+            term: "9000",
+            quality: 1.0,
+        },
+        Expansion {
+            term: "9001",
+            quality: 0.8,
+        },
+    ];
+    let groups = [
+        QueryGroup { expansions: &px },
+        QueryGroup {
+            expansions: &number,
+        },
+    ];
+    let mut scratch = SearchScratch::with_document_capacity(4, 128);
+    let mut hits = Vec::with_capacity(160);
+    index
+        .search_groups_into(&groups, 10, &mut scratch, &mut hits)
+        .unwrap();
+    let tier = |identity| {
+        hits.iter()
+            .find(|hit| hit.external_id == identity)
+            .unwrap()
+            .relevance_tier
+    };
+    assert_eq!(tier(1), RelevanceTier::ConfiguredExactIdentifier);
+    assert_eq!(tier(2), RelevanceTier::CompleteExactGroups);
+    assert_eq!(tier(3), RelevanceTier::CompleteExpandedGroups);
+    assert_eq!(tier(4), RelevanceTier::AdmissiblePartial);
+
+    hits.sort_unstable_by(|left, right| {
+        left.relevance_tier.compare_ranked(
+            left.score,
+            left.external_id,
+            right.relevance_tier,
+            right.score,
+            right.external_id,
+        )
+    });
+    assert_eq!(
+        hits.iter().map(|hit| hit.external_id).collect::<Vec<_>>(),
+        vec![1, 2, 3, 4]
+    );
+}
+
+#[test]
+fn v3_owns_final_order_without_changing_the_v2_candidate_substrate() {
+    let config = QpsConfig {
+        maximum_candidate_pool: 160,
+        maximum_query_groups: 128,
+        v3_exact_identifier_fields: 1,
+        ..QpsConfig::default()
+    };
+    let mut builder = QpsBuilder::new(
+        Vec::from([
+            FieldConfig::new("identifier", 4.0, 0.25, 3.0),
+            FieldConfig::new("body", 1.0, 0.75, 0.0),
+        ])
+        .into_boxed_slice(),
+        config,
+    )
+    .unwrap();
+    for (external_id, identifier, body) in [
+        (1, "px 9000", "primary record"),
+        (2, "reference", "px 9000"),
+        (3, "px 9001", "expanded identifier collision"),
+        (4, "px", "partial repetition px px px px px px"),
+    ] {
+        builder
+            .insert(DocumentInput {
+                external_id,
+                fields: &[identifier, body],
+            })
+            .unwrap();
+    }
+    let index = builder.build().unwrap();
+    let mut weights = [0.0; RANK_EVIDENCE_V3_FEATURE_COUNT];
+    weights[RankEvidenceV3::BM25F_LEXICAL] = 8.0;
+    let model = LinearRankerV3::from_weights(FeatureNormalizationV3::identity(), weights).unwrap();
+    let px = [Expansion {
+        term: "px",
+        quality: 1.0,
+    }];
+    let number = [
+        Expansion {
+            term: "9000",
+            quality: 1.0,
+        },
+        Expansion {
+            term: "9001",
+            quality: 0.8,
+        },
+    ];
+    let groups = [
+        QueryGroup { expansions: &px },
+        QueryGroup {
+            expansions: &number,
+        },
+    ];
+    let mut v2_scratch = SearchScratch::with_document_capacity(4, 128);
+    let mut v3_scratch = SearchScratch::with_document_capacity(4, 128);
+    let mut v2 = Vec::with_capacity(160);
+    let mut v3 = Vec::with_capacity(160);
+    index
+        .search_groups_evidence_into(&groups, 10, &mut v2_scratch, &mut v2)
+        .unwrap();
+    index
+        .search_groups_v3_evidence_into(&groups, 10, &model, &mut v3_scratch, &mut v3)
+        .unwrap();
+    let mut v2_pool = v2.iter().map(|hit| hit.external_id).collect::<Vec<_>>();
+    let mut v3_pool = v3.iter().map(|hit| hit.external_id).collect::<Vec<_>>();
+    v2_pool.sort_unstable();
+    v3_pool.sort_unstable();
+    assert_eq!(v2_pool, v3_pool);
+    for v3_hit in &v3 {
+        let v2_hit = v2
+            .iter()
+            .find(|candidate| candidate.external_id == v3_hit.external_id)
+            .unwrap();
+        assert_eq!(v3_hit.v2_score.to_bits(), v2_hit.v2_score.to_bits());
+        assert_eq!(v3_hit.rank_evidence_v3, v2_hit.rank_evidence_v3);
+    }
+    assert_eq!(
+        v3.iter().map(|hit| hit.external_id).collect::<Vec<_>>(),
+        vec![1, 2, 3, 4]
+    );
+    for hit in &mut v3 {
+        hit.v2_score = if hit.external_id == 4 {
+            1_000_000.0
+        } else {
+            0.0
+        };
+        hit.score = hit.v2_score;
+    }
+    rerank_v3_in_place(&model, &mut v3).unwrap();
+    assert_eq!(
+        v3.iter().map(|hit| hit.external_id).collect::<Vec<_>>(),
+        vec![1, 2, 3, 4]
+    );
+}
+
+#[test]
+fn v3_exact_score_ties_use_stable_external_document_identity() {
+    let mut builder = QpsBuilder::new(
+        Vec::from([FieldConfig::new("body", 1.0, 0.75, 0.0)]).into_boxed_slice(),
+        QpsConfig {
+            maximum_candidate_pool: 160,
+            ..QpsConfig::default()
+        },
+    )
+    .unwrap();
+    for external_id in [20, 10] {
+        builder
+            .insert(DocumentInput {
+                external_id,
+                fields: &["identical shared text"],
+            })
+            .unwrap();
+    }
+    let index = builder.build().unwrap();
+    let mut weights = [0.0; RANK_EVIDENCE_V3_FEATURE_COUNT];
+    weights[RankEvidenceV3::SINGLE_GROUP_FLAG] = 1.0;
+    let model = LinearRankerV3::from_weights(FeatureNormalizationV3::identity(), weights).unwrap();
+    let mut scratch = SearchScratch::with_document_capacity(2, 32);
+    let mut hits = Vec::with_capacity(160);
+    index
+        .search_v3_into("shared", 10, &model, &mut scratch, &mut hits)
+        .unwrap();
+    assert_eq!(
+        hits.iter().map(|hit| hit.external_id).collect::<Vec<_>>(),
+        vec![10, 20]
+    );
+    let second = index
+        .search_v3_into("shared", 10, &model, &mut scratch, &mut hits)
+        .unwrap();
+    assert!(!second.allocations_grew);
+    assert_eq!(
+        hits.iter().map(|hit| hit.external_id).collect::<Vec<_>>(),
+        vec![10, 20]
+    );
 }
 
 #[test]
@@ -132,6 +428,40 @@ fn dense_simd_lane_stays_bounded_and_warm_scratch_does_not_grow() {
     assert_eq!(receipt.reranked_candidates, 160);
     assert!(!receipt.allocations_grew);
     assert!(receipt.stages.total > 0);
+
+    let serving_order = hits.iter().map(|hit| hit.external_id).collect::<Vec<_>>();
+    let mut evidence_scratch = SearchScratch::with_document_capacity(1_000, 32);
+    let mut evidence = Vec::with_capacity(160);
+    index
+        .search_evidence_into(
+            "shared dense positional query",
+            10,
+            &mut evidence_scratch,
+            &mut evidence,
+        )
+        .expect("warm bounded candidate evidence capture");
+    let evidence_receipt = index
+        .search_evidence_into(
+            "shared dense positional query",
+            10,
+            &mut evidence_scratch,
+            &mut evidence,
+        )
+        .expect("capture bounded candidate evidence");
+    assert_eq!(
+        evidence_receipt.reranked_candidates,
+        receipt.reranked_candidates
+    );
+    assert_eq!(evidence.len(), 160);
+    assert_eq!(
+        evidence
+            .iter()
+            .take(serving_order.len())
+            .map(|hit| hit.external_id)
+            .collect::<Vec<_>>(),
+        serving_order
+    );
+    assert!(!evidence_receipt.allocations_grew);
 }
 
 #[test]

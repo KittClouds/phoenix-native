@@ -13,7 +13,7 @@ mod store;
 
 pub use error::ScenePublicationError;
 pub use manifest::{ScenePublicationKind, ScenePublicationReceipt, MANIFEST_CONTRACT};
-pub use model::{NativeScenePublication, SceneEdgeProduct, SceneNodeProduct};
+pub use model::{NativeScenePublication, SceneCapsGuide, SceneEdgeProduct, SceneNodeProduct};
 pub use store::{PublishedScene, ScenePublicationStore};
 
 pub const SCENE_PUBLISHER_CONTRACT: &str = "phoenix.native.scene-publisher/v1";

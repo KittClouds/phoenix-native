@@ -52,4 +52,6 @@ pub enum ScenePublicationError {
     ProductIndex(#[from] phoenix_scene_product_index::ProductIndexError),
     #[error(transparent)]
     Scene(#[from] phoenix_scene_contract::SceneContractError),
+    #[error(transparent)]
+    Topology(#[from] phoenix_scene_contract::TopologyInventoryError),
 }

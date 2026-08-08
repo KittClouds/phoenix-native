@@ -1,0 +1,49 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase5-corpus-readiness-lock/v1",
+  "audited_at": "2026-08-04",
+  "disposition": "blocked_on_training_evidence_volume",
+  "receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase5-corpus-readiness-tier-safe-v3-e5a659d.json",
+    "bytes": 3505,
+    "sha256": "7b52b1044a71a41637b9abb51073bbe1e22cd3047347961e538bdbec02a4c755"
+  },
+  "frozen_constitutional_fixture_judgments": 9,
+  "counts": {
+    "training_eligible_judgments": 0,
+    "unique_queries": 0,
+    "independent_sources": 0,
+    "explicit_or_curator_confirmed": 0
+  },
+  "integrity": {
+    "duplicate_ledger_identities_are_zero": true,
+    "unresolved_authoritative_contradictions_are_zero": true,
+    "feature_schema_and_provenance_complete": true,
+    "release_cohort_intersections_are_zero": true
+  },
+  "shadow_deficits": {
+    "judgments": 2000,
+    "unique_queries": 500,
+    "independent_sources": 100,
+    "explicit_or_curator_confirmed": 250
+  },
+  "promotion_deficits": {
+    "judgments": 5000,
+    "unique_queries": 1000,
+    "independent_sources": 200,
+    "explicit_or_curator_confirmed": 500
+  },
+  "failure_classes_below_100_reviewed": 12,
+  "same_tier_training_requirement_enforced": true,
+  "external_ledger_qualification": {
+    "command": "qps-v3-qualify-ledger",
+    "keyed_private_identities_required": true,
+    "longmemeval_release_intersections_rejected": true,
+    "constitutional_queries_require_frozen_holdout": true,
+    "missing_ledger_exit_code": 2,
+    "missing_ledger_receipt_written": false,
+    "current_binary_sha256": "260785b1f90643ad782a71bacc14c074e7fa372483424a366a72263a9812df71"
+  },
+  "longmemeval_medium_eligible_for_training": false,
+  "longmemeval_medium_ineligibility_reason": "same 500 question families as the frozen small release cohort with a larger filler-session count",
+  "phase_5_verified": false
+}

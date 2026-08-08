@@ -1,3 +1,4 @@
+use super::analytics::AnalyticsHighlight;
 use super::PhoenixShell;
 use gpui::{Context, Entity, Timer};
 use phoenix_app_core::KernelCommand;
@@ -76,6 +77,10 @@ impl PhoenixShell {
     }
 
     pub(super) fn apply_kernel_highlights(&mut self, cx: &mut Context<Self>) {
+        if self.analytics_highlight.is_some() {
+            self.apply_analytics_highlights(cx);
+            return;
+        }
         let Ok(snapshot) = self.kernel.snapshot() else {
             self.editor
                 .update(cx, |editor, cx| editor.clear_semantic_highlights(cx));
@@ -151,6 +156,135 @@ impl PhoenixShell {
             }
         }
     }
+
+    fn apply_analytics_highlights(&mut self, cx: &mut Context<Self>) {
+        let source = self
+            .editor
+            .read_with(cx, |editor, cx| editor.host_document_text(cx));
+        if self.text_analytics.source_hash != phoenix_text_analytics::source_fingerprint(&source) {
+            self.editor
+                .update(cx, |editor, cx| editor.clear_semantic_highlights(cx));
+            return;
+        }
+        let Some(highlight) = self.analytics_highlight else {
+            return;
+        };
+        let mut ranges = match highlight {
+            AnalyticsHighlight::SentenceBand(band) => self
+                .text_analytics
+                .sentence_spans
+                .iter()
+                .filter(|sentence| sentence.band == band)
+                .map(|sentence| sentence.span)
+                .collect::<Vec<_>>(),
+            AnalyticsHighlight::Lens(kind) => self
+                .text_analytics
+                .lens(kind)
+                .into_iter()
+                .flat_map(|lens| lens.items.iter())
+                .flat_map(|item| item.spans.iter().copied())
+                .collect::<Vec<_>>(),
+            AnalyticsHighlight::Item(kind, index) => self
+                .text_analytics
+                .lens(kind)
+                .and_then(|lens| lens.items.get(index))
+                .map_or_else(Vec::new, |item| item.spans.to_vec()),
+        };
+        ranges.sort_unstable_by_key(|span| (span.start, span.end));
+        let mut merged: Vec<phoenix_text_analytics::SourceSpan> = Vec::with_capacity(ranges.len());
+        for span in ranges {
+            if span.start >= span.end || span.end as usize > source.len() {
+                continue;
+            }
+            if let Some(previous) = merged.last_mut() {
+                if span.start <= previous.end {
+                    previous.end = previous.end.max(span.end);
+                    continue;
+                }
+            }
+            merged.push(span);
+        }
+        let (primary, secondary) = analytics_colors(highlight);
+        let mut spans = merged
+            .iter()
+            .map(|span| {
+                SemanticHighlight::new(span.start as usize..span.end as usize, primary, secondary)
+            })
+            .collect::<Vec<_>>();
+
+        // Preserve graph paint outside the active analytics evidence. Graph
+        // anchors are safe to merge only while both systems target the exact
+        // same saved source frame; analytics wins on an overlap.
+        if let Ok(snapshot) = self.kernel.snapshot() {
+            if let (Some(anchors), Some(lease)) =
+                (snapshot.document_anchors, snapshot.active_document_lease)
+            {
+                if lease.content.as_ref() == source {
+                    let palette = *snapshot.highlight_palette;
+                    for anchor in anchors.anchors() {
+                        let graph_range = anchor.start..anchor.end;
+                        let overlaps_analytics = merged.iter().any(|span| {
+                            graph_range.start < span.end && span.start < graph_range.end
+                        });
+                        if overlaps_analytics {
+                            continue;
+                        }
+                        let family = palette.for_family(anchor.family);
+                        spans.push(SemanticHighlight::new(
+                            graph_range.start as usize..graph_range.end as usize,
+                            family.primary,
+                            family.secondary,
+                        ));
+                    }
+                }
+            }
+        }
+        spans.sort_unstable_by_key(|span| (span.range.start, span.range.end));
+        let editor_revision = self
+            .editor
+            .read_with(cx, |editor, _| editor.document_revision());
+        let highlight_revision = editor_revision.wrapping_add(1).max(1);
+        let result = self.editor.update(cx, |editor, cx| {
+            editor.project_semantic_highlights_from_source(
+                highlight_revision,
+                editor_revision,
+                &source,
+                SemanticHighlightMode::Vivid,
+                spans,
+                cx,
+            )
+        });
+        match result {
+            Ok(receipt) => eprintln!(
+                "PHOENIX_ANALYTICS_HIGHLIGHTS_ACTIVE selection={highlight:?} requested={} applied={} unmapped={}",
+                receipt.requested, receipt.applied, receipt.unmapped
+            ),
+            Err(error) => {
+                self.status = format!("ANALYTICS HIGHLIGHTS BLOCKED / {error}").into();
+            }
+        }
+    }
+}
+
+fn analytics_colors(highlight: AnalyticsHighlight) -> ([f32; 4], [f32; 4]) {
+    let (primary, secondary) = match highlight {
+        AnalyticsHighlight::SentenceBand(band) => {
+            let color = super::analytics::BAND_COLORS[usize::from(band).min(5)];
+            (color, 0x48d9c2)
+        }
+        AnalyticsHighlight::Lens(_) => (0x24d6b2, 0x438cff),
+        AnalyticsHighlight::Item(_, _) => (0x438cff, 0x24d6b2),
+    };
+    (color_to_rgba(primary), color_to_rgba(secondary))
+}
+
+fn color_to_rgba(color: u32) -> [f32; 4] {
+    [
+        ((color >> 16) & 0xff) as f32 / 255.0,
+        ((color >> 8) & 0xff) as f32 / 255.0,
+        (color & 0xff) as f32 / 255.0,
+        1.0,
+    ]
 }
 
 fn to_velotype_mode(mode: HighlightMode) -> SemanticHighlightMode {

@@ -24,11 +24,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let pages = archive.open_manifold(ArchiveManifold::Hybrid)?;
     let mut builder =
         PhoenixSceneProductIndexBuilderV1::new(ProductIndexBinding::from_archive(&archive));
-    for (identity, style) in pages.identities.iter().zip(pages.styles) {
+    for (identity, _style) in pages.identities.iter().zip(pages.styles) {
         builder.push_node(
             NodeProductRecord {
                 node_id: identity.id,
-                family_mask: bit(style.kind)?,
+                family_mask: 255 | (1 << 16),
                 scope_mask: u64::MAX,
                 review_mask: ReviewState::Accepted as u32,
                 label_offset: 0,

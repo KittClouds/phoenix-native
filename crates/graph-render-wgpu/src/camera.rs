@@ -71,13 +71,9 @@ impl Camera {
 
     #[must_use]
     pub fn eye_position(&self) -> Vec3 {
-        let cos_pitch = self.pitch.cos();
-        self.target
-            + Vec3::new(
-                self.distance * cos_pitch * self.yaw.sin(),
-                self.distance * self.pitch.sin(),
-                self.distance * cos_pitch * self.yaw.cos(),
-            )
+        self.scene_transform()
+            .inverse()
+            .transform_point3(self.base_eye_position())
     }
 
     #[must_use]
@@ -88,7 +84,11 @@ impl Camera {
 
     #[must_use]
     pub fn view_matrix(&self) -> Mat4 {
-        Mat4::look_at_rh(self.eye_position(), self.target, Vec3::Y)
+        // Angular keeps its camera fixed and rotates the graph root. Compose
+        // that root transform into the native view matrix instead of moving
+        // the observer around the graph. This preserves Angular's stable
+        // turntable axis after arbitrary pitch and pan.
+        Mat4::look_at_rh(self.base_eye_position(), self.target, Vec3::Y) * self.scene_transform()
     }
 
     #[must_use]
@@ -107,31 +107,16 @@ impl Camera {
             view_up: [up.x, up.y, up.z, 0.0],
             viewport_size: [self.viewport_width, self.viewport_height],
             edge_opacity: 0.18,
-            _padding: 0.0,
+            canvas_style: 0.0,
         }
     }
 
     pub fn orbit(&mut self, delta_x: f32, delta_y: f32) {
-        // V3 rotates the scene root around its semantic origin. The native
-        // camera is the inverse representation of that transform, so carry only
-        // the screen-space framing offset through the new camera frame. The
-        // authoritative orbit center must never be replaced by a page's AABB.
-        let (old_right, old_up, old_backward) = self.frame_basis();
-        let offset = self.target - self.orbit_center;
-        let local_offset = Vec3::new(
-            offset.dot(old_right),
-            offset.dot(old_up),
-            offset.dot(old_backward),
-        );
-
+        // Match Angular's root.rotation contract exactly: horizontal motion
+        // spins around the graph root's Y axis; vertical motion tilts.
+        // Pan remains an independent camera-frame translation.
         self.yaw += delta_x * 0.006;
         self.pitch = (self.pitch + delta_y * 0.006).clamp(-1.35, 1.35);
-
-        let (right, up, backward) = self.frame_basis();
-        self.target = self.orbit_center
-            + right * local_offset.x
-            + up * local_offset.y
-            + backward * local_offset.z;
     }
 
     pub fn pan(&mut self, delta_x: f32, delta_y: f32) {
@@ -170,6 +155,7 @@ impl Camera {
                 .map(Vec3::from_array)
                 .or_else(|| self.target_plane_anchor(screen_x, screen_y));
             if let Some(anchor) = anchor {
+                let anchor = self.scene_transform().transform_point3(anchor);
                 let ratio = next_distance / previous_distance;
                 self.target = anchor + (self.target - anchor) * ratio;
             }
@@ -279,23 +265,41 @@ impl Camera {
     }
 
     fn frame_basis(&self) -> (Vec3, Vec3, Vec3) {
-        let backward = (self.eye_position() - self.target)
-            .try_normalize()
-            .unwrap_or(Vec3::Z);
-        let forward = -backward;
-        let right = forward.cross(Vec3::Y).try_normalize().unwrap_or(Vec3::X);
-        let up = right.cross(forward).normalize_or_zero();
+        let inverse = self.scene_transform().inverse();
+        let right = inverse.transform_vector3(Vec3::X).normalize_or_zero();
+        let up = inverse.transform_vector3(Vec3::Y).normalize_or_zero();
+        let backward = inverse.transform_vector3(Vec3::Z).normalize_or_zero();
         (right, up, backward)
+    }
+
+    fn base_eye_position(&self) -> Vec3 {
+        self.target + Vec3::Z * self.distance
+    }
+
+    fn scene_transform(&self) -> Mat4 {
+        // Keep yaw on the fixed world-up axis. The order is intentional:
+        // pitch establishes the viewing tilt, then yaw spins that tilted scene
+        // around world Y like a top. Reversing these matrices makes the yaw
+        // axis inherit the pitch, which lets horizontal drags roll the scene
+        // over and eventually exchange its top and bottom.
+        let rotation = Mat4::from_rotation_y(self.yaw) * Mat4::from_rotation_x(self.pitch);
+        Mat4::from_translation(self.orbit_center)
+            * rotation
+            * Mat4::from_translation(-self.orbit_center)
     }
 
     fn target_plane_anchor(&self, screen_x: f32, screen_y: f32) -> Option<Vec3> {
         let (ray_origin, ray_direction) = self.viewport_to_ray(screen_x, screen_y);
-        let plane_normal = (self.target - self.eye_position()).normalize_or_zero();
+        let effective_target = self
+            .scene_transform()
+            .inverse()
+            .transform_point3(self.target);
+        let plane_normal = (effective_target - self.eye_position()).normalize_or_zero();
         let denominator = ray_direction.dot(plane_normal);
         if denominator.abs() <= 1.0e-6 {
             return None;
         }
-        let distance = (self.target - ray_origin).dot(plane_normal) / denominator;
+        let distance = (effective_target - ray_origin).dot(plane_normal) / denominator;
         (distance >= 0.0).then(|| ray_origin + ray_direction * distance)
     }
 }
@@ -321,7 +325,11 @@ mod tests {
     fn center_ray_matches_view_direction() {
         let camera = Camera::new(800.0, 600.0);
         let (_, ray) = camera.viewport_to_ray(400.0, 300.0);
-        let expected = (camera.target - camera.eye_position()).normalize();
+        let expected_target = camera
+            .scene_transform()
+            .inverse()
+            .transform_point3(camera.target);
+        let expected = (expected_target - camera.eye_position()).normalize();
         assert!((ray.dot(expected) - 1.0).abs() < 0.0001);
     }
 
@@ -414,24 +422,54 @@ mod tests {
     }
 
     #[test]
-    fn orbit_preserves_a_panned_scene_offset_in_the_camera_frame() {
+    fn turntable_spin_never_mutates_the_independent_pan_target() {
         let mut camera = Camera::new(1200.0, 800.0);
         camera.pan(80.0, -30.0);
-        let (old_right, old_up, old_backward) = camera.frame_basis();
-        let old_offset = camera.target - camera.orbit_center;
-        let old_local = Vec3::new(
-            old_offset.dot(old_right),
-            old_offset.dot(old_up),
-            old_offset.dot(old_backward),
-        );
+        let old_target = camera.target;
 
         camera.orbit(90.0, 45.0);
 
-        let (right, up, backward) = camera.frame_basis();
-        let offset = camera.target - camera.orbit_center;
-        let local = Vec3::new(offset.dot(right), offset.dot(up), offset.dot(backward));
-        assert!((local - old_local).length() < 0.0001);
-        assert_ne!(camera.target, old_offset);
+        assert_eq!(camera.target, old_target);
+    }
+
+    #[test]
+    fn horizontal_drag_spins_about_the_fixed_world_up_axis_after_tilt() {
+        let mut camera = Camera::new(1200.0, 800.0);
+        camera.orient(0.0, 0.65);
+        let before_pitch = camera.snapshot().pitch;
+        let fixed_camera_before = camera.base_eye_position();
+        let effective_eye_before = camera.eye_position();
+        let sample = Vec3::new(18.0, 31.0, -12.0);
+        let height_before = camera.scene_transform().transform_point3(sample).y;
+
+        camera.orbit(100.0, 0.0);
+
+        assert!((camera.snapshot().yaw - 0.6).abs() < 0.0001);
+        assert_eq!(camera.snapshot().pitch, before_pitch);
+        assert_eq!(camera.base_eye_position(), fixed_camera_before);
+        assert_ne!(camera.eye_position(), effective_eye_before);
+        let height_after = camera.scene_transform().transform_point3(sample).y;
+        assert!((height_after - height_before).abs() < 0.0001);
+    }
+
+    #[test]
+    fn repeated_horizontal_spins_cannot_turn_the_scene_upside_down() {
+        let mut camera = Camera::new(1200.0, 800.0);
+        camera.orient(0.0, 0.72);
+        let samples = [
+            Vec3::new(18.0, 31.0, -12.0),
+            Vec3::new(-27.0, 8.0, 21.0),
+            Vec3::new(4.0, -16.0, 33.0),
+        ];
+        let heights = samples.map(|point| camera.scene_transform().transform_point3(point).y);
+
+        for _ in 0..24 {
+            camera.orbit(75.0, 0.0);
+            for (sample, expected_height) in samples.iter().zip(heights) {
+                let height = camera.scene_transform().transform_point3(*sample).y;
+                assert!((height - expected_height).abs() < 0.0001);
+            }
+        }
     }
 
     #[test]

@@ -1,5 +1,5 @@
-use phoenix_scene_compiler::{compile_caps_positions, CapsNode};
-use phoenix_scene_contract::CapsRole;
+use phoenix_scene_compiler::{compile_caps_layout, CapsNode};
+use phoenix_scene_contract::{CapsRole, VisualNodeKind};
 use std::time::{Duration, Instant};
 
 const NODES: usize = 25_000;
@@ -12,9 +12,9 @@ fn main() {
     let mut timings = Vec::with_capacity(TRIALS);
     for _ in 0..TRIALS {
         let started = Instant::now();
-        let positions = compile_caps_positions(&nodes)
+        let layout = compile_caps_layout(&nodes)
             .unwrap_or_else(|error| panic!("CAPS benchmark fixture: {error}"));
-        std::hint::black_box(positions);
+        std::hint::black_box(layout);
         timings.push(started.elapsed());
     }
     timings.sort_unstable();
@@ -22,7 +22,7 @@ fn main() {
     let p95 = percentile(&timings, 95);
     let max = timings.last().copied().unwrap_or(Duration::ZERO);
     println!(
-        "CAPS Lorentz/Klein layout: nodes={NODES} chunks={CHUNKS} trials={TRIALS} \
+        "CAPS nested Klein mosaic: nodes={NODES} chunks={CHUNKS} trials={TRIALS} \
          median={median:?} p95={p95:?} max={max:?} gate={P95_GATE:?}"
     );
     assert!(
@@ -36,6 +36,7 @@ fn fixture() -> Vec<CapsNode> {
     nodes.push(CapsNode {
         stable_id: 1,
         role: CapsRole::Episode,
+        semantic_kind: VisualNodeKind::Episode,
         parent_slot: None,
         sibling_rank: 0,
         sibling_count: 1,
@@ -45,6 +46,7 @@ fn fixture() -> Vec<CapsNode> {
         nodes.push(CapsNode {
             stable_id: 2 + chunk as u64,
             role: CapsRole::Chunk,
+            semantic_kind: VisualNodeKind::Chunk,
             parent_slot: Some(0),
             sibling_rank: chunk as u32,
             sibling_count: CHUNKS as u32,
@@ -59,6 +61,7 @@ fn fixture() -> Vec<CapsNode> {
         nodes.push(CapsNode {
             stable_id: 10_000 + entity as u64,
             role: CapsRole::Entity,
+            semantic_kind: VisualNodeKind::EntityOther,
             parent_slot: Some((chunk + 1) as u32),
             sibling_rank: sibling_rank as u32,
             sibling_count: sibling_count as u32,

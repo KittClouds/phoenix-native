@@ -10,7 +10,7 @@ use phoenix_scene_contract::{
 };
 use phoenix_workspace::{
     ContentHash, DocumentLeaseToken, DocumentRevision, EntityTag, EntityTagResult, EntryId,
-    EntryKind, NerPublicationResult,
+    EntryKind, NerPublicationResult, RegistryEntityDraft, RegistryEntityEditResult,
 };
 use std::sync::Arc;
 
@@ -31,6 +31,12 @@ pub enum KernelCommand {
         content: Arc<str>,
     },
     TagSelection(Box<EntityTagCommand>),
+    CreateRegistryEntity(RegistryEntityDraft),
+    UpdateRegistryEntity {
+        entity_id: u64,
+        draft: RegistryEntityDraft,
+    },
+    DeleteRegistryEntity(u64),
     PublishNerEntities(NerEntityBatch),
     PublishNliArtifact(Box<NliPublication>),
     CancelAtlasRun,
@@ -170,6 +176,7 @@ pub enum KernelOutcome {
     EntriesDeleted(usize),
     DocumentSaved(DocumentRevision),
     EntityTagged(EntityTagResult),
+    RegistryEntityEdited(RegistryEntityEditResult),
     NerEntitiesPublished(NerPublicationResult),
     NliCandidatesPublished(AnalysisPublicationReceipt),
     AtlasCandidateReviewed(AtlasDecisionCommandReceipt),

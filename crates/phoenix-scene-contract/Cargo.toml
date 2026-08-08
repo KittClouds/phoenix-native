@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 blake3.workspace = true
+hashbrown.workspace = true
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
 phoenix-scene-product-index = { path = "../phoenix-scene-product-index" }
 serde.workspace = true

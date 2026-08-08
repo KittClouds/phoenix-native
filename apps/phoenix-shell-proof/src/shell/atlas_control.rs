@@ -83,17 +83,14 @@ impl PhoenixShell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let available_width = f32::from(window.viewport_size().width)
-            - if self.left_open {
-                self.left_sidebar_width
-            } else {
-                0.
-            }
-            - if self.right_open {
-                self.right_sidebar_width
-            } else {
-                0.
-            };
+        let available_width = super::layout::shell_width_budget(
+            f32::from(window.viewport_size().width),
+            self.left_open,
+            self.right_open,
+            self.left_sidebar_width,
+            self.right_sidebar_width,
+        )
+        .center_width;
         let show_inspector = available_width >= INSPECTOR_BREAKPOINT;
         let compact_navigation = available_width < NAVIGATION_RAIL_BREAKPOINT;
         let review = matches!(self.atlas_control_section, AtlasControlSection::Review)

@@ -1,0 +1,42 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase6-split-readiness-lock/v1",
+  "audited_at": "2026-08-04",
+  "disposition": "implementation_verified_but_phase_5_prerequisite_not_met",
+  "phase_5_receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase5-corpus-readiness-tier-safe-v3-e5a659d.json",
+    "bytes": 3505,
+    "sha256": "7b52b1044a71a41637b9abb51073bbe1e22cd3047347961e538bdbec02a4c755",
+    "phase_5_verified": false
+  },
+  "implementation": {
+    "schema_contract": "phoenix.qps.leakage-split/v3",
+    "group_axes": [
+      "query_family",
+      "document_or_conversation_source",
+      "near_duplicate_document_cluster",
+      "entity_or_identifier_family",
+      "collection_cohort"
+    ],
+    "primary_ratio_basis_points": [6000, 2000, 2000],
+    "maximum_ratio_deviation_basis_points": 100,
+    "future_time_holdout": "blind_test_chronological_suffix",
+    "unseen_source_holdout": "blind_test_connected_component_isolation",
+    "constitutional_regression_holdout": "frozen_and_never_training",
+    "longmemeval_release_holdout": "frozen_and_never_training"
+  },
+  "verification": {
+    "phoenix_lexical_qps_tests_passed": 29,
+    "phoenix_memory_lock_tests_passed": 28,
+    "strict_clippy_passed": true,
+    "deterministic_twenty_component_fixture_ratio": "12/4/4",
+    "phase_6_command_exit_code": 2,
+    "phase_6_command_error": "Phase 6 requires a verified QPS V3 Phase 5 training corpus",
+    "phase_6_receipt_written": false
+  },
+  "producer_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 2438144,
+    "sha256": "260785b1f90643ad782a71bacc14c074e7fa372483424a366a72263a9812df71"
+  },
+  "phase_6_verified": false
+}

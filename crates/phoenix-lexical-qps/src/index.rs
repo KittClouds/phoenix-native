@@ -5,10 +5,14 @@ use std::time::Instant;
 
 use compact_str::CompactString;
 use hashbrown::HashMap;
+use pulp::{Arch, Simd, WithSimd};
 
+use crate::rank_evidence::{RankEvidenceInputs, RankEvidenceV3, RANK_EVIDENCE_V3_FIELD_SLOTS};
 use crate::ranker::RankFeatureVector;
+use crate::ranker_v3::LinearRankerV3;
 use crate::score::{
-    measure_field, ordered_fraction, Coherence, CoherenceSignals, GroupMask, PositionedGroups,
+    measure_field_with_evidence, ordered_fraction, Coherence, CoherenceSignals, GroupMask,
+    PositionedGroups,
 };
 use crate::selection::{retain_dense_simd, retain_sparse, RankedCandidate};
 use crate::tokenize::{tokenize_into, TokenOccurrence};
@@ -18,6 +22,103 @@ use crate::types::{
 };
 
 const NO_CHOICE: u32 = u32::MAX;
+
+/// Allocation-free V3 rank kernel for a caller-owned candidate slice. The V2
+/// diagnostic score remains on each hit but is never read by this function.
+pub fn rerank_v3_in_place(
+    model: &LinearRankerV3,
+    candidates: &mut [SearchHit],
+) -> Result<(), QpsError> {
+    if !model.is_valid()
+        || candidates
+            .iter()
+            .any(|candidate| !candidate.rank_evidence_v3.is_valid())
+    {
+        return Err(QpsError::InvalidV3Ranker);
+    }
+    rerank_v3_prevalidated(model, candidates, usize::MAX);
+    Ok(())
+}
+
+/// Serving kernel for candidates whose evidence was produced by this QPS
+/// index in the same query execution. The model is checked once; the
+/// already-proven evidence schema is not redundantly rescanned.
+pub fn rerank_v3_generated_candidates_in_place(
+    model: &LinearRankerV3,
+    candidates: &mut [SearchHit],
+) -> Result<(), QpsError> {
+    if !model.is_valid() {
+        return Err(QpsError::InvalidV3Ranker);
+    }
+    rerank_v3_prevalidated(model, candidates, usize::MAX);
+    Ok(())
+}
+
+/// Stable top-k serving variant. All candidates are scored, but only the best
+/// `top_k` prefix is ordered; callers may truncate the tail without sorting it.
+pub fn rerank_v3_generated_top_k_in_place(
+    model: &LinearRankerV3,
+    candidates: &mut [SearchHit],
+    top_k: usize,
+) -> Result<(), QpsError> {
+    if !model.is_valid() {
+        return Err(QpsError::InvalidV3Ranker);
+    }
+    rerank_v3_prevalidated(model, candidates, top_k);
+    Ok(())
+}
+
+#[inline]
+fn rerank_v3_prevalidated(model: &LinearRankerV3, candidates: &mut [SearchHit], top_k: usize) {
+    debug_assert!(model.is_valid());
+    Arch::new().dispatch(RankV3Scores { model, candidates });
+    if top_k == 0 {
+        return;
+    }
+    if top_k < candidates.len() {
+        candidates.select_nth_unstable_by(top_k, compare_v3_hits);
+        candidates[..top_k].sort_unstable_by(compare_v3_hits);
+    } else {
+        candidates.sort_unstable_by(compare_v3_hits);
+    }
+}
+
+#[inline]
+fn compare_v3_hits(left: &SearchHit, right: &SearchHit) -> Ordering {
+    left.relevance_tier.compare_ranked(
+        left.score,
+        left.external_id,
+        right.relevance_tier,
+        right.score,
+        right.external_id,
+    )
+}
+
+struct RankV3Scores<'a> {
+    model: &'a LinearRankerV3,
+    candidates: &'a mut [SearchHit],
+}
+
+impl WithSimd for RankV3Scores<'_> {
+    type Output = ();
+
+    #[inline(always)]
+    fn with_simd<S: Simd>(self, simd: S) {
+        let (packed_weights, tail_weights) = S::as_simd_f32s(&self.model.weights);
+        for candidate in self.candidates {
+            let (packed_values, tail_values) = S::as_simd_f32s(&candidate.rank_evidence_v3.values);
+            let mut packed_sum = simd.splat_f32s(0.0);
+            for (&weights, &values) in packed_weights.iter().zip(packed_values) {
+                packed_sum = simd.mul_add_f32s(weights, values, packed_sum);
+            }
+            let mut score = simd.reduce_sum_f32s(packed_sum);
+            for (&weight, &value) in tail_weights.iter().zip(tail_values) {
+                score = weight.mul_add(value, score);
+            }
+            candidate.score = score;
+        }
+    }
+}
 
 #[inline]
 fn coverage_factor(coverage: f32, exponent: f32) -> f32 {
@@ -47,6 +148,39 @@ struct RankFeatureInputs {
     maximum_candidate_score: f32,
     token_count: u32,
     expansion_quality: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PrimitiveCoherence {
+    minimum_complete_span: u32,
+    minimum_ordered_span: u32,
+    ordered_fraction: f32,
+    exact_phrase: bool,
+    exact_field: bool,
+    exact_identifier_field: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CandidateEvidenceContext {
+    document: u32,
+    candidate_rank: usize,
+    candidate_pool_size: usize,
+    lexical: f32,
+    coverage: f32,
+    coherence: PrimitiveCoherence,
+}
+
+impl Default for PrimitiveCoherence {
+    fn default() -> Self {
+        Self {
+            minimum_complete_span: u32::MAX,
+            minimum_ordered_span: u32::MAX,
+            ordered_fraction: 0.0,
+            exact_phrase: false,
+            exact_field: false,
+            exact_identifier_field: false,
+        }
+    }
 }
 
 #[inline]
@@ -139,6 +273,11 @@ pub struct QpsIndex {
     field_ranges: Box<[FieldRange]>,
     posting_ranges: Box<[PostingRange]>,
     postings: Box<[PostingRecord]>,
+    /// Exact per-field decomposition of each posting's BM25F impact. This is a
+    /// cold sidecar so the hot posting row remains eight bytes.
+    posting_field_impacts: Box<[f32]>,
+    /// Normalized IDF primitive for each term.
+    term_rarities: Box<[f32]>,
     /// Cold random-access offsets are split from hot accumulation rows. The
     /// next start (or the position-array end) closes each posting range.
     posting_position_starts: Box<[u32]>,
@@ -345,6 +484,8 @@ impl QpsIndex {
         field_ranges: Box<[FieldRange]>,
         posting_ranges: Box<[PostingRange]>,
         postings: Box<[PostingRecord]>,
+        posting_field_impacts: Box<[f32]>,
+        term_rarities: Box<[f32]>,
         posting_position_starts: Box<[u32]>,
         posting_positions: Box<[PostingPosition]>,
     ) -> Self {
@@ -357,6 +498,8 @@ impl QpsIndex {
             field_ranges,
             posting_ranges,
             postings,
+            posting_field_impacts,
+            term_rarities,
             posting_position_starts,
             posting_positions,
         }
@@ -369,7 +512,85 @@ impl QpsIndex {
         scratch: &mut SearchScratch,
         output: &mut Vec<SearchHit>,
     ) -> Result<SearchReceipt, QpsError> {
-        self.search_text_with_mode(query, top_k, scratch, output, SearchMode::Bounded)
+        self.search_text_with_mode(
+            query,
+            top_k,
+            top_k,
+            scratch,
+            output,
+            SearchMode::Bounded,
+            None,
+        )
+    }
+
+    /// V3 serving path. V2 still performs query planning, traversal, bounded
+    /// candidate selection, and primitive-evidence production. Constitutional
+    /// tiers and this immutable model exclusively own final ordering.
+    pub fn search_v3_into(
+        &self,
+        query: &str,
+        top_k: usize,
+        model: &LinearRankerV3,
+        scratch: &mut SearchScratch,
+        output: &mut Vec<SearchHit>,
+    ) -> Result<SearchReceipt, QpsError> {
+        if !model.is_valid() {
+            return Err(QpsError::InvalidV3Ranker);
+        }
+        self.search_text_with_mode(
+            query,
+            top_k,
+            top_k,
+            scratch,
+            output,
+            SearchMode::Bounded,
+            Some(model),
+        )
+    }
+
+    /// Offline receipt path which preserves the serving candidate selection for
+    /// `top_k` but returns evidence for every selected candidate. Callers must
+    /// pre-size `output` when allocation accounting matters. This never runs on
+    /// the serving path.
+    pub fn search_evidence_into(
+        &self,
+        query: &str,
+        top_k: usize,
+        scratch: &mut SearchScratch,
+        output: &mut Vec<SearchHit>,
+    ) -> Result<SearchReceipt, QpsError> {
+        self.search_text_with_mode(
+            query,
+            top_k,
+            usize::MAX,
+            scratch,
+            output,
+            SearchMode::Bounded,
+            None,
+        )
+    }
+
+    /// Offline V3 receipt path returning the complete frozen V2 candidate pool.
+    pub fn search_v3_evidence_into(
+        &self,
+        query: &str,
+        top_k: usize,
+        model: &LinearRankerV3,
+        scratch: &mut SearchScratch,
+        output: &mut Vec<SearchHit>,
+    ) -> Result<SearchReceipt, QpsError> {
+        if !model.is_valid() {
+            return Err(QpsError::InvalidV3Ranker);
+        }
+        self.search_text_with_mode(
+            query,
+            top_k,
+            usize::MAX,
+            scratch,
+            output,
+            SearchMode::Bounded,
+            Some(model),
+        )
     }
 
     /// Exhaustive positional oracle used to prove bounded candidate recall.
@@ -381,16 +602,27 @@ impl QpsIndex {
         scratch: &mut SearchScratch,
         output: &mut Vec<SearchHit>,
     ) -> Result<SearchReceipt, QpsError> {
-        self.search_text_with_mode(query, top_k, scratch, output, SearchMode::Exhaustive)
+        self.search_text_with_mode(
+            query,
+            top_k,
+            top_k,
+            scratch,
+            output,
+            SearchMode::Exhaustive,
+            None,
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search_text_with_mode(
         &self,
         query: &str,
-        top_k: usize,
+        candidate_top_k: usize,
+        output_limit: usize,
         scratch: &mut SearchScratch,
         output: &mut Vec<SearchHit>,
         mode: SearchMode,
+        v3_ranker: Option<&LinearRankerV3>,
     ) -> Result<SearchReceipt, QpsError> {
         scratch.prepare(self.documents.len(), self.config.maximum_query_groups);
         scratch.begin_query();
@@ -418,7 +650,14 @@ impl QpsIndex {
                 len: scratch.query_expansions.len() as u32 - start,
             });
         }
-        self.search_resolved(top_k, scratch, output, mode)
+        self.search_resolved(
+            candidate_top_k,
+            output_limit,
+            scratch,
+            output,
+            mode,
+            v3_ranker,
+        )
     }
 
     pub fn search_groups_into(
@@ -428,7 +667,78 @@ impl QpsIndex {
         scratch: &mut SearchScratch,
         output: &mut Vec<SearchHit>,
     ) -> Result<SearchReceipt, QpsError> {
-        self.search_groups_with_mode(groups, top_k, scratch, output, SearchMode::Bounded)
+        self.search_groups_with_mode(
+            groups,
+            top_k,
+            top_k,
+            scratch,
+            output,
+            SearchMode::Bounded,
+            None,
+        )
+    }
+
+    pub fn search_groups_v3_into(
+        &self,
+        groups: &[QueryGroup<'_>],
+        top_k: usize,
+        model: &LinearRankerV3,
+        scratch: &mut SearchScratch,
+        output: &mut Vec<SearchHit>,
+    ) -> Result<SearchReceipt, QpsError> {
+        if !model.is_valid() {
+            return Err(QpsError::InvalidV3Ranker);
+        }
+        self.search_groups_with_mode(
+            groups,
+            top_k,
+            top_k,
+            scratch,
+            output,
+            SearchMode::Bounded,
+            Some(model),
+        )
+    }
+
+    /// Explicit-group counterpart to [`Self::search_evidence_into`].
+    pub fn search_groups_evidence_into(
+        &self,
+        groups: &[QueryGroup<'_>],
+        top_k: usize,
+        scratch: &mut SearchScratch,
+        output: &mut Vec<SearchHit>,
+    ) -> Result<SearchReceipt, QpsError> {
+        self.search_groups_with_mode(
+            groups,
+            top_k,
+            usize::MAX,
+            scratch,
+            output,
+            SearchMode::Bounded,
+            None,
+        )
+    }
+
+    pub fn search_groups_v3_evidence_into(
+        &self,
+        groups: &[QueryGroup<'_>],
+        top_k: usize,
+        model: &LinearRankerV3,
+        scratch: &mut SearchScratch,
+        output: &mut Vec<SearchHit>,
+    ) -> Result<SearchReceipt, QpsError> {
+        if !model.is_valid() {
+            return Err(QpsError::InvalidV3Ranker);
+        }
+        self.search_groups_with_mode(
+            groups,
+            top_k,
+            usize::MAX,
+            scratch,
+            output,
+            SearchMode::Bounded,
+            Some(model),
+        )
     }
 
     /// Exhaustive oracle for explicit expansion groups.
@@ -439,16 +749,27 @@ impl QpsIndex {
         scratch: &mut SearchScratch,
         output: &mut Vec<SearchHit>,
     ) -> Result<SearchReceipt, QpsError> {
-        self.search_groups_with_mode(groups, top_k, scratch, output, SearchMode::Exhaustive)
+        self.search_groups_with_mode(
+            groups,
+            top_k,
+            top_k,
+            scratch,
+            output,
+            SearchMode::Exhaustive,
+            None,
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search_groups_with_mode(
         &self,
         groups: &[QueryGroup<'_>],
-        top_k: usize,
+        candidate_top_k: usize,
+        output_limit: usize,
         scratch: &mut SearchScratch,
         output: &mut Vec<SearchHit>,
         mode: SearchMode,
+        v3_ranker: Option<&LinearRankerV3>,
     ) -> Result<SearchReceipt, QpsError> {
         if groups.is_empty() {
             return Err(QpsError::EmptyQuery);
@@ -492,15 +813,24 @@ impl QpsIndex {
                 len: scratch.query_expansions.len() as u32 - start,
             });
         }
-        self.search_resolved(top_k, scratch, output, mode)
+        self.search_resolved(
+            candidate_top_k,
+            output_limit,
+            scratch,
+            output,
+            mode,
+            v3_ranker,
+        )
     }
 
     fn search_resolved(
         &self,
-        top_k: usize,
+        candidate_top_k: usize,
+        output_limit: usize,
         scratch: &mut SearchScratch,
         output: &mut Vec<SearchHit>,
         mode: SearchMode,
+        v3_ranker: Option<&LinearRankerV3>,
     ) -> Result<SearchReceipt, QpsError> {
         let total_started = Instant::now();
         let capacity_before = scratch.capacity_fingerprint() + output.capacity();
@@ -560,11 +890,11 @@ impl QpsIndex {
                     // A single group has no inter-term proximity, order, or
                     // phrase signal. Retain room for field-exact reranking
                     // without paying the multi-term ambiguity budget.
-                    top_k.saturating_mul(4).max(top_k)
+                    candidate_top_k.saturating_mul(4).max(candidate_top_k)
                 } else {
                     self.config
                         .minimum_candidate_pool
-                        .max(top_k.saturating_mul(self.config.candidate_pool_multiplier))
+                        .max(candidate_top_k.saturating_mul(self.config.candidate_pool_multiplier))
                 };
                 requested
                     .min(self.config.maximum_candidate_pool)
@@ -607,6 +937,16 @@ impl QpsIndex {
         };
         let selection_nanos = elapsed_nanos(selection_started);
 
+        // Candidate-generation order is a V3 primitive. Sorting the bounded
+        // pool by the already-computed generation score does not alter its set
+        // or V2's later stable final ordering.
+        let candidate_scores = &scratch.candidate_scores;
+        scratch.selected_candidates.sort_unstable_by(|left, right| {
+            candidate_scores[*right as usize]
+                .total_cmp(&candidate_scores[*left as usize])
+                .then_with(|| left.cmp(right))
+        });
+
         let coherence_started = Instant::now();
         let positional_enabled = self.config.proximity_weight != 0.0
             || self.config.order_weight != 0.0
@@ -626,10 +966,10 @@ impl QpsIndex {
             let document = scratch.selected_candidates[candidate_index];
             let index = document as usize;
             let coverage = scratch.coverage_weight[index] / total_weight;
-            let (coherence, opened_positions) = if positional_enabled {
+            let (coherence, primitive_coherence, opened_positions) = if positional_enabled {
                 self.coherence(document, group_count, scratch)
             } else {
-                (Coherence::default(), 0)
+                (Coherence::default(), PrimitiveCoherence::default(), 0)
             };
             position_values_visited = position_values_visited.saturating_add(opened_positions);
             let multiplier = 1.0
@@ -661,10 +1001,24 @@ impl QpsIndex {
                 token_count: self.documents[index].token_count,
                 expansion_quality,
             });
+            let rank_evidence_v3 = self.rank_evidence_v3(
+                CandidateEvidenceContext {
+                    document,
+                    candidate_rank: candidate_index,
+                    candidate_pool_size: scratch.selected_candidates.len(),
+                    lexical,
+                    coverage,
+                    coherence: primitive_coherence,
+                },
+                scratch,
+            );
+            let relevance_tier =
+                rank_evidence_v3.relevance_tier(primitive_coherence.exact_identifier_field);
             output.push(SearchHit {
                 document: DocumentId(document),
                 external_id: self.documents[index].external_id,
                 score: self.config.learned_ranker.score(baseline_score, features),
+                v2_score: baseline_score,
                 lexical_score: lexical,
                 coverage,
                 proximity: coherence.proximity,
@@ -673,18 +1027,24 @@ impl QpsIndex {
                 segment: coherence.segment,
                 exact_field: coherence.exact_field,
                 rank_features: features,
+                rank_evidence_v3,
+                relevance_tier,
             });
         }
         let coherence_nanos = elapsed_nanos(coherence_started);
         let ordering_started = Instant::now();
-        output.sort_unstable_by(|left, right| {
-            right
-                .score
-                .partial_cmp(&left.score)
-                .unwrap_or(Ordering::Equal)
-                .then_with(|| left.document.cmp(&right.document))
-        });
-        output.truncate(top_k);
+        if let Some(model) = v3_ranker {
+            rerank_v3_prevalidated(model, output, output_limit);
+        } else {
+            output.sort_unstable_by(|left, right| {
+                right
+                    .score
+                    .partial_cmp(&left.score)
+                    .unwrap_or(Ordering::Equal)
+                    .then_with(|| left.document.cmp(&right.document))
+            });
+        }
+        output.truncate(output_limit);
         let ordering_nanos = elapsed_nanos(ordering_started);
         let capacity_after = scratch.capacity_fingerprint() + output.capacity();
         Ok(SearchReceipt {
@@ -756,12 +1116,138 @@ impl QpsIndex {
         range.len
     }
 
+    #[inline]
+    fn rank_evidence_v3(
+        &self,
+        context: CandidateEvidenceContext,
+        scratch: &SearchScratch,
+    ) -> RankEvidenceV3 {
+        let group_count = scratch.query_ranges.len();
+        let field_count = self.field_configs.len();
+        let mut field_lexical = [0.0_f32; RANK_EVIDENCE_V3_FIELD_SLOTS];
+        let mut field_lexical_overflow = 0.0_f32;
+        let mut matched_groups = 0_usize;
+        let mut exact_groups = 0_usize;
+        let mut quality_sum = 0.0_f32;
+        let mut quality_best = 0.0_f32;
+        let mut quality_minimum = 1.0_f32;
+        let mut rarity_sum = 0.0_f32;
+        let mut rarity_maximum = 0.0_f32;
+        let mut has_expansions = false;
+        let mut all_exact_groups = true;
+
+        for group in 0..group_count {
+            let query_range = scratch.query_ranges[group];
+            if query_range.len != 1 {
+                has_expansions = true;
+                all_exact_groups = false;
+            }
+            let choice = context.document as usize * self.config.maximum_query_groups + group;
+            if scratch.choice_stamp[choice] != scratch.epoch {
+                all_exact_groups = false;
+                continue;
+            }
+            let posting = scratch.choices[choice];
+            let Some(expansion) = self.chosen_expansion(group, posting, scratch) else {
+                debug_assert!(false, "chosen posting must belong to its query group");
+                continue;
+            };
+            matched_groups += 1;
+            quality_sum += expansion.quality;
+            quality_best = quality_best.max(expansion.quality);
+            quality_minimum = quality_minimum.min(expansion.quality);
+            let rarity = self.term_rarities[expansion.term as usize];
+            rarity_sum += rarity;
+            rarity_maximum = rarity_maximum.max(rarity);
+            if expansion.quality >= 1.0 - f32::EPSILON {
+                exact_groups += 1;
+            } else {
+                has_expansions = true;
+                all_exact_groups = false;
+            }
+            let field_start = posting as usize * field_count;
+            for (field, contribution) in self.posting_field_impacts
+                [field_start..field_start + field_count]
+                .iter()
+                .enumerate()
+            {
+                let contribution = *contribution * expansion.quality;
+                if field < RANK_EVIDENCE_V3_FIELD_SLOTS {
+                    field_lexical[field] += contribution;
+                } else {
+                    field_lexical_overflow += contribution;
+                }
+            }
+        }
+        if matched_groups == 0 {
+            quality_minimum = 0.0;
+        }
+        let decomposed = field_lexical.iter().sum::<f32>() + field_lexical_overflow;
+        debug_assert!(
+            (decomposed - context.lexical).abs() <= 1.0e-4 * context.lexical.max(1.0),
+            "per-field BM25F decomposition must sum to lexical evidence"
+        );
+        let covered_fields = field_lexical
+            .iter()
+            .take(field_count.min(RANK_EVIDENCE_V3_FIELD_SLOTS))
+            .filter(|value| **value > 0.0)
+            .count()
+            + usize::from(field_lexical_overflow > 0.0);
+        RankEvidenceV3::from_inputs(RankEvidenceInputs {
+            lexical: context.lexical,
+            field_lexical,
+            field_lexical_overflow,
+            weighted_coverage: context.coverage,
+            query_groups: group_count,
+            matched_groups,
+            exact_groups,
+            minimum_complete_span: context.coherence.minimum_complete_span,
+            minimum_ordered_span: context.coherence.minimum_ordered_span,
+            ordered_fraction: context.coherence.ordered_fraction,
+            exact_phrase: context.coherence.exact_phrase,
+            exact_field: context.coherence.exact_field,
+            best_expansion_quality: quality_best,
+            mean_expansion_quality: quality_sum / matched_groups.max(1) as f32,
+            minimum_expansion_quality: quality_minimum,
+            rarest_matched_term: rarity_maximum,
+            mean_matched_term_rarity: rarity_sum / matched_groups.max(1) as f32,
+            document_tokens: self.documents[context.document as usize].token_count,
+            candidate_rank: context.candidate_rank,
+            candidate_pool_size: context.candidate_pool_size,
+            maximum_candidate_pool: self.config.maximum_candidate_pool,
+            maximum_query_groups: self.config.maximum_query_groups,
+            field_count,
+            field_coverage_fraction: covered_fields as f32 / field_count.max(1) as f32,
+            has_expansions,
+            all_exact_groups,
+        })
+    }
+
+    #[inline]
+    fn chosen_expansion(
+        &self,
+        group: usize,
+        posting: u32,
+        scratch: &SearchScratch,
+    ) -> Option<ResolvedExpansion> {
+        let query_range = scratch.query_ranges[group];
+        scratch.query_expansions
+            [query_range.start as usize..query_range.start.saturating_add(query_range.len) as usize]
+            .iter()
+            .copied()
+            .find(|expansion| {
+                let posting_range = self.posting_ranges[expansion.term as usize];
+                posting >= posting_range.start
+                    && posting < posting_range.start.saturating_add(posting_range.len)
+            })
+    }
+
     fn coherence(
         &self,
         document: u32,
         group_count: usize,
         scratch: &mut SearchScratch,
-    ) -> (Coherence, u32) {
+    ) -> (Coherence, PrimitiveCoherence, u32) {
         let field_count = self.field_configs.len();
         let final_field = self.field_range(document, field_count - 1);
         let position_capacity = final_field.start.saturating_add(final_field.len) as usize;
@@ -804,6 +1290,7 @@ impl QpsIndex {
             });
         }
         let mut best = Coherence::default();
+        let mut primitive = PrimitiveCoherence::default();
         let mut best_total = -1.0_f32;
         let signals = CoherenceSignals {
             proximity: self.config.proximity_weight != 0.0,
@@ -834,7 +1321,7 @@ impl QpsIndex {
                 }),
                 "posting-local order must match the position-mask oracle"
             );
-            let measured = measure_field(
+            let (measured, field_evidence) = measure_field_with_evidence(
                 &scratch.positioned_groups[start..cursor],
                 &scratch.chosen_postings,
                 self.field_range(document, field).len,
@@ -852,8 +1339,22 @@ impl QpsIndex {
                 best_total = total;
                 best = measured;
             }
+            primitive.minimum_complete_span = primitive
+                .minimum_complete_span
+                .min(field_evidence.minimum_complete_span);
+            primitive.minimum_ordered_span = primitive
+                .minimum_ordered_span
+                .min(field_evidence.minimum_ordered_span);
+            primitive.ordered_fraction = primitive
+                .ordered_fraction
+                .max(field_evidence.ordered_fraction);
+            primitive.exact_phrase |= field_evidence.exact_phrase;
+            primitive.exact_field |= field_evidence.exact_field;
+            primitive.exact_identifier_field |= field < 64
+                && self.config.v3_exact_identifier_fields & (1_u64 << field) != 0
+                && field_evidence.exact_field;
         }
-        (best, position_values_visited)
+        (best, primitive, position_values_visited)
     }
 
     fn posting_slice(&self, range: PostingRange) -> &[PostingRecord] {
@@ -910,6 +1411,8 @@ impl QpsIndex {
                 + self.field_ranges.len() * size_of::<FieldRange>()
                 + self.posting_ranges.len() * size_of::<PostingRange>()
                 + self.postings.len() * size_of::<PostingRecord>()
+                + self.posting_field_impacts.len() * size_of::<f32>()
+                + self.term_rarities.len() * size_of::<f32>()
                 + self.posting_position_starts.len() * size_of::<u32>()
                 + self.posting_positions.len() * size_of::<PostingPosition>(),
         }

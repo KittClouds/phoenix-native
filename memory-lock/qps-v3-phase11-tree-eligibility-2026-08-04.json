@@ -1,0 +1,29 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase11-tree-eligibility-lock/v1",
+  "audited_at": "2026-08-04",
+  "disposition": "tree_ineligible_linear_model_remains_required",
+  "receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase11-tree-eligibility-v2-e5a659d.json",
+    "bytes": 1166,
+    "sha256": "f5173d3cba26bc68d7d06c470989737cf11b42a25d6ef770fd93ea37105ff6d1"
+  },
+  "gates": {
+    "linear_model_passed_promotion": false,
+    "at_least_10000_reconciled_pairs": false,
+    "residual_interactions_proven": false,
+    "blind_quality_improves_beyond_linear": false,
+    "rank_160_p99_below_15_microseconds": false,
+    "artifact_below_256_kib": false,
+    "constitutional_invariants_preserved": false
+  },
+  "tree_eligible": false,
+  "tree_model_enabled": false,
+  "policy_verified": true,
+  "required_machine": "deterministic monotonic linear V3",
+  "producer_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 2402816,
+    "sha256": "178e3c55036045f21bd2b3a420fc8d36030bdd684d8ec751cf8ead0db6af4e69"
+  },
+  "phase_11_verified": false
+}

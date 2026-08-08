@@ -9,7 +9,9 @@ use graph_model::{
     EdgeId, EdgeVisual, GraphDiff, GraphRevision, GraphSnapshot, NodeId, NodeVisual,
 };
 use phoenix_scene_archive::LabelPriorityRecord;
-use phoenix_scene_contract::{GraphGeneration, GraphReviewOverride, GraphViewState};
+use phoenix_scene_contract::{
+    FamilyMask, GraphGeneration, GraphPalette, GraphReviewOverride, GraphViewState,
+};
 use phoenix_scene_product_index::{
     EdgeProductRecord, NodeProductRecord, PhoenixSceneProductIndexBuilderV1,
     PhoenixSceneProductIndexV1, ProductIndexBinding, ReviewState,
@@ -91,6 +93,22 @@ fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
         after_product.edge_buffer_generation
     );
     assert_eq!(scene.bound_product_hash(), Some(index.header().index_hash));
+    let palette_allocations = scene.allocation_stats();
+    let palette_metrics = scene
+        .apply_graph_palette(&index, GraphPalette::default(), &queue)
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert_eq!(palette_metrics.upload_ranges, 2);
+    assert!(!palette_metrics.bindings_changed);
+    assert_eq!(
+        scene.bound_product_hash(),
+        Some(index.header().index_hash),
+        "palette uploads must preserve product-index authority"
+    );
+    assert_eq!(
+        palette_allocations,
+        scene.allocation_stats(),
+        "palette uploads must preserve all resident GPU allocations"
+    );
     let review_allocations = scene.allocation_stats();
     let overlay = scene
         .apply_review_overrides(
@@ -312,7 +330,7 @@ fn node(id: u64) -> NodeVisual {
 fn product_node(node_id: u64) -> NodeProductRecord {
     NodeProductRecord {
         node_id,
-        family_mask: 1,
+        family_mask: FamilyMask::ENTITIES.0 | FamilyMask::CHARACTERS.0,
         scope_mask: 1,
         review_mask: ReviewState::Accepted as u32,
         label_offset: 0,

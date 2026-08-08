@@ -253,6 +253,23 @@ impl PhoenixShell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.start_scene_rebuild(true, window, cx);
+    }
+
+    pub(super) fn start_registry_graph_refresh(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_scene_rebuild(false, window, cx);
+    }
+
+    fn start_scene_rebuild(
+        &mut self,
+        force_caps: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.graph_rebuild_pending || self.analysis_warm_pending {
             return;
         }
@@ -270,10 +287,11 @@ impl PhoenixShell {
                 match result {
                     Ok(command) => match command.outcome {
                         KernelOutcome::GraphRebuilt(receipt) => {
-                            let caps = this
-                                .kernel
-                                .execute(KernelCommand::SetManifold(Manifold::Caps));
-                            if let Err(error) = caps {
+                            let caps = force_caps.then(|| {
+                                this.kernel
+                                    .execute(KernelCommand::SetManifold(Manifold::Caps))
+                            });
+                            if let Some(Err(error)) = caps {
                                 lifecycle::mark_proof_failed();
                                 this.status = format!(
                                     "PIPELINE PUBLISHED / G{} / CAPS BLOCKED / {error}",
@@ -292,7 +310,7 @@ impl PhoenixShell {
                             match sync {
                                 Some(Ok(())) => {
                                     this.status = format!(
-                                        "PIPELINE LIVE / G{} / CAPS / {}N / {}E / {} US",
+                                        "PIPELINE LIVE / G{} / {}N / {}E / {} US",
                                         receipt.publication.generation_id,
                                         receipt.publication.node_count,
                                         receipt.publication.edge_count,
@@ -359,7 +377,7 @@ impl PhoenixShell {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let body = match self.drawer_tab {
-            DrawerTab::Graph => self.render_graph_drawer(cx),
+            DrawerTab::Graph => self.render_graph_drawer(window, cx),
             DrawerTab::AtlasControl => self.render_atlas_control(window, cx).into_any_element(),
             _ => scene_error_panel(
                 "PHX_DORMANT_SURFACE",
@@ -381,20 +399,34 @@ impl PhoenixShell {
             .child(body)
     }
 
-    fn render_graph_drawer(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn render_graph_drawer(&self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let atlas_width = self.drawer_layout.atlas_width();
+        let shell_budget = super::layout::shell_width_budget(
+            f32::from(window.viewport_size().width),
+            self.left_open,
+            self.right_open,
+            self.left_sidebar_width,
+            self.right_sidebar_width,
+        );
+        let split_budget = super::layout::split_width_budget(
+            shell_budget.center_width,
+            atlas_width,
+            ATLAS_MIN_WIDTH,
+            ATLAS_MAX_WIDTH,
+            GRAPH_MIN_WIDTH,
+        );
         let shell = cx.entity().clone();
         let split_id = atlas_split_id(self.left_open, self.right_open);
         let split = h_resizable(split_id)
             .child(
                 resizable_panel()
-                    .size(px(atlas_width))
-                    .size_range(px(ATLAS_MIN_WIDTH)..px(ATLAS_MAX_WIDTH))
+                    .size(px(split_budget.sidebar_width))
+                    .size_range(px(split_budget.sidebar_min)..px(ATLAS_MAX_WIDTH))
                     .child(self.render_atlas_sidebar(cx)),
             )
             .child(
                 resizable_panel()
-                    .size_range(px(GRAPH_MIN_WIDTH)..gpui::Pixels::MAX)
+                    .size_range(px(split_budget.content_min)..gpui::Pixels::MAX)
                     .child(self.render_graph_panel()),
             )
             .on_resize(move |state, _, cx| {

@@ -15,28 +15,33 @@ pub const SHARED_MANIFOLD: u8 = u8::MAX;
 #[repr(u8)]
 pub enum ArchiveManifold {
     Hybrid = 0,
-    Hopf = 1,
+    Torus = 1,
     Caps = 2,
     Transit = 3,
     Siegel = 4,
+    Hopf = 5,
 }
 
 impl ArchiveManifold {
-    pub const ALL: [Self; 5] = [
+    /// Storage order. Keep existing discriminants stable and append new
+    /// manifolds so an old Hopf page remains the Torus geometry it contained.
+    pub const ALL: [Self; 6] = [
         Self::Hybrid,
-        Self::Hopf,
+        Self::Torus,
         Self::Caps,
         Self::Transit,
         Self::Siegel,
+        Self::Hopf,
     ];
 
     pub(crate) fn decode(raw: u8) -> Result<Self, ArchiveError> {
         match raw {
             0 => Ok(Self::Hybrid),
-            1 => Ok(Self::Hopf),
+            1 => Ok(Self::Torus),
             2 => Ok(Self::Caps),
             3 => Ok(Self::Transit),
             4 => Ok(Self::Siegel),
+            5 => Ok(Self::Hopf),
             _ => Err(ArchiveError::CorruptDirectory(
                 "invalid manifold discriminator",
             )),

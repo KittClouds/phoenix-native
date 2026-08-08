@@ -1,0 +1,63 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase9-performance-readiness-lock/v1",
+  "audited_at": "2026-08-04",
+  "disposition": "compute_equivalent_readiness_passed_actual_model_pending",
+  "kernel_receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase9-kernel-readiness-v3-e5a659d.json",
+    "bytes": 1784,
+    "sha256": "632a028c76a2a65d6c665faa09a3c67cae38368fec6de0b6ab7406eec2bb41ac"
+  },
+  "e2e_receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase9-e2e-readiness-v2-e5a659d.json",
+    "bytes": 2060,
+    "sha256": "6b616d693d30d3ac3b7cbaa7c6481833ac6a210cc1f91b3a23a550dc170d9fde"
+  },
+  "kernel": {
+    "candidates": 160,
+    "top_k": 10,
+    "repetitions": 50000,
+    "p50_nanos": 2400,
+    "p95_nanos": 4300,
+    "p99_nanos": 4600,
+    "target_p99_nanos": 10000,
+    "promotion_target_p99_nanos": 8000,
+    "allocation_growths": 0,
+    "determinism_failures": 0
+  },
+  "e2e_longmemeval": {
+    "queries": 500,
+    "samples": 8000,
+    "v3_p99_nanos": 799200,
+    "target_p99_nanos": 1000000,
+    "paired_ordering_overhead_p99_nanos": 1300,
+    "paired_overhead_target_nanos": 15000,
+    "candidate_pool_mismatches": 0,
+    "primitive_evidence_mismatches": 0,
+    "warm_allocation_growths": 0,
+    "determinism_failures": 0
+  },
+  "hot_path": {
+    "simd": true,
+    "allocations_per_query": 0,
+    "locks": 0,
+    "io": 0,
+    "hashing": 0,
+    "candidate_cap": 160,
+    "artifact_below_64_kib": true
+  },
+  "readiness_verified": true,
+  "model_bound_qualification_contract": "phoenix.memory.qps-v3-performance-qualification/v1",
+  "model_bound_qualification_implemented": true,
+  "producer_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 2402816,
+    "sha256": "178e3c55036045f21bd2b3a420fc8d36030bdd684d8ec751cf8ead0db6af4e69"
+  },
+  "current_qualification_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 2438144,
+    "sha256": "260785b1f90643ad782a71bacc14c074e7fa372483424a366a72263a9812df71"
+  },
+  "phase_9_verified": false,
+  "phase_9_unverified_reason": "the actual trained Phase 7 model does not exist until Phase 5 is qualified"
+}

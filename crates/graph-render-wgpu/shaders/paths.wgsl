@@ -30,7 +30,8 @@ struct NodeProductGpu {
     scope_mask: vec2<u32>,
     review_mask: u32,
     enabled: u32,
-    _padding: vec2<u32>,
+    context_visible: u32,
+    _padding: u32,
 };
 
 struct EdgeGpu {
@@ -87,25 +88,7 @@ fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
 }
 
 fn family_visible(product_mask: vec2<u32>) -> bool {
-    if (intersects(product_mask, lens.family_mask)) {
-        return true;
-    }
-    let entity_detail = (product_mask.x & 0x00ff0000u) != 0u
-        && (lens.family_mask.x & 0x000000ffu) != 0u;
-    let structure_detail = (product_mask.x & 0x7f000000u) != 0u
-        && (lens.family_mask.x & 0x00000100u) != 0u;
-    let fact_detail = ((product_mask.x & 0x80000000u) != 0u
-        || (product_mask.y & 0x0000001fu) != 0u)
-        && (lens.family_mask.x & 0x00000200u) != 0u;
-    let discourse_detail = (product_mask.y & 0x00000030u) != 0u
-        && (lens.family_mask.x & 0x00000400u) != 0u;
-    return entity_detail || structure_detail || fact_detail || discourse_detail;
-}
-
-fn entity_lane_visible(product_mask: vec2<u32>) -> bool {
-    let product_lanes = product_mask.x & 0x00ff0000u;
-    return product_lanes == 0u
-        || (product_lanes & lens.entity_family_mask.x) != 0u;
+    return intersects(product_mask, lens.family_mask);
 }
 
 fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
@@ -117,13 +100,27 @@ fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
         || intersects(product_lanes, lens.topology_family_mask);
 }
 
-fn node_visible(product: NodeProductGpu) -> bool {
-    return product.enabled != 0u
-        && family_visible(product.family_mask)
-        && entity_lane_visible(product.family_mask)
-        && topology_lane_visible(product.family_mask)
-        && intersects(product.scope_mask, lens.scope_mask)
-        && (product.review_mask & lens.review_mask) != 0u;
+fn primary_edge_family(product: EdgeProductGpu) -> vec2<u32> {
+    let relation = product.relation_mask.x;
+    if ((relation & 0x20u) != 0u) {
+        return vec2<u32>(0x100u | (product.family_mask.x & 0x7f000000u), 0u);
+    }
+    if ((relation & 0x01u) != 0u) {
+        if ((product.family_mask.x & 0x400u) != 0u) {
+            return vec2<u32>(0x400u, 0x20u);
+        }
+        return vec2<u32>(product.family_mask.x & 0xff0007ffu, product.family_mask.y & 0x3fu);
+    }
+    if ((relation & 0x02u) != 0u) {
+        return vec2<u32>(0x100u | (product.family_mask.x & 0x7f000000u), 0u);
+    }
+    if ((relation & 0x40u) != 0u) { return vec2<u32>(0x400u, 0x10u); }
+    if ((relation & 0x80u) != 0u) { return vec2<u32>(0x200u, 0x01u); }
+    if ((relation & 0x100u) != 0u) { return vec2<u32>(0x80000200u, 0u); }
+    if ((relation & 0x200u) != 0u) { return vec2<u32>(0x200u, 0x08u); }
+    if ((relation & 0x08u) != 0u) { return vec2<u32>(0x200u, 0x04u); }
+    if ((relation & 0x10u) != 0u) { return vec2<u32>(0x200u, 0x02u); }
+    return vec2<u32>(product.family_mask.x & 0xff0007ffu, product.family_mask.y & 0x3fu);
 }
 
 fn visible(segment: PreparedSegmentGpu) -> bool {
@@ -131,16 +128,13 @@ fn visible(segment: PreparedSegmentGpu) -> bool {
         return true;
     }
     let product = edge_products[segment.edge_slot];
-    let edge = edges[segment.edge_slot];
+    let primary_family = primary_edge_family(product);
     return product.enabled != 0u
-        && family_visible(product.family_mask)
-        && entity_lane_visible(product.family_mask)
-        && topology_lane_visible(product.family_mask)
+        && family_visible(primary_family)
+        && topology_lane_visible(primary_family)
         && intersects(product.scope_mask, lens.scope_mask)
         && intersects(product.relation_mask, lens.relation_mask)
-        && (product.review_mask & lens.review_mask) != 0u
-        && node_visible(node_products[edge.source_slot])
-        && node_visible(node_products[edge.target_slot]);
+        && (product.review_mask & lens.review_mask) != 0u;
 }
 
 @vertex
@@ -179,7 +173,13 @@ fn vs_main(
         vec4<f32>(ndc * clip.w, clip.z, clip.w),
         is_visible,
     );
-    output.color = segment.color;
+    // Guides own decorative colors. Every topology path reads the live edge
+    // buffer so all manifolds share one palette and stable edge-slot contract.
+    var projected_color = segment.color;
+    if ((segment.flags & 1u) == 0u) {
+        projected_color = edges[segment.edge_slot].color;
+    }
+    output.color = projected_color;
     output.side = side;
     output.visible = select(0u, 1u, is_visible);
     output.edge_slot = segment.edge_slot;

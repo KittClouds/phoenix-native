@@ -12,6 +12,8 @@ pub enum HighlightMode {
     Off,
     #[default]
     Subtle,
+    /// Compact color-tag paint: readable toned text over a tinted surface and
+    /// restrained border derived from the semantic role color.
     Vivid,
 }
 
@@ -80,6 +82,8 @@ pub struct HighlightPalette {
     #[serde(default = "default_creature_palette")]
     pub creature: FamilyPalette,
     pub other: FamilyPalette,
+    #[serde(default)]
+    pub graph: crate::GraphPalette,
 }
 
 impl Default for HighlightPalette {
@@ -96,6 +100,7 @@ impl Default for HighlightPalette {
             network: default_network_palette(),
             creature: default_creature_palette(),
             other: family(0x71817b, 0x4b6b61),
+            graph: crate::GraphPalette::default(),
         }
     }
 }
@@ -133,7 +138,34 @@ impl HighlightPalette {
         ] {
             palette.validate()?;
         }
+        if !self.graph.is_valid() {
+            return Err(HighlightContractError::InvalidPalette);
+        }
         Ok(())
+    }
+
+    pub fn set_graph_color(&mut self, key: crate::GraphColorKey, color: [f32; 4]) {
+        self.graph.set_color(key, color);
+        let Some(family) = key.entity_family() else {
+            return;
+        };
+        self.for_family_mut(family).primary = color;
+    }
+
+    fn for_family_mut(&mut self, family: EntityFamily) -> &mut FamilyPalette {
+        match family {
+            EntityFamily::Character => &mut self.character,
+            EntityFamily::Location => &mut self.location,
+            EntityFamily::Organization => &mut self.organization,
+            EntityFamily::Item => &mut self.item,
+            EntityFamily::Concept => &mut self.concept,
+            EntityFamily::Event => &mut self.event,
+            EntityFamily::Structure => &mut self.structure,
+            EntityFamily::Npc => &mut self.npc,
+            EntityFamily::Network => &mut self.network,
+            EntityFamily::Creature => &mut self.creature,
+            EntityFamily::Other => &mut self.other,
+        }
     }
 }
 

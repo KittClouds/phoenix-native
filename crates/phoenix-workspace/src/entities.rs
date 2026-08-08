@@ -93,6 +93,8 @@ pub struct EntityRegistry {
     ner_revision: u64,
     entities: Vec<RegistryEntity>,
     mentions: Vec<ManualEntityMention>,
+    #[serde(default)]
+    suppressed_ner_entities: Vec<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,6 +113,20 @@ pub struct EntityTagResult {
     pub registry_revision: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RegistryEntityDraft {
+    pub label: String,
+    pub kind: EntityKind,
+    pub custom_kind: Option<String>,
+    pub origin_document: Option<EntryId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RegistryEntityEditResult {
+    pub entity_id: u64,
+    pub registry_revision: u64,
+}
+
 impl EntityRegistry {
     pub fn empty() -> Self {
         Self {
@@ -119,6 +135,7 @@ impl EntityRegistry {
             ner_revision: 0,
             entities: Vec::new(),
             mentions: Vec::new(),
+            suppressed_ner_entities: Vec::new(),
         }
     }
 
@@ -181,6 +198,86 @@ impl EntityRegistry {
 
     pub fn mentions(&self) -> &[ManualEntityMention] {
         &self.mentions
+    }
+
+    pub fn create_entity(
+        &mut self,
+        mut draft: RegistryEntityDraft,
+    ) -> Result<RegistryEntityEditResult, WorkspaceError> {
+        normalize_entity_draft(&mut draft)?;
+        if self.entities.len() >= MAX_ENTITIES {
+            return Err(WorkspaceError::EntityLimit);
+        }
+        let entity_id = stable_manual_entity_id(&draft, self.revision, &self.entities)?;
+        self.entities.push(RegistryEntity {
+            id: entity_id,
+            label: draft.label,
+            kind: draft.kind,
+            custom_kind: draft.custom_kind,
+            origin_document: draft.origin_document,
+            sources: EntitySourceMask::USER_TAGGED,
+            ner_mention_count: 0,
+        });
+        self.bump_revision()?;
+        self.sort();
+        Ok(RegistryEntityEditResult {
+            entity_id,
+            registry_revision: self.revision,
+        })
+    }
+
+    pub fn update_entity(
+        &mut self,
+        entity_id: u64,
+        mut draft: RegistryEntityDraft,
+    ) -> Result<RegistryEntityEditResult, WorkspaceError> {
+        normalize_entity_draft(&mut draft)?;
+        let entity = self
+            .entities
+            .iter_mut()
+            .find(|entity| entity.id == entity_id)
+            .ok_or(WorkspaceError::EntityNotFound(entity_id))?;
+        entity.label = draft.label;
+        entity.kind = draft.kind;
+        entity.custom_kind = draft.custom_kind;
+        entity.origin_document = draft.origin_document.or(entity.origin_document);
+        entity.sources.user_tagged = true;
+        self.suppressed_ner_entities
+            .retain(|suppressed| *suppressed != entity_id);
+        self.bump_revision()?;
+        self.sort();
+        Ok(RegistryEntityEditResult {
+            entity_id,
+            registry_revision: self.revision,
+        })
+    }
+
+    pub fn delete_entity(
+        &mut self,
+        entity_id: u64,
+    ) -> Result<RegistryEntityEditResult, WorkspaceError> {
+        let index = self
+            .entities
+            .iter()
+            .position(|entity| entity.id == entity_id)
+            .ok_or(WorkspaceError::EntityNotFound(entity_id))?;
+        if self.entities[index].sources.ner
+            && self
+                .suppressed_ner_entities
+                .binary_search(&entity_id)
+                .is_err()
+        {
+            self.suppressed_ner_entities.push(entity_id);
+        }
+        self.entities.swap_remove(index);
+        self.mentions
+            .retain(|mention| mention.entity_id != entity_id);
+        self.bump_revision()?;
+        self.sort();
+        Ok(RegistryEntityEditResult {
+            entity_id,
+            registry_revision: self.revision,
+        })
     }
 
     pub fn active_mentions_for<'a>(
@@ -325,7 +422,15 @@ impl EntityRegistry {
             });
         }
 
-        let mut incoming = records.to_vec();
+        let mut incoming = records
+            .iter()
+            .filter(|record| {
+                self.suppressed_ner_entities
+                    .binary_search(&record.stable_id)
+                    .is_err()
+            })
+            .cloned()
+            .collect::<Vec<_>>();
         incoming.sort_unstable_by_key(|record| record.stable_id);
         for pair in incoming.windows(2) {
             if pair[0].stable_id == pair[1].stable_id {
@@ -348,14 +453,9 @@ impl EntityRegistry {
             }) {
                 return Err(WorkspaceError::EntityIdentityConflict(record.stable_id));
             }
-            if let Some(entity) = user_identities.get(&record.stable_id) {
-                if entity.label != record.label
-                    || entity.kind != record.kind
-                    || entity.custom_kind != record.custom_kind
-                {
-                    return Err(WorkspaceError::EntityIdentityConflict(record.stable_id));
-                }
-            }
+            // User authority is an explicit override for a producer identity.
+            // The incoming record may refresh mention counts, but it cannot
+            // replace a label or kind that the registry editor owns.
         }
         let user_entity_count = user_identities.len();
         let incoming_without_user_identity = incoming
@@ -386,9 +486,11 @@ impl EntityRegistry {
                 .iter_mut()
                 .find(|entity| entity.id == record.stable_id)
             {
-                entity.label = record.label;
-                entity.kind = record.kind;
-                entity.custom_kind = record.custom_kind;
+                if !entity.sources.user_tagged {
+                    entity.label = record.label;
+                    entity.kind = record.kind;
+                    entity.custom_kind = record.custom_kind;
+                }
                 entity.sources.ner = true;
                 entity.ner_mention_count = record.mention_count;
             } else {
@@ -479,6 +581,19 @@ impl EntityRegistry {
                 ));
             }
         }
+        if self
+            .suppressed_ner_entities
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+            || self
+                .suppressed_ner_entities
+                .iter()
+                .any(|id| *id == 0 || self.entities.iter().any(|entity| entity.id == *id))
+        {
+            return Err(WorkspaceError::InvalidEntityRegistry(
+                "invalid suppressed NER identity set".into(),
+            ));
+        }
         for mention in &self.mentions {
             let start = mention.start as usize;
             let end = mention.end as usize;
@@ -516,7 +631,46 @@ impl EntityRegistry {
                 mention.entity_id,
             )
         });
+        self.suppressed_ner_entities.sort_unstable();
+        self.suppressed_ner_entities.dedup();
     }
+}
+
+fn normalize_entity_draft(draft: &mut RegistryEntityDraft) -> Result<(), WorkspaceError> {
+    draft.label = draft.label.trim().to_owned();
+    draft.custom_kind = draft
+        .custom_kind
+        .take()
+        .map(|kind| kind.trim().to_owned())
+        .filter(|kind| !kind.is_empty());
+    if draft.label.is_empty() || draft.label.len() > MAX_SURFACE_BYTES {
+        return Err(WorkspaceError::InvalidEntityRegistry(
+            "entity label is empty or oversized".into(),
+        ));
+    }
+    validate_kind(draft.kind, draft.custom_kind.as_deref())
+}
+
+fn stable_manual_entity_id(
+    draft: &RegistryEntityDraft,
+    revision: u64,
+    entities: &[RegistryEntity],
+) -> Result<u64, WorkspaceError> {
+    for nonce in 0_u32..=u32::MAX {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"phoenix-native-manual-registry-entity/v1");
+        hasher.update(&revision.to_le_bytes());
+        hasher.update(&[draft.kind as u8]);
+        hasher.update(draft.label.as_bytes());
+        hasher.update(&nonce.to_le_bytes());
+        let mut bytes = [0_u8; 8];
+        bytes.copy_from_slice(&hasher.finalize().as_bytes()[..8]);
+        let candidate = u64::from_le_bytes(bytes);
+        if candidate != 0 && entities.iter().all(|entity| entity.id != candidate) {
+            return Ok(candidate);
+        }
+    }
+    Err(WorkspaceError::EntityIdentityExhausted)
 }
 
 fn normalize_tag(lease: &DocumentLease, tag: &mut EntityTag) -> Result<(), WorkspaceError> {
@@ -809,6 +963,123 @@ mod tests {
                 && entity.origin_document == Some(document_b)
                 && entity.ner_mention_count == 4
         }));
+        Ok(())
+    }
+
+    #[test]
+    fn registry_editor_override_survives_ner_refresh() -> Result<(), WorkspaceError> {
+        let mut registry = EntityRegistry::empty();
+        let document = EntryId(41);
+        let initial = NerEntityRecord {
+            stable_id: 101,
+            label: "Ghoul".into(),
+            kind: EntityKind::Custom,
+            custom_kind: Some("ENTITY".into()),
+            mention_count: 7,
+        };
+        registry.publish_document_ner(document, 2, std::slice::from_ref(&initial))?;
+
+        registry.update_entity(
+            initial.stable_id,
+            RegistryEntityDraft {
+                label: "Ghoul Prime".into(),
+                kind: EntityKind::Character,
+                custom_kind: None,
+                origin_document: Some(document),
+            },
+        )?;
+        registry.publish_document_ner(
+            document,
+            3,
+            &[NerEntityRecord {
+                mention_count: 52,
+                ..initial
+            }],
+        )?;
+
+        let entity = registry
+            .entities()
+            .iter()
+            .find(|entity| entity.id == 101)
+            .ok_or(WorkspaceError::EntityNotFound(101))?;
+        assert_eq!(entity.label, "Ghoul Prime");
+        assert_eq!(entity.kind, EntityKind::Character);
+        assert_eq!(entity.custom_kind, None);
+        assert_eq!(entity.ner_mention_count, 52);
+        assert_eq!(
+            entity.sources,
+            EntitySourceMask {
+                ner: true,
+                user_tagged: true
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deleted_ner_identity_is_suppressed_across_refresh_and_restart() -> Result<(), WorkspaceError>
+    {
+        let (path, _workspace, _lease) = fixture()?;
+        let mut registry = EntityRegistry::empty();
+        let document = EntryId(41);
+        let record = NerEntityRecord {
+            stable_id: 101,
+            label: "Ghoul".into(),
+            kind: EntityKind::Character,
+            custom_kind: None,
+            mention_count: 7,
+        };
+        registry.publish_document_ner(document, 2, std::slice::from_ref(&record))?;
+        registry.delete_entity(record.stable_id)?;
+        registry.save_atomic(&path)?;
+
+        let mut reopened = EntityRegistry::load_or_empty(&path)?;
+        reopened.publish_document_ner(document, 3, std::slice::from_ref(&record))?;
+        assert!(reopened
+            .entities()
+            .iter()
+            .all(|entity| entity.id != record.stable_id));
+        let _ = fs::remove_dir_all(path.parent().expect("fixture parent"));
+        Ok(())
+    }
+
+    #[test]
+    fn manual_entity_lifecycle_is_revisioned_and_user_owned() -> Result<(), WorkspaceError> {
+        let mut registry = EntityRegistry::empty();
+        let created = registry.create_entity(RegistryEntityDraft {
+            label: "  The Augusti  ".into(),
+            kind: EntityKind::Faction,
+            custom_kind: None,
+            origin_document: None,
+        })?;
+        assert_eq!(created.registry_revision, 2);
+        let entity = registry
+            .entities()
+            .iter()
+            .find(|entity| entity.id == created.entity_id)
+            .ok_or(WorkspaceError::EntityNotFound(created.entity_id))?;
+        assert_eq!(entity.label, "The Augusti");
+        assert_eq!(entity.sources, EntitySourceMask::USER_TAGGED);
+
+        let updated = registry.update_entity(
+            created.entity_id,
+            RegistryEntityDraft {
+                label: "Augusti".into(),
+                kind: EntityKind::Network,
+                custom_kind: None,
+                origin_document: None,
+            },
+        )?;
+        assert_eq!(updated.registry_revision, 3);
+        assert_eq!(registry.entities()[0].kind, EntityKind::Network);
+
+        let deleted = registry.delete_entity(created.entity_id)?;
+        assert_eq!(deleted.registry_revision, 4);
+        assert!(registry.entities().is_empty());
+        assert!(matches!(
+            registry.delete_entity(created.entity_id),
+            Err(WorkspaceError::EntityNotFound(id)) if id == created.entity_id
+        ));
         Ok(())
     }
 

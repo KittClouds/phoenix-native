@@ -22,7 +22,8 @@ struct NodeProductGpu {
     scope_mask: vec2<u32>,
     review_mask: u32,
     enabled: u32,
-    _padding: vec2<u32>,
+    context_visible: u32,
+    _padding: u32,
 };
 
 struct GraphLensUniform {
@@ -51,6 +52,7 @@ struct VertexOutput {
     @location(2) @interpolate(flat) flags: u32,
     @location(3) @interpolate(flat) visible: u32,
     @location(4) @interpolate(flat) kind: u32,
+    @location(5) @interpolate(flat) context_only: u32,
 };
 
 // Screen-space geometry contract. Semantic radius may grow for hubs, centroids,
@@ -93,26 +95,18 @@ fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
 }
 
 fn entity_lane_visible(product_mask: vec2<u32>) -> bool {
+    // Semantic products own their structure/fact/discourse identity. Their
+    // entity bits are secondary aura context and never gate their body.
+    if ((product_mask.x & 0x00000700u) != 0u) {
+        return true;
+    }
     let product_lanes = product_mask.x & 0x00ff0000u;
     return product_lanes == 0u
         || (product_lanes & lens.entity_family_mask.x) != 0u;
 }
 
 fn family_visible(product_mask: vec2<u32>) -> bool {
-    let selected = lens.family_mask;
-    if ((product_mask.x & selected.x) | (product_mask.y & selected.y)) != 0u {
-        return true;
-    }
-    let entity_detail = (product_mask.x & 0x00ff0000u) != 0u
-        && (selected.x & 0x000000ffu) != 0u;
-    let structure_detail = (product_mask.x & 0x7f000000u) != 0u
-        && (selected.x & 0x00000100u) != 0u;
-    let fact_detail = ((product_mask.x & 0x80000000u) != 0u
-        || (product_mask.y & 0x0000001fu) != 0u)
-        && (selected.x & 0x00000200u) != 0u;
-    let discourse_detail = (product_mask.y & 0x00000030u) != 0u
-        && (selected.x & 0x00000400u) != 0u;
-    return entity_detail || structure_detail || fact_detail || discourse_detail;
+    return intersects(product_mask, lens.family_mask);
 }
 
 fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
@@ -124,16 +118,52 @@ fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
         || intersects(product_lanes, lens.topology_family_mask);
 }
 
-fn node_visible(product: NodeProductGpu) -> bool {
+fn primary_node_family(mask: vec2<u32>) -> vec2<u32> {
+    if ((mask.x & 0x01000000u) != 0u) { return vec2<u32>(0x01000100u, 0u); }
+    if ((mask.x & 0x02000000u) != 0u) { return vec2<u32>(0x02000100u, 0u); }
+    if ((mask.x & 0x10000000u) != 0u) { return vec2<u32>(0x10000100u, 0u); }
+    if ((mask.x & 0x20000000u) != 0u) { return vec2<u32>(0x20000100u, 0u); }
+    if ((mask.x & 0x40000000u) != 0u) { return vec2<u32>(0x40000100u, 0u); }
+    if ((mask.x & 0x04000000u) != 0u) { return vec2<u32>(0x04000100u, 0u); }
+    if ((mask.x & 0x08000000u) != 0u) { return vec2<u32>(0x08000100u, 0u); }
+    if ((mask.x & 0x80000000u) != 0u) { return vec2<u32>(0x80000200u, 0u); }
+    if ((mask.y & 0x01u) != 0u) { return vec2<u32>(0x200u, 0x01u); }
+    if ((mask.y & 0x02u) != 0u) { return vec2<u32>(0x200u, 0x02u); }
+    if ((mask.y & 0x04u) != 0u) { return vec2<u32>(0x200u, 0x04u); }
+    if ((mask.y & 0x08u) != 0u) { return vec2<u32>(0x200u, 0x08u); }
+    if ((mask.y & 0x10u) != 0u) { return vec2<u32>(0x400u, 0x10u); }
+    if ((mask.y & 0x20u) != 0u) { return vec2<u32>(0x400u, 0x20u); }
+    if ((mask.x & 0x100u) != 0u) { return vec2<u32>(0x100u, 0u); }
+    if ((mask.x & 0x200u) != 0u) { return vec2<u32>(0x200u, 0u); }
+    if ((mask.x & 0x400u) != 0u) { return vec2<u32>(0x400u, 0u); }
+    return vec2<u32>(mask.x & 0xffu, 0u);
+}
+
+fn node_primary_visible(product: NodeProductGpu) -> bool {
     if (lens.product_index_enabled == 0u) {
         return true;
     }
+    let primary_family = primary_node_family(product.family_mask);
     return product.enabled != 0u
-        && family_visible(product.family_mask)
+        && family_visible(primary_family)
         && entity_lane_visible(product.family_mask)
-        && topology_lane_visible(product.family_mask)
+        && topology_lane_visible(primary_family)
         && intersects(product.scope_mask, lens.scope_mask)
         && (product.review_mask & lens.review_mask) != 0u;
+}
+
+fn node_context_visible(product: NodeProductGpu) -> bool {
+    let primary_family = primary_node_family(product.family_mask);
+    return product.context_visible != 0u
+        && product.enabled != 0u
+        && entity_lane_visible(product.family_mask)
+        && topology_lane_visible(primary_family)
+        && intersects(product.scope_mask, lens.scope_mask)
+        && (product.review_mask & lens.review_mask) != 0u;
+}
+
+fn node_visible(product: NodeProductGpu) -> bool {
+    return node_primary_visible(product) || node_context_visible(product);
 }
 
 // Product pages carry the authoritative high-bit entity lanes. Keep this
@@ -166,7 +196,9 @@ fn vs_main(
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
     let node = nodes[instance_index];
-    let is_visible = node_visible(node_products[instance_index]);
+    let product = node_products[instance_index];
+    let is_primary = node_primary_visible(product);
+    let is_visible = is_primary || node_context_visible(product);
     let corners = array<vec2<f32>, 4>(
         vec2<f32>(-1.0, -1.0),
         vec2<f32>( 1.0, -1.0),
@@ -201,6 +233,7 @@ fn vs_main(
     output.color = node.color;
     output.flags = flags;
     output.visible = select(0u, 1u, is_visible);
+    output.context_only = select(1u, 0u, is_primary);
     var kind = node.kind_flags >> 16u;
     // An unfiltered renderer uses the sentinel all-ones product page.  Do
     // not interpret that sentinel as a character lane; only an installed,
@@ -248,6 +281,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     var color = input.color;
+    if (input.context_only != 0u) {
+        color.a *= 0.30;
+    }
     let sphere_xy = input.uv * min(1.0, 1.0 / max(distance, 0.0001));
     let sphere_z = sqrt(max(0.0, 1.0 - dot(sphere_xy, sphere_xy)));
     let sphere_normal = normalize(vec3<f32>(sphere_xy, sphere_z));

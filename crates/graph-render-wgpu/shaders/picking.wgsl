@@ -22,7 +22,8 @@ struct NodeProductGpu {
     scope_mask: vec2<u32>,
     review_mask: u32,
     enabled: u32,
-    _padding: vec2<u32>,
+    context_visible: u32,
+    _padding: u32,
 };
 
 struct GraphLensUniform {
@@ -83,22 +84,13 @@ fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
 // usually selects the broad family bit.  A plain mask intersection makes
 // those nodes unpickable even though the visible pass correctly renders them.
 fn family_visible(product_mask: vec2<u32>) -> bool {
-    if (intersects(product_mask, lens.family_mask)) {
-        return true;
-    }
-    let entity_detail = (product_mask.x & 0x00ff0000u) != 0u
-        && (lens.family_mask.x & 0x000000ffu) != 0u;
-    let structure_detail = (product_mask.x & 0x7f000000u) != 0u
-        && (lens.family_mask.x & 0x00000100u) != 0u;
-    let fact_detail = ((product_mask.x & 0x80000000u) != 0u
-        || (product_mask.y & 0x0000001fu) != 0u)
-        && (lens.family_mask.x & 0x00000200u) != 0u;
-    let discourse_detail = (product_mask.y & 0x00000030u) != 0u
-        && (lens.family_mask.x & 0x00000400u) != 0u;
-    return entity_detail || structure_detail || fact_detail || discourse_detail;
+    return intersects(product_mask, lens.family_mask);
 }
 
 fn entity_lane_visible(product_mask: vec2<u32>) -> bool {
+    if ((product_mask.x & 0x00000700u) != 0u) {
+        return true;
+    }
     let product_lanes = product_mask.x & 0x00ff0000u;
     return product_lanes == 0u
         || (product_lanes & lens.entity_family_mask.x) != 0u;
@@ -113,16 +105,52 @@ fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
         || intersects(product_lanes, lens.topology_family_mask);
 }
 
-fn node_visible(product: NodeProductGpu) -> bool {
+fn primary_node_family(mask: vec2<u32>) -> vec2<u32> {
+    if ((mask.x & 0x01000000u) != 0u) { return vec2<u32>(0x01000100u, 0u); }
+    if ((mask.x & 0x02000000u) != 0u) { return vec2<u32>(0x02000100u, 0u); }
+    if ((mask.x & 0x10000000u) != 0u) { return vec2<u32>(0x10000100u, 0u); }
+    if ((mask.x & 0x20000000u) != 0u) { return vec2<u32>(0x20000100u, 0u); }
+    if ((mask.x & 0x40000000u) != 0u) { return vec2<u32>(0x40000100u, 0u); }
+    if ((mask.x & 0x04000000u) != 0u) { return vec2<u32>(0x04000100u, 0u); }
+    if ((mask.x & 0x08000000u) != 0u) { return vec2<u32>(0x08000100u, 0u); }
+    if ((mask.x & 0x80000000u) != 0u) { return vec2<u32>(0x80000200u, 0u); }
+    if ((mask.y & 0x01u) != 0u) { return vec2<u32>(0x200u, 0x01u); }
+    if ((mask.y & 0x02u) != 0u) { return vec2<u32>(0x200u, 0x02u); }
+    if ((mask.y & 0x04u) != 0u) { return vec2<u32>(0x200u, 0x04u); }
+    if ((mask.y & 0x08u) != 0u) { return vec2<u32>(0x200u, 0x08u); }
+    if ((mask.y & 0x10u) != 0u) { return vec2<u32>(0x400u, 0x10u); }
+    if ((mask.y & 0x20u) != 0u) { return vec2<u32>(0x400u, 0x20u); }
+    if ((mask.x & 0x100u) != 0u) { return vec2<u32>(0x100u, 0u); }
+    if ((mask.x & 0x200u) != 0u) { return vec2<u32>(0x200u, 0u); }
+    if ((mask.x & 0x400u) != 0u) { return vec2<u32>(0x400u, 0u); }
+    return vec2<u32>(mask.x & 0xffu, 0u);
+}
+
+fn node_primary_visible(product: NodeProductGpu) -> bool {
     if (lens.product_index_enabled == 0u) {
         return true;
     }
+    let primary_family = primary_node_family(product.family_mask);
     return product.enabled != 0u
-        && family_visible(product.family_mask)
+        && family_visible(primary_family)
         && entity_lane_visible(product.family_mask)
-        && topology_lane_visible(product.family_mask)
+        && topology_lane_visible(primary_family)
         && intersects(product.scope_mask, lens.scope_mask)
         && (product.review_mask & lens.review_mask) != 0u;
+}
+
+fn node_context_visible(product: NodeProductGpu) -> bool {
+    let primary_family = primary_node_family(product.family_mask);
+    return product.context_visible != 0u
+        && product.enabled != 0u
+        && entity_lane_visible(product.family_mask)
+        && topology_lane_visible(primary_family)
+        && intersects(product.scope_mask, lens.scope_mask)
+        && (product.review_mask & lens.review_mask) != 0u;
+}
+
+fn node_visible(product: NodeProductGpu) -> bool {
+    return node_primary_visible(product) || node_context_visible(product);
 }
 
 @vertex

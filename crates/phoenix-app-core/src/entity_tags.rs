@@ -2,7 +2,9 @@ use super::*;
 use hashbrown::HashMap;
 use memchr::memmem;
 use phoenix_scene_contract::{AnchorCandidate, AnchorSource};
-use phoenix_workspace::{commit_document, EntityRegistry, EntityTag};
+use phoenix_workspace::{
+    commit_document, EntityRegistry, EntityTag, RegistryEntityDraft, RegistryEntityEditResult,
+};
 
 const UNMAPPED_SOURCE_OFFSET: u32 = u32::MAX;
 const SOURCE_ALIGNMENT_LOOKAHEAD: usize = 16 * 1024;
@@ -428,6 +430,110 @@ pub(super) fn tag_selection(
         revision,
         KernelOutcome::EntityTagged(result),
     ))
+}
+
+pub(super) enum RegistryEdit {
+    Create(RegistryEntityDraft),
+    Update {
+        entity_id: u64,
+        draft: RegistryEntityDraft,
+    },
+    Delete(u64),
+}
+
+pub(super) fn edit_registry_entity(
+    shared: &KernelShared,
+    sequence: u64,
+    edit: RegistryEdit,
+) -> Result<CommandReceipt, KernelError> {
+    let (mut registry, active_lease, base_anchors, palette) = {
+        let state = read_state(shared)?;
+        (
+            (*state.entity_registry).clone(),
+            state
+                .active_document_lease
+                .as_ref()
+                .map(Arc::clone)
+                .ok_or(KernelError::DocumentLeaseNotActive)?,
+            state.document_anchors.as_ref().map(Arc::clone),
+            *state.highlight_palette,
+        )
+    };
+    let result = match edit {
+        RegistryEdit::Create(mut draft) => {
+            draft.origin_document = Some(active_lease.entry_id);
+            registry.create_entity(draft)?
+        }
+        RegistryEdit::Update {
+            entity_id,
+            mut draft,
+        } => {
+            draft.origin_document = draft.origin_document.or(Some(active_lease.entry_id));
+            registry.update_entity(entity_id, draft)?
+        }
+        RegistryEdit::Delete(entity_id) => registry.delete_entity(entity_id)?,
+    };
+    registry.save_atomic(&shared.workspace_path)?;
+
+    let registry = Arc::new(registry);
+    let atlas = Arc::new(AtlasRegistry::from_registry(&registry));
+    let highlight_index = entity_highlights::EntityHighlightIndex::build(&registry)?;
+    let anchors = registry_anchors_with_base(
+        &highlight_index,
+        &registry,
+        Some(&active_lease),
+        base_anchors.as_deref(),
+    )?;
+    let published = scene_publication::refresh_registry_scene(shared, &atlas, palette)?;
+
+    let mut state = write_state(shared)?;
+    state.entity_registry = registry;
+    state.atlas_registry = atlas;
+    state.entity_highlights = highlight_index;
+    state.document_anchors = anchors;
+    let scene_publication = published
+        .map(|published| scene_publication::install_published_scene_state(&mut state, published))
+        .transpose()?;
+    state.revision = checked_revision(state.revision)?;
+    let revision = state.revision;
+    drop(state);
+
+    push_registry_edit_event(
+        shared,
+        sequence,
+        revision,
+        active_lease.entry_id,
+        result,
+        scene_publication,
+    )?;
+    Ok(receipt(
+        sequence,
+        revision,
+        KernelOutcome::RegistryEntityEdited(result),
+    ))
+}
+
+fn push_registry_edit_event(
+    shared: &KernelShared,
+    sequence: u64,
+    revision: u64,
+    document: phoenix_workspace::EntryId,
+    result: RegistryEntityEditResult,
+    scene_publication: Option<ScenePublicationReceipt>,
+) -> Result<(), KernelError> {
+    push_event(
+        shared,
+        KernelEvent {
+            sequence,
+            kernel_revision: revision,
+            kind: KernelEventKind::EntityRegistryCommitted {
+                document: DocumentId(document.0),
+                entity_id: result.entity_id,
+                registry_revision: result.registry_revision,
+                scene_publication,
+            },
+        },
+    )
 }
 
 fn install_committed_document(

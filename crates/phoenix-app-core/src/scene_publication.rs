@@ -30,6 +30,7 @@ fn reconcile_published_graph_view(
     mut published: GraphViewState,
 ) -> GraphViewState {
     published.manifold = previous.manifold;
+    published.canvas = previous.canvas;
     if previous_was_full {
         published.surface = previous.surface;
         published.families = previous.families;
@@ -369,10 +370,11 @@ fn registry_publication(
     let mut styles = Vec::with_capacity(entities.len());
     let mut node_products = Vec::with_capacity(entities.len());
     let mut mappings = Vec::with_capacity(entities.len());
-    let mut positions: [Vec<PositionRecord>; 5] =
+    let mut positions: [Vec<PositionRecord>; 6] =
         std::array::from_fn(|_| Vec::with_capacity(entities.len()));
 
-    for entity in entities {
+    let entity_count = entities.len();
+    for (ordinal, entity) in entities.into_iter().enumerate() {
         if entity.stable_id == 0 {
             return Err(KernelError::InvalidAtlasEntityIdentity);
         }
@@ -398,7 +400,7 @@ fn registry_publication(
             entity_id: entity.stable_id,
             node_id,
         });
-        let manifold_positions = stable_positions(entity.stable_id);
+        let manifold_positions = stable_positions(entity.stable_id, ordinal, entity_count);
         for (target, position) in positions.iter_mut().zip(manifold_positions) {
             target.push(PositionRecord { position });
         }
@@ -414,6 +416,7 @@ fn registry_publication(
         topology: Vec::<TopologyRecord>::new(),
         edges: Vec::<EdgeRecord>::new(),
         positions,
+        caps_guides: Vec::new(),
         node_products,
         edge_products: Vec::<SceneEdgeProduct>::new(),
         entity_mappings: mappings,
@@ -426,26 +429,10 @@ fn source_flags(sources: EntitySourceMask) -> u16 {
 }
 
 const fn family_mask(family: EntityFamily) -> u64 {
-    let slot = match family {
-        EntityFamily::Character => 0,
-        EntityFamily::Location => 1,
-        EntityFamily::Organization => 2,
-        EntityFamily::Item => 3,
-        EntityFamily::Concept => 4,
-        EntityFamily::Event => 5,
-        EntityFamily::Structure => 6,
-        // Keep the legacy low-bit palette slots stable for old scene
-        // publications.  V2/V3 native publications carry the granular
-        // high-bit lane in addition to this compatibility slot.
-        EntityFamily::Npc => 0,
-        EntityFamily::Network => 2,
-        EntityFamily::Creature => 3,
-        EntityFamily::Other => 7,
-    };
-    1_u64 << slot
+    FamilyMask::ENTITIES.0 | FamilyMask::entity_lane(family).0
 }
 
-fn stable_positions(stable_id: u64) -> [[f32; 3]; 5] {
+fn stable_positions(stable_id: u64, ordinal: usize, count: usize) -> [[f32; 3]; 6] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"phoenix-native-registry-position-v1");
     hasher.update(&stable_id.to_le_bytes());
@@ -456,12 +443,18 @@ fn stable_positions(stable_id: u64) -> [[f32; 3]; 5] {
     let z = unit_coordinate(&bytes[8..12]);
     let scale = 18.0;
     let base = [x * scale, y * scale, z * scale];
+    let fiber_count = phoenix_hopf_space::fiber_count(count).max(1);
+    let hopf = phoenix_hopf_space::fiber_point(
+        phoenix_hopf_space::base_direction(ordinal % fiber_count, fiber_count),
+        std::f32::consts::TAU * ((z + 1.0) * 0.5),
+    );
     [
         base,
         [base[0] - base[2] * 0.25, base[1], base[2] + base[0] * 0.25],
         [base[0], base[1] - base[2] * 0.2, base[2] + base[1] * 0.2],
         [base[0] + base[1] * 0.15, base[1] - base[0] * 0.15, base[2]],
         [base[0] * 0.9, base[1] * 0.9, base[2] * 1.2],
+        hopf,
     ]
 }
 
@@ -475,12 +468,13 @@ fn unit_coordinate(bytes: &[u8]) -> f32 {
 #[cfg(test)]
 mod graph_view_contract_tests {
     use super::*;
-    use phoenix_scene_contract::{GraphScope, Manifold, RelationMask, ReviewMask};
+    use phoenix_scene_contract::{GraphCanvas, GraphScope, Manifold, RelationMask, ReviewMask};
 
     #[test]
     fn registry_to_full_publication_opens_the_structural_atlas() {
         let previous = GraphViewState {
             manifold: Manifold::Caps,
+            canvas: GraphCanvas::Grid,
             ..GraphViewState::default()
         };
 
@@ -489,6 +483,7 @@ mod graph_view_contract_tests {
         assert_eq!(reconciled.surface, GraphSurface::Atlas);
         assert_eq!(reconciled.families, FamilyMask::ALL);
         assert_eq!(reconciled.manifold, Manifold::Caps);
+        assert_eq!(reconciled.canvas, GraphCanvas::Grid);
     }
 
     #[test]

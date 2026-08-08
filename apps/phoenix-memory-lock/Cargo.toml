@@ -23,3 +23,11 @@ windows.workspace = true
 
 [dev-dependencies]
 tempfile = "3.20"
+
+[[bin]]
+name = "phoenix-v3-ledger-generator"
+path = "src/bin/generate_ledger.rs"
+
+[[bin]]
+name = "phoenix-v3-independent-data"
+path = "src/bin/generate_independent.rs"

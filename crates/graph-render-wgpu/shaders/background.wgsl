@@ -5,7 +5,7 @@ struct CameraUniform {
     view_up: vec4<f32>,
     viewport_size: vec2<f32>,
     edge_opacity: f32,
-    _padding: f32,
+    canvas_style: f32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -38,6 +38,10 @@ fn line_grid(point: vec2<f32>, scale: f32) -> f32 {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    if camera.canvas_style < 0.5 {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+
     let viewport = max(camera.viewport_size, vec2<f32>(1.0));
     var point = input.uv * 2.0 - vec2<f32>(1.0);
     point.x *= viewport.x / viewport.y;

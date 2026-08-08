@@ -7,6 +7,9 @@ members = [
     "crates/phoenix-analysis-contract",
     "crates/phoenix-graph-generation",
     "crates/phoenix-graph-generation-v2",
+    "crates/phoenix-hybrid-space",
+    "crates/phoenix-hopf-space",
+    "crates/phoenix-text-analytics",
     "crates/phoenix-memory-contract",
     "crates/phoenix-memory-coordinator",
     "crates/phoenix-memory-embeddings",
@@ -39,6 +42,9 @@ default-members = [
     "crates/graph-render-wgpu",
     "crates/phoenix-analysis-contract",
     "crates/phoenix-graph-generation-v2",
+    "crates/phoenix-hybrid-space",
+    "crates/phoenix-hopf-space",
+    "crates/phoenix-text-analytics",
     "crates/phoenix-memory-contract",
     "crates/phoenix-memory-coordinator",
     "crates/phoenix-memory-embeddings",
@@ -107,6 +113,16 @@ windows = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 winit = "0.30"
+openrouter-rs = "0.12.0"
+futures-util = "0.3"
+tokio = { version = "1", features = [
+    "rt",
+    "sync",
+    "time",
+    "net",
+] }
+keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
+uuid = { version = "1", features = ["v4"] }
 
 [profile.release]
 opt-level = 3

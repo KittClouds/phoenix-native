@@ -13,6 +13,13 @@ pub const GENERATION_ID: u64 = 0x2026_0725_0000_0003;
 pub const NODE_COUNT: usize = 10_000;
 pub const EDGE_COUNT: usize = 50_000;
 pub const PAGE_COUNT: u32 = 32;
+pub const FROZEN_MANIFOLDS: [ArchiveManifold; 5] = [
+    ArchiveManifold::Hybrid,
+    ArchiveManifold::Torus,
+    ArchiveManifold::Caps,
+    ArchiveManifold::Transit,
+    ArchiveManifold::Siegel,
+];
 
 #[derive(Debug)]
 pub struct FrozenCohort {
@@ -67,7 +74,7 @@ impl FrozenCohort {
                 }
             })
             .collect();
-        let positions = ArchiveManifold::ALL.map(generate_positions);
+        let positions = FROZEN_MANIFOLDS.map(generate_positions);
         let labels = (0..NODE_COUNT)
             .map(|index| LabelPriorityRecord {
                 node_slot: index as u32,
@@ -114,7 +121,7 @@ pub fn freeze(path: impl AsRef<Path>) -> Result<ArchiveBuildReceipt, ArchiveErro
         .add_records(PageKey::shared(PageKind::RelationMasks), &cohort.relations)?
         .add_records(PageKey::shared(PageKind::PalettePolicy), &cohort.palette)?;
 
-    for (manifold_index, manifold) in ArchiveManifold::ALL.into_iter().enumerate() {
+    for (manifold_index, manifold) in FROZEN_MANIFOLDS.into_iter().enumerate() {
         let positions = &cohort.positions[manifold_index];
         builder.add_records(PageKey::manifold(PageKind::Positions, manifold), positions)?;
         let guides = encode_guides(manifold, positions)?;
@@ -141,7 +148,7 @@ fn generate_positions(manifold: ArchiveManifold) -> Vec<PositionRecord> {
                 ArchiveManifold::Hybrid => {
                     [grid_x, grid_y, ((index * 37) % 211) as f32 * 0.025 - 2.625]
                 }
-                ArchiveManifold::Hopf => {
+                ArchiveManifold::Torus => {
                     let major = 34.0 + ((index / 100) % 8) as f32 * 1.4;
                     let minor = 4.0 + (index % 11) as f32 * 0.12;
                     let theta = phase;
@@ -178,6 +185,7 @@ fn generate_positions(manifold: ArchiveManifold) -> Vec<PositionRecord> {
                         ((index % 257) as f32 - 128.0) * 0.035,
                     ]
                 }
+                ArchiveManifold::Hopf => [phase.cos() * 8.0, phase.sin() * 8.0, grid_y * 0.1],
             };
             PositionRecord { position }
         })

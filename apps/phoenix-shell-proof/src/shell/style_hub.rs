@@ -3,38 +3,71 @@ use super::{PhoenixShell, BORDER, TEXT, TEXT_MUTED};
 use gpui::{div, prelude::*, px, rgb, Context, IntoElement};
 use gpui_component::StyledExt;
 use phoenix_app_core::KernelSnapshot;
+#[allow(unused_imports)]
 use phoenix_scene_contract::{
-    FamilyMask, GraphLens, GraphSurface, GraphViewState, RelationFamily, ReviewMask,
+    describe_node, primary_edge_family_mask, FamilyMask, GraphColorKey, GraphLens, GraphPalette,
+    GraphSurface, GraphViewState, RelationFamily, ReviewMask, VisualNodeKind, VisualNodeLane,
 };
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use serde::{Deserialize, Serialize};
 
-const ENTITY_LANE_SPECS: [(&str, FamilyMask, u32); 5] = [
-    ("CHAR / PERSONS", FamilyMask::CHARACTERS, 0x2f80ff),
-    ("LOCATIONS", FamilyMask::LOCATIONS, 0x00c48c),
-    ("NETWORKS", FamilyMask::NETWORKS, 0x22d3ee),
-    ("CREATURES", FamilyMask::CREATURES, 0xf59e0b),
-    ("NPCS", FamilyMask::NPCS, 0xa855f7),
+const ENTITY_LANE_SPECS: [(&str, FamilyMask, GraphColorKey); 5] = [
+    (
+        "CHAR / PERSONS",
+        FamilyMask::CHARACTERS,
+        GraphColorKey::Characters,
+    ),
+    ("LOCATIONS", FamilyMask::LOCATIONS, GraphColorKey::Locations),
+    ("NETWORKS", FamilyMask::NETWORKS, GraphColorKey::Networks),
+    ("CREATURES", FamilyMask::CREATURES, GraphColorKey::Creatures),
+    ("NPCS", FamilyMask::NPCS, GraphColorKey::Npcs),
 ];
-const STRUCTURE_LANE_SPECS: [(&str, FamilyMask, u32); 4] = [
-    ("DOCUMENTS", FamilyMask::DOCUMENTS, 0x3d8cf5),
-    ("EPISODES", FamilyMask::EPISODES, 0xb852f0),
-    ("CHUNKS", FamilyMask::CHUNKS, 0xf04482),
-    ("EVIDENCE", FamilyMask::EVIDENCE, 0x8b5cf6),
+const STRUCTURE_LANE_SPECS: [(&str, FamilyMask, GraphColorKey); 7] = [
+    ("DOCUMENTS", FamilyMask::DOCUMENTS, GraphColorKey::Documents),
+    ("EPISODES", FamilyMask::EPISODES, GraphColorKey::Episodes),
+    ("CHAPTERS", FamilyMask::CHAPTERS, GraphColorKey::Chapters),
+    (
+        "PARAGRAPHS",
+        FamilyMask::PARAGRAPHS,
+        GraphColorKey::Paragraphs,
+    ),
+    ("SENTENCES", FamilyMask::SENTENCES, GraphColorKey::Sentences),
+    ("CHUNKS", FamilyMask::CHUNKS, GraphColorKey::Chunks),
+    ("EVIDENCE", FamilyMask::EVIDENCE, GraphColorKey::Evidence),
 ];
-const FACT_LANE_SPECS: [(&str, FamilyMask, u32); 5] = [
-    ("EVENTS", FamilyMask::EVENT_FACTS, 0xfb6f26),
-    ("RELATIONSHIPS", FamilyMask::RELATIONSHIP_FACTS, 0xe84fa8),
-    ("TEMPORAL", FamilyMask::TEMPORAL_FACTS, 0xf4df23),
-    ("CAUSAL", FamilyMask::CAUSAL_FACTS, 0xff5964),
-    ("MEMORY / STATE", FamilyMask::MEMORY_STATE_FACTS, 0x22d36f),
+const FACT_LANE_SPECS: [(&str, FamilyMask, GraphColorKey); 5] = [
+    ("EVENTS", FamilyMask::EVENT_FACTS, GraphColorKey::EventFacts),
+    (
+        "RELATIONSHIPS",
+        FamilyMask::RELATIONSHIP_FACTS,
+        GraphColorKey::RelationshipFacts,
+    ),
+    (
+        "TEMPORAL",
+        FamilyMask::TEMPORAL_FACTS,
+        GraphColorKey::TemporalFacts,
+    ),
+    (
+        "CAUSAL",
+        FamilyMask::CAUSAL_FACTS,
+        GraphColorKey::CausalFacts,
+    ),
+    (
+        "MEMORY / STATE",
+        FamilyMask::MEMORY_STATE_FACTS,
+        GraphColorKey::MemoryStateFacts,
+    ),
 ];
-const DISCOURSE_LANE_SPECS: [(&str, FamilyMask, u32); 2] = [
-    ("IDENTITY", FamilyMask::IDENTITY_DISCOURSE, 0x9858f5),
+const DISCOURSE_LANE_SPECS: [(&str, FamilyMask, GraphColorKey); 2] = [
+    (
+        "IDENTITY",
+        FamilyMask::IDENTITY_DISCOURSE,
+        GraphColorKey::IdentityDiscourse,
+    ),
     (
         "CONTEXT EVIDENCE",
         FamilyMask::CONTEXTUAL_DISCOURSE,
-        0x35c7d9,
+        GraphColorKey::ContextualDiscourse,
     ),
 ];
 
@@ -101,85 +134,95 @@ impl TopologySummaryCache {
 
 impl TopologySummary {
     fn from_index(index: &PhoenixSceneProductIndexV1) -> Self {
-        let mut summary = Self {
-            nodes: index.nodes().len(),
-            edges: index.edges().len(),
-            ..Self::default()
-        };
+        let mut summary = Self::default();
         for node in index.nodes() {
-            let primary_lane = lane_slot(node.family_mask);
-            if let Some(slot) = primary_lane {
-                summary.node_lanes[slot] += 1;
-            } else {
-                summary.unclassified_nodes += 1;
-            }
-            for (slot, (_, mask, _)) in ENTITY_LANE_SPECS.into_iter().enumerate() {
-                if node.family_mask & mask.0 != 0 {
-                    if primary_lane == Some(0) {
-                        summary.entity_anchor_nodes[slot] += 1;
-                    } else {
-                        summary.entity_context_nodes[slot] += 1;
-                    }
-                }
-            }
-            match primary_lane {
-                Some(1) => count_detail_nodes(
-                    node.family_mask,
-                    &STRUCTURE_LANE_SPECS,
-                    &mut summary.structure_nodes,
-                ),
-                Some(2) => {
-                    count_detail_nodes(node.family_mask, &FACT_LANE_SPECS, &mut summary.fact_nodes)
-                }
-                Some(3) => count_detail_nodes(
-                    node.family_mask,
-                    &DISCOURSE_LANE_SPECS,
-                    &mut summary.discourse_nodes,
-                ),
-                _ => {}
-            }
+            summary.record_node(node.family_mask);
         }
         for edge in index.edges() {
-            let primary_lane = lane_slot(edge.family_mask);
-            if let Some(slot) = primary_lane {
-                summary.edge_lanes[slot] += 1;
-            } else {
-                summary.unclassified_edges += 1;
+            summary.record_edge(edge.family_mask, edge.relation_mask, edge.review_mask);
+        }
+        summary
+    }
+
+    fn record_edge(&mut self, family_mask: u64, relation_mask: u64, review_mask: u32) {
+        self.edges += 1;
+        let primary_mask = primary_edge_family_mask(family_mask, relation_mask).0;
+        let primary_lane = edge_lane_slot(primary_mask);
+        if let Some(slot) = primary_lane {
+            self.edge_lanes[slot] += 1;
+        } else {
+            self.unclassified_edges += 1;
+        }
+        for (slot, (_, mask, _)) in ENTITY_LANE_SPECS.into_iter().enumerate() {
+            if primary_mask & mask.0 != 0 {
+                self.entity_edges[slot] += 1;
             }
-            for (slot, (_, mask, _)) in ENTITY_LANE_SPECS.into_iter().enumerate() {
-                if edge.family_mask & mask.0 != 0 {
-                    summary.entity_edges[slot] += 1;
-                }
+        }
+        match primary_lane {
+            Some(1) => count_detail_edges(
+                primary_mask,
+                &STRUCTURE_LANE_SPECS,
+                &mut self.structure_edges,
+            ),
+            Some(2) => count_detail_edges(primary_mask, &FACT_LANE_SPECS, &mut self.fact_edges),
+            Some(3) => count_detail_edges(
+                primary_mask,
+                &DISCOURSE_LANE_SPECS,
+                &mut self.discourse_edges,
+            ),
+            _ => {}
+        }
+        if review_mask & ReviewMask::ACCEPTED.0 != 0 {
+            self.accepted_edges += 1;
+        }
+        if review_mask & ReviewMask::PROPOSED.0 != 0 {
+            self.proposed_edges += 1;
+        }
+        for (slot, relation) in RelationFamily::ALL.into_iter().enumerate() {
+            if relation_mask & relation.mask().0 != 0 {
+                self.relations[slot] += 1;
             }
-            match primary_lane {
-                Some(1) => count_detail_edges(
-                    edge.family_mask,
-                    &STRUCTURE_LANE_SPECS,
-                    &mut summary.structure_edges,
-                ),
-                Some(2) => {
-                    count_detail_edges(edge.family_mask, &FACT_LANE_SPECS, &mut summary.fact_edges)
-                }
-                Some(3) => count_detail_edges(
-                    edge.family_mask,
-                    &DISCOURSE_LANE_SPECS,
-                    &mut summary.discourse_edges,
-                ),
-                _ => {}
-            }
-            if edge.review_mask & ReviewMask::ACCEPTED.0 != 0 {
-                summary.accepted_edges += 1;
-            }
-            if edge.review_mask & ReviewMask::PROPOSED.0 != 0 {
-                summary.proposed_edges += 1;
-            }
-            for (slot, relation) in RelationFamily::ALL.into_iter().enumerate() {
-                if edge.relation_mask & relation.mask().0 != 0 {
-                    summary.relations[slot] += 1;
+        }
+    }
+
+    fn record_node(&mut self, family_mask: u64) {
+        self.nodes += 1;
+        let descriptor = describe_node(family_mask);
+        let primary_lane = node_lane_slot(descriptor.kind, descriptor.lane);
+        if let Some(slot) = primary_lane {
+            self.node_lanes[slot] += 1;
+        } else {
+            self.unclassified_nodes += 1;
+        }
+        for (slot, (_, mask, _)) in ENTITY_LANE_SPECS.into_iter().enumerate() {
+            if family_mask & mask.0 != 0 {
+                if primary_lane == Some(0) {
+                    self.entity_anchor_nodes[slot] += 1;
+                } else {
+                    self.entity_context_nodes[slot] += 1;
                 }
             }
         }
-        summary
+        match descriptor.lane {
+            VisualNodeLane::Structure if descriptor.kind != VisualNodeKind::Unknown => {
+                count_detail_nodes(
+                    descriptor.detail_mask,
+                    &STRUCTURE_LANE_SPECS,
+                    &mut self.structure_nodes,
+                );
+            }
+            VisualNodeLane::Facts => count_detail_nodes(
+                descriptor.detail_mask,
+                &FACT_LANE_SPECS,
+                &mut self.fact_nodes,
+            ),
+            VisualNodeLane::Discourse => count_detail_nodes(
+                descriptor.detail_mask,
+                &DISCOURSE_LANE_SPECS,
+                &mut self.discourse_nodes,
+            ),
+            _ => {}
+        }
     }
 }
 
@@ -293,7 +336,7 @@ impl PhoenixShell {
                     .px_2()
                     .pt_2()
                     .child(section_label("NODE LANES"))
-                    .child(lane_grid(view, summary, cx)),
+                    .child(lane_grid(self, view, summary, cx)),
             )
             .child(
                 div()
@@ -303,7 +346,7 @@ impl PhoenixShell {
                     .px_2()
                     .pt_2()
                     .child(section_label("ENTITY KIND LANES"))
-                    .child(entity_lane_grid(view, summary, cx)),
+                    .child(entity_lane_grid(self, view, summary, cx)),
             )
             .child(
                 div()
@@ -315,6 +358,7 @@ impl PhoenixShell {
                     .child(section_label("STRUCTURE PRODUCTS"))
                     .child(detail_lane_grid(
                         view,
+                        self,
                         &STRUCTURE_LANE_SPECS,
                         &summary.structure_nodes,
                         &summary.structure_edges,
@@ -332,6 +376,7 @@ impl PhoenixShell {
                     .child(section_label("FACT PRODUCTS"))
                     .child(detail_lane_grid(
                         view,
+                        self,
                         &FACT_LANE_SPECS,
                         &summary.fact_nodes,
                         &summary.fact_edges,
@@ -349,6 +394,7 @@ impl PhoenixShell {
                     .child(section_label("DISCOURSE PRODUCTS"))
                     .child(detail_lane_grid(
                         view,
+                        self,
                         &DISCOURSE_LANE_SPECS,
                         &summary.discourse_nodes,
                         &summary.discourse_edges,
@@ -372,52 +418,62 @@ impl PhoenixShell {
                             .items_center()
                             .gap_1()
                             .child(review_metric(
+                                self,
                                 "ACCEPTED",
                                 summary.accepted_edges,
                                 view.reviews.contains(ReviewMask::ACCEPTED),
+                                GraphColorKey::AcceptedEdges,
                             ))
                             .child(review_metric(
+                                self,
                                 "PROPOSED",
                                 summary.proposed_edges,
                                 view.reviews.contains(ReviewMask::PROPOSED),
+                                GraphColorKey::ProposedEdges,
                             )),
                     )
-                    .child(relation_inventory(view, summary, cx)),
+                    .child(relation_inventory(self, view, summary, cx)),
             )
     }
 }
 
 fn lane_grid(
+    shell: &PhoenixShell,
     view: GraphViewState,
     summary: TopologySummary,
     cx: &mut Context<PhoenixShell>,
 ) -> impl IntoElement {
     let mut grid = div().mt_1().grid().grid_cols(2).gap_1();
-    for (slot, (label, lens, mask, color)) in [
+    for (slot, (label, lens, mask, key)) in [
         (
             "ENTITIES",
             GraphLens::Entities,
             FamilyMask::ENTITIES,
-            0x2f80ff,
+            GraphColorKey::Entities,
         ),
         (
             "STRUCTURE",
             GraphLens::Structure,
             FamilyMask::STRUCTURE,
-            0xe03b78,
+            GraphColorKey::Structure,
         ),
-        ("FACTS", GraphLens::Facts, FamilyMask::FACTS, 0xff7733),
+        (
+            "FACTS",
+            GraphLens::Facts,
+            FamilyMask::FACTS,
+            GraphColorKey::Facts,
+        ),
         (
             "DISCOURSE",
             GraphLens::Discourse,
             FamilyMask::DISCOURSE,
-            0x9a68ff,
+            GraphColorKey::Discourse,
         ),
     ]
     .into_iter()
     .enumerate()
     {
-        let selected = view.families.contains(mask);
+        let selected = view.family_is_visible(mask);
         let node_count = summary.node_lanes[slot];
         let edge_count = summary.edge_lanes[slot];
         grid = grid.child(
@@ -430,35 +486,33 @@ fn lane_grid(
                 .border_1()
                 .border_color(rgb(if selected { 0x397765 } else { BORDER }))
                 .bg(rgb(if selected { 0x183d34 } else { 0x111514 }))
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.mutate_graph_view(
-                        |next| {
-                            let toggled = next.families.toggled(mask);
-                            if toggled.is_valid_selection() {
-                                next.families = toggled;
-                                next.lens = lens;
-                                next.surface = GraphSurface::Atlas;
-                            }
-                        },
-                        "STYLE HUB",
-                        cx,
-                    );
-                }))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().size(px(7.)).rounded_full().bg(rgb(color)))
+                        .child(shell.graph_color_picker(key))
                         .child(
                             div()
+                                .id(("style-lane-toggle", slot))
                                 .min_w_0()
                                 .flex_1()
                                 .truncate()
+                                .cursor_pointer()
                                 .text_xs()
                                 .font_semibold()
                                 .text_color(rgb(if selected { TEXT } else { TEXT_MUTED }))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.mutate_graph_view(
+                                        |next| {
+                                            next.toggle_family(mask);
+                                            next.lens = lens;
+                                            next.surface = GraphSurface::Atlas;
+                                        },
+                                        "STYLE HUB",
+                                        cx,
+                                    );
+                                }))
                                 .child(label),
                         ),
                 )
@@ -475,6 +529,7 @@ fn lane_grid(
 }
 
 fn relation_inventory(
+    shell: &PhoenixShell,
     view: GraphViewState,
     summary: TopologySummary,
     cx: &mut Context<PhoenixShell>,
@@ -486,43 +541,52 @@ fn relation_inventory(
             continue;
         }
         let selected = view.relations.contains(relation);
+        let key = relation_color_key(relation);
         rows = rows.child(
             div()
-                .id(("style-relation", slot))
-                .px_1()
-                .py(px(2.))
-                .rounded_md()
-                .border_1()
-                .border_color(rgb(if selected { 0x397765 } else { BORDER }))
-                .bg(rgb(if selected { 0x172a24 } else { 0x111514 }))
-                .cursor_pointer()
-                .text_xs()
-                .text_color(rgb(if selected { TEXT } else { TEXT_MUTED }))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.mutate_graph_view(
-                        |next| {
-                            let toggled = next.relations.toggled(relation);
-                            if toggled.is_valid_selection() {
-                                next.relations = toggled;
-                            }
-                        },
-                        "STYLE HUB",
-                        cx,
-                    );
-                }))
-                .child(format!("{} {count}", relation_label(relation))),
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(shell.graph_color_picker(key))
+                .child(
+                    div()
+                        .id(("style-relation", slot))
+                        .px_1()
+                        .py(px(2.))
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(if selected { 0x397765 } else { BORDER }))
+                        .bg(rgb(if selected { 0x172a24 } else { 0x111514 }))
+                        .cursor_pointer()
+                        .text_xs()
+                        .text_color(rgb(if selected { TEXT } else { TEXT_MUTED }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.mutate_graph_view(
+                                |next| {
+                                    let toggled = next.relations.toggled(relation);
+                                    if toggled.is_valid_selection() {
+                                        next.relations = toggled;
+                                    }
+                                },
+                                "STYLE HUB",
+                                cx,
+                            );
+                        }))
+                        .child(format!("{} {count}", relation_label(relation))),
+                ),
         );
     }
     rows
 }
 
 fn entity_lane_grid(
+    shell: &PhoenixShell,
     view: GraphViewState,
     summary: TopologySummary,
     cx: &mut Context<PhoenixShell>,
 ) -> impl IntoElement {
     let mut grid = div().mt_1().grid().grid_cols(2).gap_1();
-    for (slot, (label, mask, color)) in ENTITY_LANE_SPECS.into_iter().enumerate() {
+    for (slot, (label, mask, key)) in ENTITY_LANE_SPECS.into_iter().enumerate() {
         let selected = view.entity_families.contains(mask);
         grid = grid.child(
             div()
@@ -534,30 +598,29 @@ fn entity_lane_grid(
                 .border_1()
                 .border_color(rgb(if selected { 0x397765 } else { BORDER }))
                 .bg(rgb(if selected { 0x183d34 } else { 0x111514 }))
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.mutate_graph_view(
-                        |next| {
-                            *next = toggle_entity_lane(*next, mask);
-                        },
-                        "STYLE HUB ENTITY LANE",
-                        cx,
-                    );
-                }))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().size(px(7.)).rounded_full().bg(rgb(color)))
+                        .child(shell.graph_color_picker(key))
                         .child(
                             div()
+                                .id(("style-entity-toggle", slot))
                                 .min_w_0()
                                 .flex_1()
                                 .truncate()
+                                .cursor_pointer()
                                 .text_xs()
                                 .font_semibold()
                                 .text_color(rgb(if selected { TEXT } else { TEXT_MUTED }))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.mutate_graph_view(
+                                        |next| *next = toggle_entity_lane(*next, mask),
+                                        "STYLE HUB ENTITY LANE",
+                                        cx,
+                                    );
+                                }))
                                 .child(label),
                         ),
                 )
@@ -580,14 +643,15 @@ fn entity_lane_grid(
 
 fn detail_lane_grid(
     view: GraphViewState,
-    specs: &'static [(&'static str, FamilyMask, u32)],
+    shell: &PhoenixShell,
+    specs: &'static [(&'static str, FamilyMask, GraphColorKey)],
     node_counts: &[usize],
     edge_counts: &[usize],
     id_prefix: &'static str,
     cx: &mut Context<PhoenixShell>,
 ) -> impl IntoElement {
     let mut grid = div().mt_1().grid().grid_cols(2).gap_1();
-    for (slot, (label, mask, color)) in specs.iter().copied().enumerate() {
+    for (slot, (label, mask, key)) in specs.iter().copied().enumerate() {
         let selected = view.topology_families.contains(mask);
         let node_count = node_counts.get(slot).copied().unwrap_or(0);
         let edge_count = edge_counts.get(slot).copied().unwrap_or(0);
@@ -601,34 +665,32 @@ fn detail_lane_grid(
                 .border_1()
                 .border_color(rgb(if selected { 0x397765 } else { BORDER }))
                 .bg(rgb(if selected { 0x183d34 } else { 0x111514 }))
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.mutate_graph_view(
-                        |next| {
-                            let toggled = next.topology_families.toggled(mask);
-                            if toggled.is_valid_topology_selection() {
-                                next.topology_families = toggled;
-                                next.surface = GraphSurface::Atlas;
-                            }
-                        },
-                        "STYLE HUB PRODUCT LANE",
-                        cx,
-                    );
-                }))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().size(px(7.)).rounded_full().bg(rgb(color)))
+                        .child(shell.graph_color_picker(key))
                         .child(
                             div()
+                                .id((id_prefix, slot + 10_000))
                                 .min_w_0()
                                 .flex_1()
                                 .truncate()
+                                .cursor_pointer()
                                 .text_xs()
                                 .font_semibold()
                                 .text_color(rgb(if selected { TEXT } else { TEXT_MUTED }))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.mutate_graph_view(
+                                        |next| {
+                                            next.toggle_topology_family(mask);
+                                            next.surface = GraphSurface::Atlas;
+                                        },
+                                        "STYLE HUB PRODUCT LANE",
+                                        cx,
+                                    );
+                                }))
                                 .child(label),
                         ),
                 )
@@ -646,7 +708,7 @@ fn detail_lane_grid(
 
 fn count_detail_nodes<const N: usize>(
     family_mask: u64,
-    specs: &[(&str, FamilyMask, u32); N],
+    specs: &[(&str, FamilyMask, GraphColorKey); N],
     counts: &mut [usize; N],
 ) {
     for (slot, (_, mask, _)) in specs.iter().enumerate() {
@@ -658,7 +720,7 @@ fn count_detail_nodes<const N: usize>(
 
 fn count_detail_edges<const N: usize>(
     family_mask: u64,
-    specs: &[(&str, FamilyMask, u32); N],
+    specs: &[(&str, FamilyMask, GraphColorKey); N],
     counts: &mut [usize; N],
 ) {
     for (slot, (_, mask, _)) in specs.iter().enumerate() {
@@ -676,7 +738,19 @@ fn toggle_entity_lane(mut view: GraphViewState, mask: FamilyMask) -> GraphViewSt
     view
 }
 
-fn lane_slot(mask: u64) -> Option<usize> {
+const fn node_lane_slot(kind: VisualNodeKind, lane: VisualNodeLane) -> Option<usize> {
+    if matches!(kind, VisualNodeKind::Unknown) {
+        return None;
+    }
+    match lane {
+        VisualNodeLane::Entities => Some(0),
+        VisualNodeLane::Structure => Some(1),
+        VisualNodeLane::Facts => Some(2),
+        VisualNodeLane::Discourse => Some(3),
+    }
+}
+
+fn edge_lane_slot(mask: u64) -> Option<usize> {
     if mask & FamilyMask::FACTS.0 != 0 {
         Some(2)
     } else if mask & FamilyMask::DISCOURSE.0 != 0 {
@@ -706,8 +780,17 @@ fn metric(label: &'static str, count: usize) -> impl IntoElement {
         )
 }
 
-fn review_metric(label: &'static str, count: usize, visible: bool) -> impl IntoElement {
+fn review_metric(
+    shell: &PhoenixShell,
+    label: &'static str,
+    count: usize,
+    visible: bool,
+    key: GraphColorKey,
+) -> impl IntoElement {
     div()
+        .flex()
+        .items_center()
+        .gap_1()
         .flex_1()
         .px_2()
         .py_1()
@@ -715,6 +798,7 @@ fn review_metric(label: &'static str, count: usize, visible: bool) -> impl IntoE
         .bg(rgb(if visible { 0x172a24 } else { 0x151716 }))
         .text_xs()
         .text_color(rgb(if visible { ACCENT } else { TEXT_MUTED }))
+        .child(shell.graph_color_picker(key))
         .child(format!("{label} {count}"))
 }
 
@@ -789,6 +873,21 @@ const fn relation_label(relation: RelationFamily) -> &'static str {
     }
 }
 
+const fn relation_color_key(relation: RelationFamily) -> GraphColorKey {
+    match relation {
+        RelationFamily::CoOccurrence => GraphColorKey::CoOccurrenceEdges,
+        RelationFamily::Observation => GraphColorKey::ObservationEdges,
+        RelationFamily::Communication => GraphColorKey::CommunicationEdges,
+        RelationFamily::Causal => GraphColorKey::CausalEdges,
+        RelationFamily::Temporal => GraphColorKey::TemporalEdges,
+        RelationFamily::Structural => GraphColorKey::StructuralEdges,
+        RelationFamily::Identity => GraphColorKey::IdentityEdges,
+        RelationFamily::Relationship => GraphColorKey::RelationshipEdges,
+        RelationFamily::Event => GraphColorKey::EventEdges,
+        RelationFamily::MemoryState => GraphColorKey::MemoryStateEdges,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -796,7 +895,7 @@ mod tests {
     #[test]
     fn mixed_evidence_edges_are_classified_as_structure_not_entities() {
         assert_eq!(
-            lane_slot(FamilyMask::STRUCTURE.0 | FamilyMask::ENTITIES.0),
+            edge_lane_slot(FamilyMask::STRUCTURE.0 | FamilyMask::ENTITIES.0),
             Some(1)
         );
     }
@@ -810,8 +909,8 @@ mod tests {
 
     #[test]
     fn unknown_family_bits_are_never_reported_as_verified_topology() {
-        assert_eq!(lane_slot(0), None);
-        assert_eq!(lane_slot(1_u64 << 63), None);
+        assert_eq!(edge_lane_slot(0), None);
+        assert_eq!(edge_lane_slot(1_u64 << 63), None);
     }
 
     #[test]
@@ -853,20 +952,72 @@ mod tests {
     }
 
     #[test]
-    fn fact_detail_toggle_is_independent_of_the_broad_facts_lane() {
+    fn fact_detail_toggle_keeps_the_broad_facts_lane_coupled() {
         let view = GraphViewState {
             surface: GraphSurface::Atlas,
             families: FamilyMask::ALL,
             ..GraphViewState::default()
         };
         let mut toggled = view;
-        toggled.topology_families = toggled
-            .topology_families
-            .toggled(FamilyMask::RELATIONSHIP_FACTS);
+        toggled.toggle_topology_family(FamilyMask::RELATIONSHIP_FACTS);
         assert!(toggled.families.contains(FamilyMask::FACTS));
         assert!(!toggled
             .topology_families
             .contains(FamilyMask::RELATIONSHIP_FACTS));
         assert!(toggled.topology_families.contains(FamilyMask::EVENT_FACTS));
+    }
+
+    #[test]
+    fn compiler_real_census_and_renderer_share_primary_semantic_identity() {
+        for (broad, specs, lane) in [
+            (FamilyMask::FACTS, &FACT_LANE_SPECS[..], 2_usize),
+            (FamilyMask::DISCOURSE, &DISCOURSE_LANE_SPECS[..], 3_usize),
+        ] {
+            for (_, detail, expected_key) in specs.iter().copied() {
+                let family_mask =
+                    broad.0 | detail.0 | FamilyMask::CHARACTERS.0 | FamilyMask::LOCATIONS.0;
+                let descriptor = describe_node(family_mask);
+                let mut summary = TopologySummary::default();
+                summary.record_node(family_mask);
+
+                assert_eq!(summary.nodes, 1);
+                assert_eq!(summary.node_lanes[lane], 1);
+                assert_eq!(GraphPalette::node_key(descriptor, 0), Some(expected_key));
+            }
+        }
+    }
+
+    #[test]
+    fn published_fact_edge_census_is_relation_owned_not_endpoint_inherited() {
+        let mut summary = TopologySummary::default();
+        for (detail, relation, count) in [
+            (FamilyMask::EVENT_FACTS, RelationFamily::Event, 227_usize),
+            (FamilyMask::CAUSAL_FACTS, RelationFamily::Causal, 14),
+            (
+                FamilyMask::MEMORY_STATE_FACTS,
+                RelationFamily::MemoryState,
+                82,
+            ),
+        ] {
+            let compiler_real_composite = FamilyMask::FACTS.0
+                | detail.0
+                | FamilyMask::EVENT_FACTS.0
+                | FamilyMask::CHARACTERS.0;
+            for _ in 0..count {
+                summary.record_edge(
+                    compiler_real_composite,
+                    relation.mask().0,
+                    ReviewMask::ACCEPTED.0,
+                );
+            }
+        }
+
+        assert_eq!(summary.edges, 323);
+        assert_eq!(summary.edge_lanes, [0, 0, 323, 0]);
+        assert_eq!(summary.fact_edges, [227, 0, 0, 14, 82]);
+        assert_eq!(summary.relations[RelationFamily::Event as usize], 227);
+        assert_eq!(summary.relations[RelationFamily::Causal as usize], 14);
+        assert_eq!(summary.relations[RelationFamily::MemoryState as usize], 82);
+        assert_eq!(summary.entity_edges, [0; ENTITY_LANE_SPECS.len()]);
     }
 }

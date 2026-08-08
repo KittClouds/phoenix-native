@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?
         .try_into()
-        .map_err(|_| "five manifold pages required")?;
+        .map_err(|_| "six manifold pages required")?;
     let node_products = index
         .nodes()
         .iter()
@@ -117,6 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         topology,
         edges,
         positions,
+        caps_guides: Vec::new(),
         node_products,
         edge_products,
         entity_mappings: index.mappings().to_vec(),

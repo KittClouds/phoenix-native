@@ -2,7 +2,10 @@
 
 mod caps;
 mod entities;
+mod graph_palette;
 mod highlights;
+mod hopf;
+mod topology;
 mod view;
 mod visual;
 mod visual_v3;
@@ -25,22 +28,33 @@ pub use caps::{
     TEMPORAL_MIDPOINT_NODE_KIND,
 };
 pub use entities::EntityKind;
+pub use graph_palette::{GraphColorKey, GraphPalette, GRAPH_PALETTE_COLOR_COUNT};
 pub use highlights::{
     AnchorCandidate, AnchorSource, DocumentAnchor, EntityFamily, FamilyPalette,
     HighlightContractError, HighlightMode, HighlightPalette, VerifiedDocumentAnchors,
     HIGHLIGHT_CONTRACT, MAX_DOCUMENT_ANCHORS,
 };
+pub use hopf::{
+    GUIDE_FLAG_HOPF_BASE_LINK, GUIDE_FLAG_HOPF_BASE_SPHERE, GUIDE_FLAG_HOPF_FIBER,
+    HOPF_VISUAL_CONTRACT,
+};
+pub use topology::{
+    validate_topology_endpoints, TopologyInventoryCensus, TopologyInventoryError,
+    TOPOLOGY_INVENTORY_CONTRACT,
+};
 pub use view::{
-    FamilyMask, GraphAction, GraphLens, GraphReviewOverride, GraphScope, GraphSurface,
+    FamilyMask, GraphAction, GraphCanvas, GraphLens, GraphReviewOverride, GraphScope, GraphSurface,
     GraphViewState, RelationFamily, RelationMask, ReviewMask, SceneAuthority, ScopeMask,
 };
 pub use visual::{visual_role, with_visual_role, VisualRole, VISUAL_ROLE_MASK, VISUAL_ROLE_SHIFT};
 pub use visual_v3::{
-    describe_edge, describe_node, VisualEdgeDescriptor, VisualEdgeKind, VisualNodeDescriptor,
-    VisualNodeKind, VisualNodeLane, VISUAL_GRAPH_CONTRACT_V3,
+    describe_edge, describe_node, primary_edge_family_mask, primary_node_family_mask,
+    VisualEdgeDescriptor, VisualEdgeKind, VisualNodeDescriptor, VisualNodeKind, VisualNodeLane,
+    VISUAL_GRAPH_CONTRACT_V3,
 };
 
 pub const SCENE_CONTRACT: &str = "phoenix.native.resident-scene/v1";
+pub const TOPOLOGY_PROJECTION_CONTRACT: &str = "phoenix.native.topology-projection/v1";
 pub const NATIVE_SCENE_COMPILER_CONTRACT: &str = "phoenix.native.active-document-scene-compiler/v2";
 pub const NATIVE_SCENE_COMPILER_V2_CONTRACT: &str =
     "phoenix.native.graph-generation-scene-compiler/v2";
@@ -60,6 +74,7 @@ pub struct DocumentId(pub u64);
 #[serde(rename_all = "snake_case")]
 pub enum Manifold {
     Hybrid,
+    Torus,
     Hopf,
     Caps,
     Transit,
@@ -67,8 +82,9 @@ pub enum Manifold {
 }
 
 impl Manifold {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Hybrid,
+        Self::Torus,
         Self::Hopf,
         Self::Caps,
         Self::Transit,
@@ -162,6 +178,51 @@ pub struct SceneInventory {
     pub edge_count: usize,
 }
 
+/// Verifies that optional manifold path geometry is a total, order-preserving
+/// projection of the shared topology. A manifold may change positions and path
+/// shape, but it may neither introduce nor omit a stable edge slot.
+pub fn validate_topology_projection(
+    paths: PathPageView<'_>,
+    edge_count: usize,
+) -> Result<(), TopologyProjectionError> {
+    if paths.paths.len() != edge_count {
+        return Err(TopologyProjectionError::InventoryMismatch {
+            expected_edges: edge_count,
+            actual_paths: paths.paths.len(),
+        });
+    }
+    for (expected_slot, path) in paths.paths.iter().enumerate() {
+        let actual_slot = path.edge_slot as usize;
+        if actual_slot != expected_slot {
+            return Err(TopologyProjectionError::StableSlotMismatch {
+                ordinal: expected_slot,
+                expected_slot,
+                actual_slot,
+            });
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum TopologyProjectionError {
+    #[error(
+        "topology projection inventory mismatch: expected {expected_edges} edges, got {actual_paths} paths"
+    )]
+    InventoryMismatch {
+        expected_edges: usize,
+        actual_paths: usize,
+    },
+    #[error(
+        "topology projection path {ordinal} references stable edge slot {actual_slot}, expected {expected_slot}"
+    )]
+    StableSlotMismatch {
+        ordinal: usize,
+        expected_slot: usize,
+        actual_slot: usize,
+    },
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HotPageInventory {
     pub page_count: u8,
@@ -199,8 +260,19 @@ impl ResidentScene {
             node_count: first.identities.len(),
             edge_count: first.edges.len(),
         };
+        let legacy_five_manifold = is_legacy_five_manifold_archive(&archive);
         for manifold in ArchiveManifold::ALL {
-            let pages = archive.open_manifold(manifold)?;
+            let pages = match archive.open_manifold(manifold) {
+                Ok(pages) => pages,
+                Err(ArchiveError::MissingPage(key))
+                    if manifold == ArchiveManifold::Hopf
+                        && key == PageKey::manifold(PageKind::Positions, manifold)
+                        && legacy_five_manifold =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
             if pages.identities.len() != inventory.node_count
                 || pages.edges.len() != inventory.edge_count
             {
@@ -258,12 +330,23 @@ impl ResidentScene {
     ) -> Result<GraphViewState, SceneContractError> {
         if let Some(index) = index {
             index.bind_to_archive(&self.archive)?;
+            let _ = self.topology_census(index)?;
         }
         Ok(GraphViewState::for_archive(
             self.generation,
             self.archive_identity.cohort_hash,
             index.map(|index| index.header().index_hash),
         ))
+    }
+
+    /// Proves that the product index, shared topology, and all manifold
+    /// projections describe the same complete graph inventory.
+    pub fn topology_census(
+        &self,
+        index: &PhoenixSceneProductIndexV1,
+    ) -> Result<TopologyInventoryCensus, SceneContractError> {
+        index.bind_to_archive(&self.archive)?;
+        topology::validate_topology_inventory(&self.archive, index)
     }
 
     pub fn activate_manifold(
@@ -309,6 +392,9 @@ impl ResidentScene {
             .has_page(PageKey::manifold(path_kind, archive_manifold))
             .then(|| self.archive.paths(path_kind, archive_manifold))
             .transpose()?;
+        if let Some(paths) = prepared_paths {
+            validate_topology_projection(paths, self.inventory.edge_count)?;
+        }
         Ok(ActiveManifoldPages {
             manifold,
             pages,
@@ -319,10 +405,29 @@ impl ResidentScene {
     }
 }
 
+fn is_legacy_five_manifold_archive(archive: &PhoenixSceneArchiveV1) -> bool {
+    const LEGACY: [ArchiveManifold; 5] = [
+        ArchiveManifold::Hybrid,
+        ArchiveManifold::Torus,
+        ArchiveManifold::Caps,
+        ArchiveManifold::Transit,
+        ArchiveManifold::Siegel,
+    ];
+    let descriptors = archive.descriptors();
+    !descriptors
+        .iter()
+        .any(|descriptor| descriptor.key.manifold == Some(ArchiveManifold::Hopf))
+        && LEGACY.into_iter().all(|manifold| {
+            descriptors.iter().any(|descriptor| {
+                descriptor.key == PageKey::manifold(PageKind::Positions, manifold)
+            })
+        })
+}
+
 const fn preferred_path_kind(manifold: Manifold) -> PageKind {
     match manifold {
         Manifold::Hybrid | Manifold::Siegel => PageKind::BundledPaths,
-        Manifold::Hopf | Manifold::Transit => PageKind::CurvedPaths,
+        Manifold::Torus | Manifold::Hopf | Manifold::Transit => PageKind::CurvedPaths,
         Manifold::Caps => PageKind::StraightPaths,
     }
 }
@@ -366,6 +471,12 @@ pub enum SceneContractError {
         actual: u64,
         limit: u64,
     },
+    #[error("{manifold:?} is missing its complete prepared topology projection")]
+    MissingTopologyProjection { manifold: Manifold },
+    #[error(transparent)]
+    TopologyInventory(#[from] TopologyInventoryError),
+    #[error(transparent)]
+    TopologyProjection(#[from] TopologyProjectionError),
     #[error(transparent)]
     Archive(#[from] phoenix_scene_archive::ArchiveError),
     #[error(transparent)]
@@ -448,6 +559,7 @@ impl From<Manifold> for ArchiveManifold {
     fn from(value: Manifold) -> Self {
         match value {
             Manifold::Hybrid => Self::Hybrid,
+            Manifold::Torus => Self::Torus,
             Manifold::Hopf => Self::Hopf,
             Manifold::Caps => Self::Caps,
             Manifold::Transit => Self::Transit,
@@ -460,6 +572,7 @@ impl From<ArchiveManifold> for Manifold {
     fn from(value: ArchiveManifold) -> Self {
         match value {
             ArchiveManifold::Hybrid => Self::Hybrid,
+            ArchiveManifold::Torus => Self::Torus,
             ArchiveManifold::Hopf => Self::Hopf,
             ArchiveManifold::Caps => Self::Caps,
             ArchiveManifold::Transit => Self::Transit,
@@ -472,7 +585,7 @@ impl From<ArchiveManifold> for Manifold {
 mod tests {
     use super::*;
     use phoenix_scene_archive::{
-        EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PhoenixSceneArchiveBuilderV1,
+        EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PathRecord, PhoenixSceneArchiveBuilderV1,
         PositionRecord, TopologyRecord,
     };
     use std::path::PathBuf;
@@ -508,8 +621,8 @@ mod tests {
     }
 
     #[test]
-    fn resident_scene_opens_shared_pages_once_and_all_five_positions() {
-        let path = archive_path("five");
+    fn resident_scene_opens_shared_pages_once_and_all_six_positions() {
+        let path = archive_path("six");
         let mut builder = builder_with_shared(41).unwrap_or_else(|error| panic!("{error}"));
         for manifold in ArchiveManifold::ALL {
             builder
@@ -525,13 +638,46 @@ mod tests {
         let archive = PhoenixSceneArchiveV1::open(&path).unwrap_or_else(|error| panic!("{error}"));
         let scene = ResidentScene::from_archive(Arc::new(archive), None)
             .unwrap_or_else(|error| panic!("{error}"));
-        assert_eq!(scene.archive().verified_page_count(), 9);
+        assert_eq!(scene.archive().verified_page_count(), 10);
         for manifold in Manifold::ALL {
             let active = scene
                 .activate_manifold(manifold)
                 .unwrap_or_else(|error| panic!("{error}"));
             assert_eq!(active.hot_pages, HotPageInventory::default());
         }
+        drop(scene);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn legacy_five_manifold_archive_opens_without_inventing_hopf() {
+        let path = archive_path("legacy-five");
+        let mut builder = builder_with_shared(40).unwrap_or_else(|error| panic!("{error}"));
+        for manifold in [
+            ArchiveManifold::Hybrid,
+            ArchiveManifold::Torus,
+            ArchiveManifold::Caps,
+            ArchiveManifold::Transit,
+            ArchiveManifold::Siegel,
+        ] {
+            builder
+                .add_records(
+                    PageKey::manifold(PageKind::Positions, manifold),
+                    &[] as &[PositionRecord],
+                )
+                .unwrap_or_else(|error| panic!("{error}"));
+        }
+        builder
+            .write_to_path(&path)
+            .unwrap_or_else(|error| panic!("{error}"));
+        let archive = PhoenixSceneArchiveV1::open(&path).unwrap_or_else(|error| panic!("{error}"));
+        let scene = ResidentScene::from_archive(Arc::new(archive), None)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(scene.activate_manifold(Manifold::Torus).is_ok());
+        assert!(matches!(
+            scene.activate_manifold(Manifold::Hopf),
+            Err(SceneContractError::Archive(ArchiveError::MissingPage(_)))
+        ));
         drop(scene);
         let _ = std::fs::remove_file(path);
     }
@@ -568,6 +714,55 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn topology_projection_requires_every_stable_edge_slot_exactly_once() {
+        let complete = [path(0), path(1), path(2)];
+        let view = PathPageView {
+            style: 0,
+            paths: &complete,
+            points: &[],
+        };
+        assert_eq!(validate_topology_projection(view, 3), Ok(()));
+
+        let missing = PathPageView {
+            style: 0,
+            paths: &complete[..2],
+            points: &[],
+        };
+        assert_eq!(
+            validate_topology_projection(missing, 3),
+            Err(TopologyProjectionError::InventoryMismatch {
+                expected_edges: 3,
+                actual_paths: 2,
+            })
+        );
+
+        let duplicate = [path(0), path(0), path(2)];
+        let duplicate = PathPageView {
+            style: 0,
+            paths: &duplicate,
+            points: &[],
+        };
+        assert_eq!(
+            validate_topology_projection(duplicate, 3),
+            Err(TopologyProjectionError::StableSlotMismatch {
+                ordinal: 1,
+                expected_slot: 1,
+                actual_slot: 0,
+            })
+        );
+    }
+
+    const fn path(edge_slot: u32) -> PathRecord {
+        PathRecord {
+            edge_slot,
+            first_point: 0,
+            point_count: 0,
+            flags: 0,
+            rgba8: 0,
+        }
     }
 
     #[test]

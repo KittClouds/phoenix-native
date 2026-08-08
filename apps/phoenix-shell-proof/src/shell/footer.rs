@@ -137,9 +137,11 @@ impl PhoenixShell {
     pub(super) fn render_left_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .h_8()
+            .min_w_0()
             .flex_shrink_0()
             .flex()
             .items_center()
+            .overflow_hidden()
             .px_3()
             .border_t_1()
             .border_r_1()
@@ -178,6 +180,7 @@ impl PhoenixShell {
             .flex()
             .items_center()
             .gap_2()
+            .overflow_hidden()
             .px_3()
             .border_t_1()
             .border_color(rgb(BORDER))
@@ -249,6 +252,8 @@ impl PhoenixShell {
             .child(
                 div()
                     .ml_auto()
+                    .min_w_0()
+                    .flex_shrink()
                     .flex()
                     .items_center()
                     .gap_2()
@@ -302,10 +307,12 @@ impl PhoenixShell {
     pub(super) fn render_right_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .h_8()
+            .min_w_0()
             .flex_shrink_0()
             .flex()
             .items_center()
             .justify_end()
+            .overflow_hidden()
             .px_3()
             .border_t_1()
             .border_l_1()
@@ -318,6 +325,8 @@ impl PhoenixShell {
                     .ghost()
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.right_open = false;
+                        this.analytics_highlight = None;
+                        this.apply_kernel_highlights(cx);
                         cx.notify();
                     })),
             )

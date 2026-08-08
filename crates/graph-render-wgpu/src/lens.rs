@@ -9,7 +9,10 @@ pub struct NodeProductGpu {
     pub scope_mask: [u32; 2],
     pub review_mask: u32,
     pub enabled: u32,
-    pub _padding: [u32; 2],
+    /// Set by the CPU visibility closure when a selected edge needs this node
+    /// as a muted endpoint even though its primary lane is hidden.
+    pub context_visible: u32,
+    pub _padding: u32,
 }
 
 impl NodeProductGpu {
@@ -18,7 +21,8 @@ impl NodeProductGpu {
         scope_mask: [u32::MAX; 2],
         review_mask: u32::MAX,
         enabled: 1,
-        _padding: [0; 2],
+        context_visible: 0,
+        _padding: 0,
     };
 }
 
@@ -29,7 +33,8 @@ impl From<&NodeProductRecord> for NodeProductGpu {
             scope_mask: split_u64(record.scope_mask),
             review_mask: record.review_mask,
             enabled: 1,
-            _padding: [0; 2],
+            context_visible: 0,
+            _padding: 0,
         }
     }
 }

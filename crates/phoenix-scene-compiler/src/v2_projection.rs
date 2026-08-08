@@ -4,11 +4,13 @@ use phoenix_scene_archive::{
     EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PositionRecord, TopologyRecord,
 };
 use phoenix_scene_contract::{
-    with_visual_role, CapsRole, FamilyMask, HighlightPalette, VisualRole,
+    describe_node, with_visual_role, CapsRole, FamilyMask, GraphPalette, HighlightPalette,
+    VisualNodeLane, VisualRole,
 };
 use phoenix_scene_product_index::{EntityNodeMappingRecord, ProductReferenceRecord};
 use phoenix_scene_publisher::{
-    NativeScenePublication, SceneEdgeProduct, SceneNodeProduct, ScenePublicationKind,
+    NativeScenePublication, SceneCapsGuide, SceneEdgeProduct, SceneNodeProduct,
+    ScenePublicationKind,
 };
 use std::sync::Arc;
 
@@ -21,7 +23,6 @@ pub(crate) struct NodeDraft {
     pub family_mask: u64,
     pub scope_mask: u64,
     pub review_mask: u32,
-    pub color: [f32; 4],
     pub base_radius: f32,
     pub flags: u16,
     pub caps_role: CapsRole,
@@ -38,7 +39,6 @@ pub(crate) struct EdgeDraft {
     pub scope_mask: u64,
     pub relation_mask: u64,
     pub review_mask: u32,
-    pub color: [f32; 4],
     pub width: f32,
     pub kind: u16,
     pub flags: u16,
@@ -52,7 +52,6 @@ pub(crate) struct ProjectionBuilder {
     document_id: u64,
     nodes: Vec<NodeDraft>,
     node_ids: HashSet<u64>,
-    node_family_masks: HashMap<u64, u64>,
     edges: Vec<EdgeDraft>,
     edge_ids: HashSet<u64>,
     entity_mappings: Vec<EntityNodeMappingRecord>,
@@ -79,7 +78,6 @@ impl ProjectionBuilder {
             document_id,
             nodes: Vec::with_capacity(node_capacity),
             node_ids: HashSet::with_capacity(node_capacity),
-            node_family_masks: HashMap::with_capacity(node_capacity),
             edges: Vec::with_capacity(edge_capacity),
             edge_ids: HashSet::with_capacity(edge_capacity),
             entity_mappings: Vec::new(),
@@ -93,7 +91,6 @@ impl ProjectionBuilder {
                 resource: "V2 scene node",
             });
         }
-        self.node_family_masks.insert(node.id, node.family_mask);
         self.nodes.push(node);
         Ok(())
     }
@@ -102,10 +99,7 @@ impl ProjectionBuilder {
         self.node_ids.contains(&node_id)
     }
 
-    pub(crate) fn push_edge(
-        &mut self,
-        mut edge: EdgeDraft,
-    ) -> Result<(), NativeSceneCompilerError> {
+    pub(crate) fn push_edge(&mut self, edge: EdgeDraft) -> Result<(), NativeSceneCompilerError> {
         if self.edges.len() >= MAX_SCENE_EDGES {
             return Err(NativeSceneCompilerError::EdgeLimit(MAX_SCENE_EDGES));
         }
@@ -114,22 +108,10 @@ impl ProjectionBuilder {
                 resource: "V2 scene edge",
             });
         }
-        // Edge products inherit only topology-detail lanes from their exact
-        // endpoints. Broad lane authority remains the producer's decision,
-        // while endpoint visibility guarantees that hiding a subtype cannot
-        // leave a dangling line behind.
-        edge.family_mask |= self
-            .node_family_masks
-            .get(&edge.source)
-            .copied()
-            .unwrap_or(0)
-            & FamilyMask::TOPOLOGY_LANES.0;
-        edge.family_mask |= self
-            .node_family_masks
-            .get(&edge.target)
-            .copied()
-            .unwrap_or(0)
-            & FamilyMask::TOPOLOGY_LANES.0;
+        // The producer-supplied mask is the edge's primary semantic identity.
+        // Endpoint families are renderer context and must not be folded into
+        // this mask, otherwise one relation is counted and filtered as several
+        // unrelated products.
         self.edges.push(edge);
         Ok(())
     }
@@ -147,7 +129,7 @@ impl ProjectionBuilder {
 
     pub(crate) fn finish(
         self,
-        _palette: HighlightPalette,
+        palette: HighlightPalette,
     ) -> Result<NativeScenePublication, NativeSceneCompilerError> {
         let node_slots = self
             .nodes
@@ -186,14 +168,21 @@ impl ProjectionBuilder {
         let mut identities = Vec::with_capacity(node_count);
         let mut styles = Vec::with_capacity(node_count);
         let mut products = Vec::with_capacity(node_count);
-        let mut positions: [Vec<PositionRecord>; 5] =
+        let mut positions: [Vec<PositionRecord>; 6] =
             std::array::from_fn(|_| Vec::with_capacity(node_count));
         let mut caps_nodes = Vec::with_capacity(node_count);
         for (ordinal, node) in self.nodes.into_iter().enumerate() {
+            let descriptor = describe_node(node.family_mask);
             let role = visual_role_for(node.caps_role, degrees[ordinal], hub_threshold);
             identities.push(NodeIdentityRecord { id: node.id });
+            let color_key = GraphPalette::node_key(descriptor, node.kind).ok_or(
+                NativeSceneCompilerError::PaletteKeyMissing {
+                    resource: "node",
+                    id: node.id,
+                },
+            )?;
             styles.push(NodeStyleRecord {
-                color: node.color,
+                color: palette.graph.color(color_key),
                 radius: (node.base_radius + (degrees[ordinal] as f32 + 1.0).ln() * 0.11)
                     .min(node.base_radius * 1.9),
                 kind: node.kind,
@@ -211,6 +200,7 @@ impl ProjectionBuilder {
             caps_nodes.push(layout::CapsNode {
                 stable_id: node.id,
                 role: node.caps_role,
+                semantic_kind: descriptor.kind,
                 parent_slot: node
                     .caps_parent
                     .map(|parent| {
@@ -235,8 +225,50 @@ impl ProjectionBuilder {
             }
         }
         assign_sibling_ranks(&mut caps_nodes)?;
-        positions[phoenix_scene_archive::ArchiveManifold::Caps as usize] =
-            layout::compile_caps_positions(&caps_nodes)?;
+        let mut hybrid_nodes = Vec::with_capacity(node_count);
+        for ((caps, product), degree) in caps_nodes.iter().zip(&products).zip(&degrees) {
+            hybrid_nodes.push(layout::HybridNode {
+                stable_id: caps.stable_id,
+                lane: hybrid_lane(product.family_mask),
+                role: caps.role,
+                parent_slot: caps.parent_slot,
+                sibling_rank: caps.sibling_rank,
+                sibling_count: caps.sibling_count,
+                degree: *degree,
+            });
+        }
+        positions[phoenix_scene_archive::ArchiveManifold::Hybrid as usize] =
+            layout::compile_hybrid_positions(&hybrid_nodes)?;
+        let caps_layout = layout::compile_caps_layout(&caps_nodes)?;
+        positions[phoenix_scene_archive::ArchiveManifold::Caps as usize] = caps_layout.positions;
+        let caps_guides = caps_layout
+            .guides
+            .into_iter()
+            .map(|guide| SceneCapsGuide {
+                stable_id: guide.stable_id,
+                center: guide.center,
+                aperture: guide.aperture,
+                radius: guide.radius,
+                role: guide.role,
+                weight: guide.weight,
+            })
+            .collect();
+        let hopf_nodes = caps_nodes
+            .iter()
+            .zip(&products)
+            .zip(&degrees)
+            .map(|((caps, product), degree)| layout::HopfNode {
+                stable_id: caps.stable_id,
+                semantic_slot: describe_node(product.family_mask).kind as u16,
+                role: caps.role,
+                parent_slot: caps.parent_slot,
+                sibling_rank: caps.sibling_rank,
+                sibling_count: caps.sibling_count,
+                degree: *degree,
+            })
+            .collect::<Vec<_>>();
+        positions[phoenix_scene_archive::ArchiveManifold::Hopf as usize] =
+            layout::compile_hopf_positions(&hopf_nodes)?;
 
         let edge_count = self.edges.len();
         let mut topology = Vec::with_capacity(edge_count);
@@ -249,7 +281,14 @@ impl ProjectionBuilder {
             });
             edges.push(EdgeRecord {
                 id: edge.id,
-                color: edge.color,
+                color: palette.graph.color(
+                    GraphPalette::edge_key(edge.relation_mask, edge.review_mask).ok_or(
+                        NativeSceneCompilerError::PaletteKeyMissing {
+                            resource: "edge",
+                            id: edge.id,
+                        },
+                    )?,
+                ),
                 width: edge.width,
                 kind: edge.kind,
                 flags: edge.flags,
@@ -275,11 +314,21 @@ impl ProjectionBuilder {
             topology,
             edges,
             positions,
+            caps_guides,
             node_products: products,
             edge_products,
             entity_mappings: self.entity_mappings,
             references: self.references,
         })
+    }
+}
+
+fn hybrid_lane(family_mask: u64) -> phoenix_hybrid_space::HybridLane {
+    match describe_node(family_mask).lane {
+        VisualNodeLane::Structure => phoenix_hybrid_space::HybridLane::Structure,
+        VisualNodeLane::Facts => phoenix_hybrid_space::HybridLane::Facts,
+        VisualNodeLane::Discourse => phoenix_hybrid_space::HybridLane::Discourse,
+        VisualNodeLane::Entities => phoenix_hybrid_space::HybridLane::Entities,
     }
 }
 
@@ -304,8 +353,11 @@ fn visual_role_for(caps_role: CapsRole, degree: u32, hub_threshold: u32) -> Visu
         | CapsRole::Sentence
         | CapsRole::Entity
         | CapsRole::Chunk
-        | CapsRole::Evidence => VisualRole::Anchor,
-        CapsRole::Event | CapsRole::Fact | CapsRole::Memory => VisualRole::Ordinary,
+        | CapsRole::Evidence
+        | CapsRole::Event
+        | CapsRole::Fact
+        | CapsRole::Discourse
+        | CapsRole::Memory => VisualRole::Anchor,
     };
     if base != VisualRole::Root && degree >= hub_threshold {
         VisualRole::Hub
@@ -336,18 +388,18 @@ fn layout_family_slot(mask: u64) -> u16 {
 }
 
 fn assign_sibling_ranks(nodes: &mut [layout::CapsNode]) -> Result<(), NativeSceneCompilerError> {
-    let mut counts = HashMap::<(Option<u32>, CapsRole), u32>::new();
+    let mut counts = HashMap::<Option<u32>, u32>::new();
     for node in nodes.iter() {
-        let count = counts.entry((node.parent_slot, node.role)).or_default();
+        let count = counts.entry(node.parent_slot).or_default();
         *count = count
             .checked_add(1)
             .ok_or(NativeSceneCompilerError::RangeOverflow(
                 "V2 CAPS sibling count",
             ))?;
     }
-    let mut ranks = HashMap::<(Option<u32>, CapsRole), u32>::with_capacity(counts.len());
+    let mut ranks = HashMap::<Option<u32>, u32>::with_capacity(counts.len());
     for node in nodes {
-        let key = (node.parent_slot, node.role);
+        let key = node.parent_slot;
         node.sibling_count = counts[&key];
         let rank = ranks.entry(key).or_default();
         node.sibling_rank = *rank;
@@ -375,6 +427,7 @@ pub(crate) fn projection_id(domain: &[u8], parts: &[&[u8]]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use phoenix_scene_contract::VisualNodeKind;
 
     #[test]
     fn product_lanes_keep_entity_granularity_for_structure_and_facts() {
@@ -400,6 +453,22 @@ mod tests {
     }
 
     #[test]
+    fn hopf_semantics_preserve_fact_subtypes_over_entity_tags() {
+        let event = describe_node(
+            FamilyMask::FACTS.0 | FamilyMask::EVENT_FACTS.0 | FamilyMask::CHARACTERS.0,
+        );
+        let temporal = describe_node(
+            FamilyMask::FACTS.0 | FamilyMask::TEMPORAL_FACTS.0 | FamilyMask::LOCATIONS.0,
+        );
+        let causal = describe_node(FamilyMask::FACTS.0 | FamilyMask::CAUSAL_FACTS.0);
+        let memory = describe_node(FamilyMask::FACTS.0 | FamilyMask::MEMORY_STATE_FACTS.0);
+        assert_eq!(event.kind as u16, 40);
+        assert_eq!(temporal.kind as u16, 42);
+        assert_eq!(causal.kind as u16, 43);
+        assert_eq!(memory.kind as u16, 44);
+    }
+
+    #[test]
     fn visual_hub_threshold_is_deterministic_and_bounded() {
         assert_eq!(hub_degree_threshold(&[]), u32::MAX);
         assert_eq!(hub_degree_threshold(&[0, 1, 2, 3]), 8);
@@ -420,5 +489,66 @@ mod tests {
             visual_role_for(CapsRole::Evidence, 1, 8),
             VisualRole::Anchor
         );
+    }
+
+    #[test]
+    fn caps_siblings_share_one_parent_chart_across_roles() {
+        let mut nodes = [
+            layout::CapsNode {
+                stable_id: 1,
+                role: CapsRole::Document,
+                semantic_kind: VisualNodeKind::Document,
+                parent_slot: None,
+                sibling_rank: 0,
+                sibling_count: 1,
+                membership_count: 1,
+            },
+            layout::CapsNode {
+                stable_id: 2,
+                role: CapsRole::Chapter,
+                semantic_kind: VisualNodeKind::Chapter,
+                parent_slot: Some(0),
+                sibling_rank: 0,
+                sibling_count: 1,
+                membership_count: 1,
+            },
+            layout::CapsNode {
+                stable_id: 3,
+                role: CapsRole::Episode,
+                semantic_kind: VisualNodeKind::Episode,
+                parent_slot: Some(0),
+                sibling_rank: 0,
+                sibling_count: 1,
+                membership_count: 1,
+            },
+        ];
+        assign_sibling_ranks(&mut nodes).expect("CAPS sibling ranks");
+        assert_eq!((nodes[1].sibling_rank, nodes[1].sibling_count), (0, 2));
+        assert_eq!((nodes[2].sibling_rank, nodes[2].sibling_count), (1, 2));
+    }
+
+    #[test]
+    fn compiler_preserves_relation_identity_without_endpoint_detail_inheritance() {
+        let mut builder = ProjectionBuilder::with_capacity(1, 1, 1, 0, 1).expect("builder");
+        let causal = FamilyMask::FACTS.0 | FamilyMask::CAUSAL_FACTS.0;
+        builder
+            .push_edge(EdgeDraft {
+                id: 1,
+                source: 10,
+                target: 11,
+                family_mask: causal,
+                scope_mask: u64::MAX,
+                relation_mask: 1 << 3,
+                review_mask: u32::MAX,
+                width: 1.0,
+                kind: 0,
+                flags: 0,
+                inspector_ref: 0,
+                provenance_ref: 0,
+            })
+            .expect("edge");
+        assert_eq!(builder.edges[0].family_mask, causal);
+        assert_eq!(builder.edges[0].family_mask & FamilyMask::EVENT_FACTS.0, 0);
+        assert_eq!(builder.edges[0].family_mask & FamilyMask::ENTITY_LANES.0, 0);
     }
 }

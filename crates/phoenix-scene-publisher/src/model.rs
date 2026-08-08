@@ -2,6 +2,7 @@ use crate::{ScenePublicationError, ScenePublicationKind};
 use phoenix_scene_archive::{
     EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PositionRecord, TopologyRecord,
 };
+use phoenix_scene_contract::{validate_topology_endpoints, CapsRole};
 use phoenix_scene_product_index::{EntityNodeMappingRecord, ProductReferenceRecord};
 use std::sync::Arc;
 
@@ -27,6 +28,16 @@ pub struct SceneEdgeProduct {
     pub provenance_ref: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SceneCapsGuide {
+    pub stable_id: u64,
+    pub center: [f32; 3],
+    pub aperture: f32,
+    pub radius: f32,
+    pub role: CapsRole,
+    pub weight: u32,
+}
+
 #[derive(Debug)]
 pub struct NativeScenePublication {
     pub generation_id: u64,
@@ -37,7 +48,10 @@ pub struct NativeScenePublication {
     pub styles: Vec<NodeStyleRecord>,
     pub topology: Vec<TopologyRecord>,
     pub edges: Vec<EdgeRecord>,
-    pub positions: [Vec<PositionRecord>; 5],
+    pub positions: [Vec<PositionRecord>; 6],
+    /// Publication-time CAPS regions. These are packed into the existing
+    /// immutable guide page and never evaluated in the renderer's frame loop.
+    pub caps_guides: Vec<SceneCapsGuide>,
     pub node_products: Vec<SceneNodeProduct>,
     pub edge_products: Vec<SceneEdgeProduct>,
     pub entity_mappings: Vec<EntityNodeMappingRecord>,
@@ -60,9 +74,30 @@ impl NativeScenePublication {
         {
             return Err(ScenePublicationError::InventoryMismatch("node pages"));
         }
+        for (slot, guide) in self.caps_guides.iter().enumerate() {
+            let center_length = guide.center[0]
+                .hypot(guide.center[1])
+                .hypot(guide.center[2]);
+            if guide.stable_id == 0
+                || guide.center.iter().any(|value| !value.is_finite())
+                || !(0.98..=1.02).contains(&center_length)
+                || !guide.aperture.is_finite()
+                || !(0.0..=std::f32::consts::PI).contains(&guide.aperture)
+                || guide.aperture == 0.0
+                || !guide.radius.is_finite()
+                || guide.radius <= 0.0
+                || guide.weight == 0
+            {
+                return Err(ScenePublicationError::IdentityMismatch {
+                    resource: "CAPS guide",
+                    slot,
+                });
+            }
+        }
         if self.topology.len() != edge_count || self.edge_products.len() != edge_count {
             return Err(ScenePublicationError::InventoryMismatch("edge pages"));
         }
+        validate_topology_endpoints(&self.identities, &self.topology, &self.edges)?;
         for (slot, (identity, product)) in
             self.identities.iter().zip(&self.node_products).enumerate()
         {

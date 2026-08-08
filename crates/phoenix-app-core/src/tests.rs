@@ -5,7 +5,8 @@ use phoenix_analysis_contract::{
 };
 use phoenix_scene_archive::{
     ArchiveManifold, EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PageKey, PageKind,
-    PhoenixSceneArchiveBuilderV1, PhoenixSceneArchiveV1, PositionRecord, TopologyRecord,
+    PathPageHeader, PathRecord, PhoenixSceneArchiveBuilderV1, PhoenixSceneArchiveV1,
+    PositionRecord, RelationMaskRecord, TopologyRecord,
 };
 use phoenix_scene_contract::{
     AnchorCandidate, AnchorSource, EntityFamily, EntityKind, FamilyMask, GraphAction, GraphScope,
@@ -85,6 +86,48 @@ fn command_queue_pressure_fails_closed_at_the_named_capacity(
     assert_eq!(kernel.metrics().commands_pending, 0);
     assert!(kernel.metrics().commands_rejected >= 1);
     kernel.shutdown()?;
+    let parent = path.parent().ok_or("test path has no parent")?;
+    let _ = std::fs::remove_dir_all(parent);
+    Ok(())
+}
+
+#[test]
+fn stalled_event_observer_cannot_freeze_kernel_commands() -> Result<(), Box<dyn std::error::Error>>
+{
+    let path = path();
+    let kernel = PhoenixKernel::start(path.clone(), None)?;
+    let command_count = EVENT_CAPACITY * 4;
+
+    for index in 0..command_count {
+        kernel.execute(KernelCommand::SetManifold(
+            Manifold::ALL[index % Manifold::ALL.len()],
+        ))?;
+    }
+
+    let events = kernel.events_after(0)?;
+    let metrics = kernel.metrics();
+    assert_eq!(events.len(), EVENT_CAPACITY);
+    assert_eq!(metrics.events_pending, EVENT_CAPACITY as u64);
+    assert_eq!(metrics.event_queue_high_water, EVENT_CAPACITY as u64);
+    assert_eq!(
+        metrics.events_evicted,
+        (command_count - EVENT_CAPACITY) as u64
+    );
+    assert_eq!(metrics.commands_rejected, 0);
+    assert_eq!(
+        events.first().map(|event| event.sequence),
+        Some((command_count - EVENT_CAPACITY + 1) as u64)
+    );
+    assert_eq!(
+        events.last().map(|event| event.sequence),
+        Some(command_count as u64)
+    );
+    assert_eq!(
+        kernel.snapshot()?.graph_view.manifold,
+        Manifold::ALL[(command_count - 1) % Manifold::ALL.len()]
+    );
+    kernel.shutdown()?;
+    drop(kernel);
     let parent = path.parent().ok_or("test path has no parent")?;
     let _ = std::fs::remove_dir_all(parent);
     Ok(())
@@ -332,10 +375,33 @@ fn scene(generation: u64) -> Result<Arc<ResidentScene>, SceneContractError> {
             &[] as &[TopologyRecord],
         )?
         .add_records(PageKey::shared(PageKind::Edge), &[] as &[EdgeRecord])?;
+    builder.add_records(
+        PageKey::shared(PageKind::RelationMasks),
+        &[] as &[RelationMaskRecord],
+    )?;
     for manifold in ArchiveManifold::ALL {
         builder.add_records(
             PageKey::manifold(PageKind::Positions, manifold),
             &[] as &[PositionRecord],
+        )?;
+        let path_kind = match manifold {
+            ArchiveManifold::Hybrid | ArchiveManifold::Siegel => PageKind::BundledPaths,
+            ArchiveManifold::Torus | ArchiveManifold::Hopf | ArchiveManifold::Transit => {
+                PageKind::CurvedPaths
+            }
+            ArchiveManifold::Caps => PageKind::StraightPaths,
+        };
+        builder.add_page(
+            PageKey::manifold(path_kind, manifold),
+            bytemuck::bytes_of(&PathPageHeader {
+                path_count: 0,
+                point_count: 0,
+                path_style: 0,
+                reserved: 0,
+            })
+            .to_vec(),
+            0,
+            std::mem::size_of::<PathRecord>() as u32,
         )?;
     }
     builder.write_to_path(&archive_path)?;
@@ -383,9 +449,10 @@ fn full_publication(generation_id: u64, registry_revision: u64) -> NativeScenePu
         topology: Vec::new(),
         edges: Vec::new(),
         positions,
+        caps_guides: Vec::new(),
         node_products: vec![SceneNodeProduct {
             node_id: 501,
-            family_mask: 1,
+            family_mask: FamilyMask::ENTITIES.0 | FamilyMask::CONCEPTS.0,
             scope_mask: 1,
             review_mask: ReviewState::Accepted as u32,
             label: Arc::from("Published graph node"),
@@ -1378,7 +1445,7 @@ fn native_release_manifest_freezes_exact_authority_and_fails_closed_on_corruptio
         kernel.release_manifest(),
         Err(ReleaseLockError::Missing("production analysis generation"))
     ));
-    let digest = ReleaseCohortDigestsV1 {
+    let digest = ReleaseCohortDigestsV2 {
         document_structure: [1; 32],
         entity_mentions_evidence: [2; 32],
         accepted_topology: [3; 32],
@@ -1386,15 +1453,15 @@ fn native_release_manifest_freezes_exact_authority_and_fails_closed_on_corruptio
         durable_decisions: [5; 32],
         producer_capabilities: [6; 32],
         shared_scene_pages: [7; 32],
-        manifold_positions: [[8; 32]; 5],
-        manifold_guides: [[9; 32]; 5],
-        manifold_paths: [[10; 32]; 5],
+        manifold_positions: [[8; 32]; RELEASE_MANIFOLD_COUNT],
+        manifold_guides: [[9; 32]; RELEASE_MANIFOLD_COUNT],
+        manifold_paths: [[10; 32]; RELEASE_MANIFOLD_COUNT],
         product_families_reviews_scopes: [11; 32],
         product_labels: [12; 32],
         entity_node_mappings: [13; 32],
         inspector_provenance: [14; 32],
     };
-    let manifest = PhoenixReleaseManifestV1 {
+    let manifest = PhoenixReleaseManifestV2 {
         contract: RELEASE_MANIFEST_CONTRACT.to_owned(),
         authority: ReleaseCohortAuthorityV1 {
             document_id: lease.entry_id.0,
@@ -1450,7 +1517,7 @@ fn native_release_manifest_freezes_exact_authority_and_fails_closed_on_corruptio
     let parent = path.parent().ok_or("test path has no parent")?;
     let manifest_path = parent.join("exact-cohort.phxrl");
     manifest.write_new(&manifest_path)?;
-    assert_eq!(PhoenixReleaseManifestV1::open(&manifest_path)?, manifest);
+    assert_eq!(PhoenixReleaseManifestV2::open(&manifest_path)?, manifest);
 
     let mut corrupted = std::fs::read(&manifest_path)?;
     let last = corrupted.last_mut().ok_or("manifest is empty")?;
@@ -1458,13 +1525,13 @@ fn native_release_manifest_freezes_exact_authority_and_fails_closed_on_corruptio
     let corrupt_path = parent.join("corrupt-cohort.phxrl");
     std::fs::write(&corrupt_path, corrupted)?;
     assert!(matches!(
-        PhoenixReleaseManifestV1::open(&corrupt_path),
+        PhoenixReleaseManifestV2::open(&corrupt_path),
         Err(ReleaseLockError::HashMismatch)
     ));
     let oversized_path = parent.join("oversized-cohort.phxrl");
     std::fs::File::create(&oversized_path)?.set_len(2 * 1024 * 1024 + 65)?;
     assert!(matches!(
-        PhoenixReleaseManifestV1::open(&oversized_path),
+        PhoenixReleaseManifestV2::open(&oversized_path),
         Err(ReleaseLockError::Oversized(_))
     ));
 
@@ -1488,8 +1555,8 @@ fn production_graph_architecture_excludes_legacy_and_json_freight() {
     assert!(root_manifest.contains("exclude = [\"apps/phoenix-legacy-bridge\"]"));
     assert!(!app_core_manifest.contains("phoenix-graph-generation ="));
     assert!(!app_core_manifest.contains("serde_json"));
-    assert!(compiler_manifest.contains("default = []"));
-    assert!(compiler_manifest.contains("legacy-v1-fixture = [\"dep:phoenix-graph-generation\"]"));
+    assert!(!compiler_manifest.contains("legacy-v1-fixture"));
+    assert!(!compiler_manifest.contains("phoenix-graph-generation ="));
     assert!(shell_manifest.contains("legacy-graph-adapter = []"));
     assert!(shell_main.contains("PHOENIX_LEGACY_GRAPH_ADAPTER_FORBIDDEN"));
     assert!(legacy_manifest.contains("[workspace]"));

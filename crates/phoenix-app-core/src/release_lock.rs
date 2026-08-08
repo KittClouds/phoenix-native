@@ -19,9 +19,10 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-pub const RELEASE_MANIFEST_CONTRACT: &str = "phoenix.native.release-manifest/v1";
-const MAGIC: [u8; 8] = *b"PHXRLM01";
-const FORMAT_VERSION: u32 = 1;
+pub const RELEASE_MANIFEST_CONTRACT: &str = "phoenix.native.release-manifest/v2";
+pub const RELEASE_MANIFOLD_COUNT: usize = ArchiveManifold::ALL.len();
+const MAGIC: [u8; 8] = *b"PHXRLM02";
+const FORMAT_VERSION: u32 = 2;
 const HEADER_LEN: usize = 64;
 const MAX_PAYLOAD_BYTES: usize = 2 * 1024 * 1024;
 
@@ -81,7 +82,7 @@ pub struct ReleaseCohortCountsV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ReleaseCohortDigestsV1 {
+pub struct ReleaseCohortDigestsV2 {
     pub document_structure: [u8; 32],
     pub entity_mentions_evidence: [u8; 32],
     pub accepted_topology: [u8; 32],
@@ -89,9 +90,9 @@ pub struct ReleaseCohortDigestsV1 {
     pub durable_decisions: [u8; 32],
     pub producer_capabilities: [u8; 32],
     pub shared_scene_pages: [u8; 32],
-    pub manifold_positions: [[u8; 32]; 5],
-    pub manifold_guides: [[u8; 32]; 5],
-    pub manifold_paths: [[u8; 32]; 5],
+    pub manifold_positions: [[u8; 32]; RELEASE_MANIFOLD_COUNT],
+    pub manifold_guides: [[u8; 32]; RELEASE_MANIFOLD_COUNT],
+    pub manifold_paths: [[u8; 32]; RELEASE_MANIFOLD_COUNT],
     pub product_families_reviews_scopes: [u8; 32],
     pub product_labels: [u8; 32],
     pub entity_node_mappings: [u8; 32],
@@ -99,11 +100,11 @@ pub struct ReleaseCohortDigestsV1 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct PhoenixReleaseManifestV1 {
+pub struct PhoenixReleaseManifestV2 {
     pub contract: String,
     pub authority: ReleaseCohortAuthorityV1,
     pub counts: ReleaseCohortCountsV1,
-    pub digests: ReleaseCohortDigestsV1,
+    pub digests: ReleaseCohortDigestsV2,
     pub run: AtlasRunReceiptV1,
     pub gates: ReleaseGateTargetsV1,
     pub json_graph_freight: u64,
@@ -111,7 +112,7 @@ pub struct PhoenixReleaseManifestV1 {
     pub resident_generation_count: u8,
 }
 
-impl PhoenixReleaseManifestV1 {
+impl PhoenixReleaseManifestV2 {
     pub fn validate(&self) -> Result<(), ReleaseLockError> {
         self.run.validate()?;
         if self.contract != RELEASE_MANIFEST_CONTRACT
@@ -295,7 +296,7 @@ impl PhoenixReleaseManifestV1 {
     }
 }
 
-impl ReleaseCohortDigestsV1 {
+impl ReleaseCohortDigestsV2 {
     fn contains_zero(&self) -> bool {
         [
             self.document_structure,
@@ -319,7 +320,7 @@ impl ReleaseCohortDigestsV1 {
 }
 
 impl PhoenixKernel {
-    pub fn release_manifest(&self) -> Result<PhoenixReleaseManifestV1, ReleaseLockError> {
+    pub fn release_manifest(&self) -> Result<PhoenixReleaseManifestV2, ReleaseLockError> {
         let snapshot = self.snapshot()?;
         let control = self.atlas_control_snapshot()?;
         let lease = snapshot
@@ -366,7 +367,7 @@ impl PhoenixKernel {
             promotion_counts(generation, catalog)?;
         let inventory = scene.inventory();
         let digests = release_digests(generation, scene.archive(), index)?;
-        let manifest = PhoenixReleaseManifestV1 {
+        let manifest = PhoenixReleaseManifestV2 {
             contract: RELEASE_MANIFEST_CONTRACT.to_owned(),
             authority: ReleaseCohortAuthorityV1 {
                 document_id: lease.entry_id.0,
@@ -416,7 +417,7 @@ fn release_digests(
     generation: &VerifiedGraphGenerationV2,
     archive: &phoenix_scene_archive::PhoenixSceneArchiveV1,
     index: &phoenix_scene_product_index::PhoenixSceneProductIndexV1,
-) -> Result<ReleaseCohortDigestsV1, ReleaseLockError> {
+) -> Result<ReleaseCohortDigestsV2, ReleaseLockError> {
     let document_structure = hash_record_groups(
         b"phoenix.release.document-structure/v1\0",
         &[
@@ -487,9 +488,9 @@ fn release_digests(
             PageKey::shared(ScenePageKind::PalettePolicy),
         ],
     )?;
-    let mut manifold_positions = [[0; 32]; 5];
-    let mut manifold_guides = [[0; 32]; 5];
-    let mut manifold_paths = [[0; 32]; 5];
+    let mut manifold_positions = [[0; 32]; RELEASE_MANIFOLD_COUNT];
+    let mut manifold_guides = [[0; 32]; RELEASE_MANIFOLD_COUNT];
+    let mut manifold_paths = [[0; 32]; RELEASE_MANIFOLD_COUNT];
     for (slot, manifold) in ArchiveManifold::ALL.into_iter().enumerate() {
         manifold_positions[slot] = hash_archive_pages(
             archive,
@@ -512,7 +513,7 @@ fn release_digests(
         )?;
     }
 
-    Ok(ReleaseCohortDigestsV1 {
+    Ok(ReleaseCohortDigestsV2 {
         document_structure,
         entity_mentions_evidence,
         accepted_topology,

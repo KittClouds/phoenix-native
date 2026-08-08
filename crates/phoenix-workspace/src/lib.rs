@@ -10,7 +10,8 @@ pub use documents::{
 };
 pub use entities::{
     EntityRegistry, EntitySourceMask, EntityTag, EntityTagResult, ManualEntityMention,
-    NerEntityRecord, NerPublicationResult, RegistryEntity, MAX_ENTITIES,
+    NerEntityRecord, NerPublicationResult, RegistryEntity, RegistryEntityDraft,
+    RegistryEntityEditResult, MAX_ENTITIES,
 };
 pub use palette::{load_highlight_palette_or_default, save_highlight_palette_atomic};
 
@@ -120,6 +121,10 @@ pub enum WorkspaceError {
     InvalidEntityRegistry(String),
     #[error("entity registry limit reached")]
     EntityLimit,
+    #[error("entity {0} is not present in the registry")]
+    EntityNotFound(u64),
+    #[error("manual entity identity space is exhausted")]
+    EntityIdentityExhausted,
     #[error("entity mention registry limit reached")]
     EntityMentionLimit,
     #[error("entity registry revision exhausted")]

@@ -108,7 +108,7 @@ pub struct CameraUniform {
     pub view_up: [f32; 4],
     pub viewport_size: [f32; 2],
     pub edge_opacity: f32,
-    pub _padding: f32,
+    pub canvas_style: f32,
 }
 
 const _: () = assert!(std::mem::size_of::<CameraUniform>() == 128);

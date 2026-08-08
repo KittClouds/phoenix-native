@@ -8,7 +8,10 @@ use crate::interaction_index::InteractionIndex;
 use crate::{EdgeProductGpu, NodeProductGpu, RenderError, SceneChanges, SceneState};
 use graph_model::{EdgeId, GraphDiff, GraphRevision, GraphSnapshot, NodeId};
 use phoenix_scene_archive::{ManifoldPageSet, PositionRecord};
-use phoenix_scene_contract::{GraphReviewOverride, GraphViewState};
+use phoenix_scene_contract::{
+    describe_node, primary_edge_family_mask, primary_node_family_mask, GraphPalette,
+    GraphReviewOverride, GraphViewState, VisualNodeLane,
+};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
 use std::time::Instant;
@@ -75,6 +78,8 @@ pub struct InteractionAllocationStats {
     pub edge_slot_capacity: usize,
     pub node_dirty_capacity: usize,
     pub edge_dirty_capacity: usize,
+    pub context_node_capacity: usize,
+    pub context_dirty_capacity: usize,
     pub queue_capacity: usize,
     pub route_node_capacity: usize,
     pub route_edge_capacity: usize,
@@ -102,6 +107,8 @@ pub struct GpuScene {
     interaction_edge_slots: Vec<u32>,
     interaction_node_dirty: Vec<u32>,
     interaction_edge_dirty: Vec<u32>,
+    context_node_slots: Vec<u32>,
+    context_node_dirty: Vec<u32>,
 }
 
 impl GpuScene {
@@ -147,6 +154,8 @@ impl GpuScene {
             interaction_edge_slots: Vec::new(),
             interaction_node_dirty: Vec::new(),
             interaction_edge_dirty: Vec::new(),
+            context_node_slots: Vec::new(),
+            context_node_dirty: Vec::new(),
         })
     }
 
@@ -184,9 +193,14 @@ impl GpuScene {
     /// Rebuilds the CPU interaction mask for the active view.  The GPU still
     /// owns visibility for rasterization, but picking, neighborhood walks, and
     /// routes must use the same authority or they can cross hidden lanes.
-    pub fn set_interaction_visibility(&mut self, view: GraphViewState, queue: &wgpu::Queue) {
+    pub fn set_interaction_visibility(
+        &mut self,
+        view: GraphViewState,
+        queue: &wgpu::Queue,
+    ) -> usize {
         let product_index_enabled =
             self.bound_product_hash.is_some() && view.requires_product_index();
+        let context_bytes = self.update_endpoint_context_visibility(view, queue);
         let state = &self.state;
         let node_products = &self.node_product_data;
         let edge_products = &self.edge_product_data;
@@ -202,21 +216,11 @@ impl GpuScene {
                 })
             },
             |slot| {
-                state.edge_at_slot(slot as u32).is_some_and(|edge| {
+                state.edge_at_slot(slot as u32).is_some_and(|_| {
                     !product_index_enabled
-                        || edge_products.get(slot).is_some_and(|product| {
-                            let (source, target) = state
-                                .node_slot(edge.source)
-                                .zip(state.node_slot(edge.target))
-                                .map(|(source, target)| {
-                                    (
-                                        node_products.get(source as usize),
-                                        node_products.get(target as usize),
-                                    )
-                                })
-                                .unwrap_or((None, None));
-                            edge_product_visible(product, source, target, view)
-                        })
+                        || edge_products
+                            .get(slot)
+                            .is_some_and(|product| edge_product_visible(product, view))
                 })
             },
         );
@@ -226,6 +230,65 @@ impl GpuScene {
             self.secondary_selected_node,
             queue,
         );
+        context_bytes
+    }
+
+    /// Computes the endpoint closure of the selected edge products without
+    /// changing topology. Context slots are stored in the existing packed node
+    /// product record, so view changes remain one linear pass and one bounded
+    /// dirty-range upload with no per-edge allocation.
+    fn update_endpoint_context_visibility(
+        &mut self,
+        view: GraphViewState,
+        queue: &wgpu::Queue,
+    ) -> usize {
+        self.context_node_dirty.clear();
+        self.context_node_dirty
+            .extend_from_slice(&self.context_node_slots);
+        for &slot in &self.context_node_slots {
+            if let Some(product) = self.node_product_data.get_mut(slot as usize) {
+                product.context_visible = 0;
+            }
+        }
+        self.context_node_slots.clear();
+
+        if self.bound_product_hash.is_some() && view.requires_product_index() {
+            for (slot, product) in self.edge_product_data.iter().enumerate() {
+                if !edge_product_primary_visible(product, view) {
+                    continue;
+                }
+                let Some(edge) = self.state.edge_at_slot(slot as u32) else {
+                    continue;
+                };
+                if let Some(source) = self.state.node_slot(edge.source) {
+                    self.context_node_slots.push(source);
+                }
+                if let Some(target) = self.state.node_slot(edge.target) {
+                    self.context_node_slots.push(target);
+                }
+            }
+            self.context_node_slots.sort_unstable();
+            self.context_node_slots.dedup();
+            for &slot in &self.context_node_slots {
+                if let Some(product) = self.node_product_data.get_mut(slot as usize) {
+                    product.context_visible = 1;
+                }
+            }
+            self.context_node_dirty
+                .extend_from_slice(&self.context_node_slots);
+        }
+
+        self.context_node_dirty.sort_unstable();
+        self.context_node_dirty.dedup();
+        write_dirty_ranges(
+            &self.node_product_buffer,
+            queue,
+            &self.node_product_data,
+            &self.context_node_dirty,
+        );
+        self.context_node_dirty
+            .len()
+            .saturating_mul(size_of::<NodeProductGpu>())
     }
 
     #[must_use]
@@ -455,6 +518,55 @@ impl GpuScene {
         })
     }
 
+    pub fn apply_graph_palette(
+        &mut self,
+        index: &PhoenixSceneProductIndexV1,
+        palette: GraphPalette,
+        queue: &wgpu::Queue,
+    ) -> Result<SnapshotMetrics, RenderError> {
+        let started = Instant::now();
+        self.state.apply_graph_palette(index, palette)?;
+        if self.node_gpu_data.len() != self.state.node_count() {
+            return Err(RenderError::PackedLengthMismatch {
+                resource: "palette node projection",
+                expected: self.state.node_count(),
+                actual: self.node_gpu_data.len(),
+            });
+        }
+        if self.edge_gpu_data.len() != self.state.edge_count() {
+            return Err(RenderError::PackedLengthMismatch {
+                resource: "palette edge projection",
+                expected: self.state.edge_count(),
+                actual: self.edge_gpu_data.len(),
+            });
+        }
+
+        for (gpu, node) in self.node_gpu_data.iter_mut().zip(self.state.nodes()) {
+            gpu.color = NodeGpu::from_visual(node, false, false).color;
+        }
+        for (gpu, edge) in self.edge_gpu_data.iter_mut().zip(self.state.edges()) {
+            let source = self
+                .state
+                .node_slot(edge.source)
+                .ok_or(RenderError::NodeNotFound(edge.source))?;
+            let target = self
+                .state
+                .node_slot(edge.target)
+                .ok_or(RenderError::NodeNotFound(edge.target))?;
+            gpu.color = EdgeGpu::from_visual(edge, source, target).color;
+        }
+        self.node_buffer.write(queue, 0, &self.node_gpu_data);
+        self.edge_buffer.write(queue, 0, &self.edge_gpu_data);
+        Ok(SnapshotMetrics {
+            node_count: self.state.node_count(),
+            edge_count: self.state.edge_count(),
+            upload_ranges: usize::from(!self.node_gpu_data.is_empty())
+                + usize::from(!self.edge_gpu_data.is_empty()),
+            elapsed_us: started.elapsed().as_micros(),
+            bindings_changed: false,
+        })
+    }
+
     pub fn apply_diff(
         &mut self,
         diff: GraphDiff,
@@ -488,6 +600,8 @@ impl GpuScene {
             self.edge_product_data[slot as usize] = EdgeProductGpu::UNFILTERED;
         }
         self.bound_product_hash = None;
+        self.context_node_slots.clear();
+        self.context_node_dirty.clear();
 
         let node_reallocated = self
             .node_buffer
@@ -794,6 +908,8 @@ impl GpuScene {
             edge_slot_capacity: self.interaction_edge_slots.capacity(),
             node_dirty_capacity: self.interaction_node_dirty.capacity(),
             edge_dirty_capacity: self.interaction_edge_dirty.capacity(),
+            context_node_capacity: self.context_node_slots.capacity(),
+            context_dirty_capacity: self.context_node_dirty.capacity(),
             queue_capacity: index.queue_capacity,
             route_node_capacity: index.route_node_capacity,
             route_edge_capacity: index.route_edge_capacity,
@@ -876,6 +992,8 @@ impl GpuScene {
         self.interaction_edge_slots.clear();
         self.interaction_node_dirty.clear();
         self.interaction_edge_dirty.clear();
+        self.context_node_slots.clear();
+        self.context_node_dirty.clear();
         reserve_slots(
             &mut self.interaction_node_slots,
             self.state
@@ -900,6 +1018,19 @@ impl GpuScene {
             self.state
                 .edge_capacity_slots()
                 .min(MAX_INTERACTION_EDGE_SLOTS)
+                .saturating_mul(2),
+        );
+        reserve_slots(
+            &mut self.context_node_slots,
+            self.state
+                .node_capacity_slots()
+                .min(MAX_INTERACTION_NODE_SLOTS),
+        );
+        reserve_slots(
+            &mut self.context_node_dirty,
+            self.state
+                .node_capacity_slots()
+                .min(MAX_INTERACTION_NODE_SLOTS)
                 .saturating_mul(2),
         );
         Ok(node_reallocated
@@ -950,16 +1081,40 @@ fn packed_mask(words: [u32; 2]) -> u64 {
 }
 
 fn node_product_visible(product: &NodeProductGpu, view: GraphViewState) -> bool {
-    let family_mask = packed_mask(product.family_mask);
+    node_product_primary_visible(product, view) || node_product_context_visible(product, view)
+}
+
+fn node_product_primary_visible(product: &NodeProductGpu, view: GraphViewState) -> bool {
+    let source_mask = packed_mask(product.family_mask);
+    let family_mask = primary_node_family_mask(source_mask).0;
     product.enabled != 0
         && family_visible(family_mask, view.family_mask())
-        && entity_lane_visible(family_mask, view.entity_families)
+        && entity_lane_visible(source_mask, view.entity_families)
+        && topology_lane_visible(family_mask, view.topology_families)
+        && packed_mask(product.scope_mask) & view.scope_mask().0 != 0
+        && product.review_mask & view.reviews.0 != 0
+}
+
+/// Endpoint context may bridge a hidden broad family so a selected edge does
+/// not terminate in empty space. It must not resurrect a node rejected by an
+/// explicit identity, topology, scope, review, or enabled-state filter.
+fn node_product_context_visible(product: &NodeProductGpu, view: GraphViewState) -> bool {
+    let source_mask = packed_mask(product.family_mask);
+    let family_mask = primary_node_family_mask(source_mask).0;
+    product.context_visible != 0
+        && product.enabled != 0
+        && entity_lane_visible(source_mask, view.entity_families)
         && topology_lane_visible(family_mask, view.topology_families)
         && packed_mask(product.scope_mask) & view.scope_mask().0 != 0
         && product.review_mask & view.reviews.0 != 0
 }
 
 fn entity_lane_visible(product_mask: u64, selected: phoenix_scene_contract::FamilyMask) -> bool {
+    // Entity bits on structure/fact/discourse products describe aura context,
+    // not identity. Only primary entity nodes participate in entity filtering.
+    if describe_node(product_mask).lane != VisualNodeLane::Entities {
+        return true;
+    }
     let product_lanes = product_mask & phoenix_scene_contract::FamilyMask::ENTITY_LANES.0;
     product_lanes == 0 || product_lanes & selected.0 != 0
 }
@@ -969,44 +1124,26 @@ fn topology_lane_visible(product_mask: u64, selected: phoenix_scene_contract::Fa
     product_lanes == 0 || product_lanes & selected.0 != 0
 }
 
-fn edge_product_visible(
-    product: &EdgeProductGpu,
-    source: Option<&NodeProductGpu>,
-    target: Option<&NodeProductGpu>,
-    view: GraphViewState,
-) -> bool {
-    let Some((source, target)) = source.zip(target) else {
-        return false;
-    };
-    let family_mask = packed_mask(product.family_mask);
+fn edge_product_visible(product: &EdgeProductGpu, view: GraphViewState) -> bool {
+    edge_product_primary_visible(product, view)
+}
+
+fn edge_product_primary_visible(product: &EdgeProductGpu, view: GraphViewState) -> bool {
+    let family_mask = primary_edge_family_mask(
+        packed_mask(product.family_mask),
+        packed_mask(product.relation_mask),
+    )
+    .0;
     product.enabled != 0
         && family_visible(family_mask, view.family_mask())
-        && entity_lane_visible(family_mask, view.entity_families)
         && topology_lane_visible(family_mask, view.topology_families)
         && packed_mask(product.scope_mask) & view.scope_mask().0 != 0
         && packed_mask(product.relation_mask) & view.relations.0 != 0
         && product.review_mask & view.reviews.0 != 0
-        && node_product_visible(source, view)
-        && node_product_visible(target, view)
 }
 
-/// Broad lens bits and their high-bit detail lanes are intentionally separate
-/// in the scene contract. A verified product may carry only its detail bit
-/// (for example `LOCATIONS` or `EVENT_FACTS`), so broad lens selection must
-/// still admit that product without asking the compiler to duplicate masks.
 fn family_visible(product_mask: u64, selected: phoenix_scene_contract::FamilyMask) -> bool {
-    let broad_match = product_mask & selected.0 != 0;
-    let entity_detail = product_mask & phoenix_scene_contract::FamilyMask::ENTITY_LANES.0 != 0
-        && selected.contains(phoenix_scene_contract::FamilyMask::ENTITIES);
-    let structure_detail = product_mask & phoenix_scene_contract::FamilyMask::STRUCTURE_LANES.0
-        != 0
-        && selected.contains(phoenix_scene_contract::FamilyMask::STRUCTURE);
-    let fact_detail = product_mask & phoenix_scene_contract::FamilyMask::FACT_LANES.0 != 0
-        && selected.contains(phoenix_scene_contract::FamilyMask::FACTS);
-    let discourse_detail = product_mask & phoenix_scene_contract::FamilyMask::DISCOURSE_LANES.0
-        != 0
-        && selected.contains(phoenix_scene_contract::FamilyMask::DISCOURSE);
-    broad_match || entity_detail || structure_detail || fact_detail || discourse_detail
+    product_mask & selected.0 != 0
 }
 
 #[cfg(test)]
@@ -1020,7 +1157,15 @@ mod visibility_tests {
             scope_mask: [ScopeMask::ALL.0 as u32, (ScopeMask::ALL.0 >> 32) as u32],
             review_mask: ReviewMask::ACCEPTED.0,
             enabled: 1,
-            _padding: [0; 2],
+            context_visible: 0,
+            _padding: 0,
+        }
+    }
+
+    const fn context_node(family: FamilyMask) -> NodeProductGpu {
+        NodeProductGpu {
+            context_visible: 1,
+            ..node(family)
         }
     }
 
@@ -1032,16 +1177,24 @@ mod visibility_tests {
         enabled: 1,
     };
 
+    const fn edge(family: FamilyMask, relation: RelationFamily) -> EdgeProductGpu {
+        EdgeProductGpu {
+            family_mask: [family.0 as u32, (family.0 >> 32) as u32],
+            scope_mask: [u32::MAX; 2],
+            relation_mask: [relation.mask().0 as u32, 0],
+            review_mask: ReviewMask::ACCEPTED.0,
+            enabled: 1,
+        }
+    }
+
     #[test]
-    fn entities_lens_rejects_edge_to_hidden_evidence_endpoint() {
-        let view = GraphViewState::default();
-        assert_eq!(view.surface, GraphSurface::Entities);
-        assert!(!edge_product_visible(
-            &EDGE,
-            Some(&node(FamilyMask::STRUCTURE)),
-            Some(&node(FamilyMask::ENTITIES)),
-            view,
-        ));
+    fn selected_edge_survives_hidden_endpoint_lanes() {
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::STRUCTURE,
+            ..GraphViewState::default()
+        };
+        assert!(edge_product_visible(&EDGE, view));
     }
 
     #[test]
@@ -1051,12 +1204,7 @@ mod visibility_tests {
             families: phoenix_scene_contract::FamilyMask::STRUCTURE,
             ..GraphViewState::default()
         };
-        assert!(edge_product_visible(
-            &EDGE,
-            Some(&node(FamilyMask::STRUCTURE)),
-            Some(&node(FamilyMask::STRUCTURE)),
-            view,
-        ));
+        assert!(edge_product_visible(&EDGE, view));
     }
 
     #[test]
@@ -1066,8 +1214,16 @@ mod visibility_tests {
             entity_families: FamilyMask::LOCATIONS,
             ..GraphViewState::default()
         };
-        assert!(node_product_visible(&node(FamilyMask::LOCATIONS), view));
-        assert!(!node_product_visible(&node(FamilyMask::CHARACTERS), view));
+        assert!(node_product_visible(
+            &node(FamilyMask(FamilyMask::ENTITIES.0 | FamilyMask::LOCATIONS.0)),
+            view
+        ));
+        assert!(!node_product_visible(
+            &node(FamilyMask(
+                FamilyMask::ENTITIES.0 | FamilyMask::CHARACTERS.0
+            )),
+            view
+        ));
         assert_eq!(view.surface, GraphSurface::Entities);
     }
 
@@ -1089,5 +1245,148 @@ mod visibility_tests {
             )),
             view
         ));
+    }
+
+    #[test]
+    fn endpoint_context_cannot_override_paragraph_or_sentence_filters() {
+        let paragraph = context_node(FamilyMask(
+            FamilyMask::STRUCTURE.0 | FamilyMask::PARAGRAPHS.0,
+        ));
+        let sentence = context_node(FamilyMask(
+            FamilyMask::STRUCTURE.0 | FamilyMask::SENTENCES.0,
+        ));
+        let all_except_paragraphs = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::STRUCTURE,
+            topology_families: FamilyMask(FamilyMask::TOPOLOGY_LANES.0 & !FamilyMask::PARAGRAPHS.0),
+            ..GraphViewState::default()
+        };
+        let all_except_sentences = GraphViewState {
+            topology_families: FamilyMask(FamilyMask::TOPOLOGY_LANES.0 & !FamilyMask::SENTENCES.0),
+            ..all_except_paragraphs
+        };
+
+        assert!(!node_product_visible(&paragraph, all_except_paragraphs));
+        assert!(node_product_visible(&sentence, all_except_paragraphs));
+        assert!(node_product_visible(&paragraph, all_except_sentences));
+        assert!(!node_product_visible(&sentence, all_except_sentences));
+    }
+
+    #[test]
+    fn endpoint_context_may_bridge_only_the_hidden_broad_family() {
+        let paragraph = context_node(FamilyMask(
+            FamilyMask::STRUCTURE.0 | FamilyMask::PARAGRAPHS.0,
+        ));
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::FACTS,
+            topology_families: FamilyMask::PARAGRAPHS,
+            ..GraphViewState::default()
+        };
+
+        assert!(!node_product_primary_visible(&paragraph, view));
+        assert!(node_product_context_visible(&paragraph, view));
+        assert!(node_product_visible(&paragraph, view));
+    }
+
+    #[test]
+    fn endpoint_context_respects_disabled_scope_and_review_filters() {
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::FACTS,
+            topology_families: FamilyMask::PARAGRAPHS,
+            ..GraphViewState::default()
+        };
+        let mut paragraph = context_node(FamilyMask(
+            FamilyMask::STRUCTURE.0 | FamilyMask::PARAGRAPHS.0,
+        ));
+
+        paragraph.enabled = 0;
+        assert!(!node_product_visible(&paragraph, view));
+        paragraph.enabled = 1;
+        paragraph.scope_mask = [0; 2];
+        assert!(!node_product_visible(&paragraph, view));
+        paragraph.scope_mask = [u32::MAX; 2];
+        paragraph.review_mask = 0;
+        assert!(!node_product_visible(&paragraph, view));
+    }
+
+    #[test]
+    fn semantic_body_identity_is_not_filtered_by_entity_aura_context() {
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::FACTS,
+            entity_families: FamilyMask::LOCATIONS,
+            topology_families: FamilyMask::CAUSAL_FACTS,
+            ..GraphViewState::default()
+        };
+        let causal_character = node(FamilyMask(
+            FamilyMask::FACTS.0 | FamilyMask::CAUSAL_FACTS.0 | FamilyMask::CHARACTERS.0,
+        ));
+        assert!(node_product_visible(&causal_character, view));
+    }
+
+    #[test]
+    fn compiler_real_composite_masks_reduce_to_one_edge_identity() {
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::FACTS,
+            topology_families: FamilyMask::CAUSAL_FACTS,
+            relations: RelationFamily::Causal.mask(),
+            ..GraphViewState::default()
+        };
+        let legacy_composite = edge(
+            FamilyMask(
+                FamilyMask::FACTS.0
+                    | FamilyMask::CAUSAL_FACTS.0
+                    | FamilyMask::EVENT_FACTS.0
+                    | FamilyMask::CHARACTERS.0,
+            ),
+            RelationFamily::Causal,
+        );
+        assert!(edge_product_visible(&legacy_composite, view));
+        assert!(!edge_product_visible(
+            &legacy_composite,
+            GraphViewState {
+                topology_families: FamilyMask::EVENT_FACTS,
+                relations: RelationFamily::Event.mask(),
+                ..view
+            }
+        ));
+    }
+
+    #[test]
+    fn isolated_fact_products_preserve_census_to_render_parity() {
+        let cases = [
+            (FamilyMask::EVENT_FACTS, RelationFamily::Event, 227_usize),
+            (FamilyMask::CAUSAL_FACTS, RelationFamily::Causal, 14),
+            (
+                FamilyMask::MEMORY_STATE_FACTS,
+                RelationFamily::MemoryState,
+                82,
+            ),
+        ];
+        for (detail, relation, census) in cases {
+            let view = GraphViewState {
+                surface: GraphSurface::Atlas,
+                families: FamilyMask::FACTS,
+                topology_families: detail,
+                relations: relation.mask(),
+                ..GraphViewState::default()
+            };
+            let product = edge(
+                FamilyMask(
+                    FamilyMask::FACTS.0
+                        | detail.0
+                        | FamilyMask::EVENT_FACTS.0
+                        | FamilyMask::CHARACTERS.0,
+                ),
+                relation,
+            );
+            let visible = (0..census)
+                .filter(|_| edge_product_visible(&product, view))
+                .count();
+            assert_eq!(visible, census, "{relation:?} census drift");
+        }
     }
 }

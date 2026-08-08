@@ -1,0 +1,58 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase2-evidence-lock/v1",
+  "frozen_at": "2026-08-04",
+  "disposition": "phase_2_verified",
+  "full_receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase2-primitive-evidence-e5a659d.json",
+    "bytes": 43273160,
+    "sha256": "a2e27e84a6a0c04020ec376b68e56b3014ff2ef0c09120b5ed91623f37d2388e"
+  },
+  "phase_1_baseline": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase1-baseline-e5a659d.json",
+    "bytes": 20483767,
+    "sha256": "a3d9328cb489624ac3305f9d1c710dc1827933d3c6ef5b44cf41ff2e8a23669a"
+  },
+  "producer_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 1616384,
+    "sha256": "9b9d77e3e35f11398a8dcf04be30ab8df95043ac8690f48325ee400d0d4f8a9d"
+  },
+  "v2_configuration_sha256": "78ab20fef9d55d37d6dec18387d19c189211cc72ee05c82940c80debe0c23574",
+  "feature_schema": {
+    "version": 3,
+    "features": 30,
+    "sha256": "71b2173fa0348d4922f112095c82c6432ef282134d540443931b53522c0ff922",
+    "baseline_score_excluded": true,
+    "candidate_strength_excluded": true
+  },
+  "frozen_comparison": {
+    "queries": 532,
+    "candidates": 22898,
+    "candidate_pool_mismatches": 0,
+    "v2_order_mismatches": 0,
+    "v2_score_bit_mismatches": 0,
+    "invalid_evidence": 0,
+    "field_decomposition_failures": 0
+  },
+  "latency_nanos": {
+    "mixed_p99": 2500,
+    "longmemeval_p99": 782700
+  },
+  "gates": {
+    "phase_1_configuration_unchanged": true,
+    "frozen_artifacts_unchanged": true,
+    "candidate_pool_mismatches_are_zero": true,
+    "v2_order_mismatches_are_zero": true,
+    "v2_score_bit_mismatches_are_zero": true,
+    "evidence_schema_is_versioned": true,
+    "baseline_score_is_excluded": true,
+    "candidate_strength_is_excluded": true,
+    "all_evidence_is_finite_and_bounded": true,
+    "per_field_bm25f_decomposition_is_exact": true,
+    "every_candidate_has_v3_evidence": true,
+    "zero_warm_allocation_growth": true,
+    "deterministic_ranking_failures_are_zero": true,
+    "frozen_quality_is_unchanged": true
+  },
+  "phase_2_verified": true
+}

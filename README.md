@@ -46,7 +46,7 @@ The native scene archive provides:
 
 - one shared copy of node identity/style, topology, edge, label-priority, relation-mask, and
   palette-policy pages;
-- independent positions, compact guides, and prepared straight/curved/bundled paths for all five
+- independent positions, compact guides, and prepared straight/curved/bundled paths for all six
   manifolds;
 - a stable generation ID, binary format version, per-page BLAKE3 hashes, and a cohort hash;
 - bounded memory-mapped opening with directory verification at ingress and page verification once
@@ -55,7 +55,7 @@ The native scene archive provides:
 - no JSON graph payload, browser-packet translator, production fixture generator, or legacy
   fallback.
 
-This is not yet Phoenix V2 feature parity. Labels, relation-family controls, five authoritative
+This is not yet Phoenix V2 feature parity. Labels, relation-family controls, six authoritative
 manifold scene pages, guide geometry, route overlays, and prepared curved/bundled edges remain
 explicit later slices. Nothing in this workspace silently reconstructs those features from a
 legacy packet.

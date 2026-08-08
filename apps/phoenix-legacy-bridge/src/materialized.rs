@@ -21,6 +21,13 @@ use std::sync::Arc;
 const MATERIALIZED_CONTRACT: &str = "PhoenixAngularMaterializedSceneV1";
 const MATERIALIZED_BUNDLE_CONTRACT: &str = "phoenix.native.materialized-scene-bundle/v2";
 const NO_REFERENCE: u32 = u32::MAX;
+const LEGACY_MANIFOLDS: [ArchiveManifold; 5] = [
+    ArchiveManifold::Hybrid,
+    ArchiveManifold::Torus,
+    ArchiveManifold::Caps,
+    ArchiveManifold::Transit,
+    ArchiveManifold::Siegel,
+];
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,8 +108,8 @@ impl MaterializedSceneBundle {
                 root.display()
             );
         }
-        let mut scenes = Vec::with_capacity(ArchiveManifold::ALL.len());
-        for manifold in ArchiveManifold::ALL {
+        let mut scenes = Vec::with_capacity(LEGACY_MANIFOLDS.len());
+        for manifold in LEGACY_MANIFOLDS {
             let path = root.join(format!("{}.json", manifold_key(manifold)));
             let bytes = fs::read(&path).with_context(|| {
                 format!(
@@ -128,11 +135,11 @@ impl MaterializedSceneBundle {
     }
 
     fn validate(&self) -> Result<()> {
-        for (manifold, scene) in ArchiveManifold::ALL.into_iter().zip(&self.scenes) {
+        for (manifold, scene) in LEGACY_MANIFOLDS.into_iter().zip(&self.scenes) {
             validate_scene(manifold, scene)?;
         }
         let canonical = self.canonical();
-        for (manifold, scene) in ArchiveManifold::ALL.into_iter().zip(&self.scenes) {
+        for (manifold, scene) in LEGACY_MANIFOLDS.into_iter().zip(&self.scenes) {
             if scene.cohort != canonical.cohort {
                 bail!(
                     "PHOENIX_MATERIALIZED_COHORT_MISMATCH: {} does not match the shared cohort",
@@ -262,8 +269,9 @@ fn compile(bundle: &MaterializedSceneBundle, generation_id: u64) -> Result<Nativ
     let mut styles = Vec::with_capacity(scene.nodes.len());
     let mut node_products = Vec::with_capacity(scene.nodes.len());
     let mut mappings = Vec::new();
-    let mut positions: [Vec<PositionRecord>; 5] =
+    let mut positions: [Vec<PositionRecord>; 6] =
         std::array::from_fn(|_| Vec::with_capacity(scene.nodes.len()));
+    let hopf_fibers = phoenix_hopf_space::fiber_count(scene.nodes.len()).max(1);
     for (ordinal, node) in scene.nodes.iter().enumerate() {
         let id = node_ids[node.id.as_str()];
         let family = node_family(node);
@@ -291,12 +299,19 @@ fn compile(bundle: &MaterializedSceneBundle, generation_id: u64) -> Result<Nativ
                 node_id: id,
             });
         }
-        for (manifold, page) in ArchiveManifold::ALL.into_iter().zip(&mut positions) {
+        for manifold in LEGACY_MANIFOLDS {
             let position = bundle.scene(manifold).nodes[ordinal].position;
-            page.push(PositionRecord {
+            positions[manifold as usize].push(PositionRecord {
                 position: position.map(|value| value * manifold_world_scale(manifold)),
             });
         }
+        positions[ArchiveManifold::Hopf as usize].push(PositionRecord {
+            position: phoenix_hopf_space::fiber_point(
+                phoenix_hopf_space::base_direction(ordinal % hopf_fibers, hopf_fibers),
+                std::f32::consts::TAU
+                    * ((stable_unit(id.rotate_left(19)) + degree as f32 * 0.013).fract()),
+            ),
+        });
     }
 
     let mut edge_ids = HashSet::with_capacity(scene.edges.len());
@@ -348,6 +363,7 @@ fn compile(bundle: &MaterializedSceneBundle, generation_id: u64) -> Result<Nativ
         topology,
         edges,
         positions,
+        caps_guides: Vec::new(),
         node_products,
         edge_products,
         entity_mappings: mappings,
@@ -420,7 +436,8 @@ fn same_edge_product(left: &LegacyEdge, right: &LegacyEdge) -> bool {
 const fn manifold_key(manifold: ArchiveManifold) -> &'static str {
     match manifold {
         ArchiveManifold::Hybrid => "hybrid",
-        ArchiveManifold::Hopf => "hopf",
+        ArchiveManifold::Torus => "hopf",
+        ArchiveManifold::Hopf => "hopf-native",
         ArchiveManifold::Caps => "caps",
         ArchiveManifold::Transit => "transit",
         ArchiveManifold::Siegel => "siegel",
@@ -430,6 +447,7 @@ const fn manifold_key(manifold: ArchiveManifold) -> &'static str {
 const fn manifold_mode(manifold: ArchiveManifold) -> &'static str {
     match manifold {
         ArchiveManifold::Hybrid => "hybrid",
+        ArchiveManifold::Torus => "hopf",
         ArchiveManifold::Hopf => "hopf",
         ArchiveManifold::Caps => "lorentz",
         ArchiveManifold::Transit => "product",
@@ -441,10 +459,16 @@ const fn manifold_world_scale(manifold: ArchiveManifold) -> f32 {
     match manifold {
         ArchiveManifold::Caps => CAPS_WORLD_SCALE,
         ArchiveManifold::Hybrid
+        | ArchiveManifold::Torus
         | ArchiveManifold::Hopf
         | ArchiveManifold::Transit
         | ArchiveManifold::Siegel => 1.0,
     }
+}
+
+fn stable_unit(value: u64) -> f32 {
+    let raw = value ^ (value >> 29) ^ value.rotate_left(17);
+    (raw >> 40) as f32 / ((1_u32 << 24) - 1) as f32
 }
 
 fn stable_id(domain: &[u8], value: &str) -> u64 {
@@ -594,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_bundle_copies_all_five_position_pages_without_projection() {
+    fn complete_bundle_preserves_five_legacy_pages_and_adds_native_hopf() {
         let bundle = bundle();
         bundle.validate().expect("complete bundle");
         let publication = compile(&bundle, 7).expect("compile");
@@ -605,7 +629,7 @@ mod tests {
             .positions
             .iter()
             .all(|page| page.len() == publication.identities.len()));
-        for manifold in ArchiveManifold::ALL {
+        for manifold in LEGACY_MANIFOLDS {
             let source = bundle.scene(manifold).nodes[0].position;
             let expected = source.map(|value| value * manifold_world_scale(manifold));
             assert_eq!(
@@ -613,6 +637,10 @@ mod tests {
                 expected
             );
         }
+        assert!(publication.positions[ArchiveManifold::Hopf as usize][0]
+            .position
+            .iter()
+            .all(|value| value.is_finite()));
     }
 
     #[test]
@@ -632,7 +660,7 @@ mod tests {
     #[test]
     fn cross_manifold_identity_drift_fails_closed() {
         let mut bundle = bundle();
-        bundle.scenes[ArchiveManifold::Hopf as usize].nodes[0].id = "wrong-node".into();
+        bundle.scenes[ArchiveManifold::Torus as usize].nodes[0].id = "wrong-node".into();
         let error = bundle
             .validate()
             .expect_err("node identity drift must be rejected");
@@ -643,7 +671,7 @@ mod tests {
 
     fn bundle() -> MaterializedSceneBundle {
         MaterializedSceneBundle {
-            scenes: ArchiveManifold::ALL.map(scene),
+            scenes: LEGACY_MANIFOLDS.map(scene),
         }
     }
 

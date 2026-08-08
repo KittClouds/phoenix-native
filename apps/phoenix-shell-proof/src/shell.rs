@@ -1,3 +1,4 @@
+mod analytics;
 mod atlas_control;
 mod atlas_entities;
 mod drawer;
@@ -7,6 +8,9 @@ mod graph_controls;
 mod graph_viewport;
 mod highlights;
 mod kammi;
+mod layout;
+mod palette_controls;
+mod registry_editor;
 mod shell_state;
 mod style_hub;
 mod view;
@@ -17,12 +21,13 @@ use crate::graph_window::{GraphWindow, ViewportGeometry};
 use crate::lifecycle;
 use crate::proof;
 use gpui::{AppContext as _, Context, Entity, FocusHandle, SharedString, Task, Timer, Window};
+use gpui_component::color_picker::{ColorPickerEvent, ColorPickerState};
 use gpui_component::input::{InputEvent, InputState};
 use gpui_component::resizable::ResizableState;
 use hashbrown::HashSet;
 use phoenix_app_core::GraphProvenanceReceipt;
 use phoenix_app_core::{KernelCommand, KernelOutcome, KernelSnapshot, PhoenixKernel};
-use phoenix_scene_contract::ResidentSceneLoadError;
+use phoenix_scene_contract::{GraphColorKey, ResidentSceneLoadError};
 use phoenix_workspace::{DocumentLease, EntryId, EntryKind, WorkspaceEntry, ROOT_ID};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -78,7 +83,10 @@ pub struct PhoenixShell {
     expanded: HashSet<EntryId>,
     name_input: Entity<InputState>,
     atlas_search: Entity<InputState>,
-    kammi_prompt: Entity<InputState>,
+    entity_name_input: Entity<InputState>,
+    graph_color_pickers: Vec<Entity<ColorPickerState>>,
+    entity_editor: Option<registry_editor::RegistryEditorState>,
+    kammi: kammi::KammiState,
     edit_mode: EditMode,
     delete_armed: Option<EntryId>,
     left_open: bool,
@@ -97,11 +105,17 @@ pub struct PhoenixShell {
     atlas_control_focus: FocusHandle,
     atlas_selected_candidate: Option<phoenix_app_core::AtlasCandidateId>,
     highlight_reprojection_task: Option<Task<()>>,
+    analytics_refresh_task: Option<Task<()>>,
+    text_analytics: phoenix_text_analytics::TextAnalytics,
+    analytics_selected_lens: phoenix_text_analytics::LensKind,
+    analytics_highlight: Option<analytics::AnalyticsHighlight>,
+    analytics_expanded: bool,
     document_metrics: footer::DocumentMetrics,
     status: SharedString,
 }
 
 impl PhoenixShell {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         proof_mode: bool,
         soak_mode: bool,
@@ -131,9 +145,48 @@ impl PhoenixShell {
         let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Name this item..."));
         let atlas_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Search canonical entities..."));
-        let kammi_prompt = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Describe a response to simulate...")
-        });
+        let entity_name_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Entity name..."));
+        let initial_palette = kernel
+            .snapshot()
+            .ok()
+            .map(|snapshot| *snapshot.highlight_palette)
+            .unwrap_or_default();
+        let graph_color_pickers = GraphColorKey::ALL
+            .into_iter()
+            .map(|key| {
+                cx.new(|cx| {
+                    ColorPickerState::new(window, cx)
+                        .default_value(palette_controls::initial_picker_color(initial_palette, key))
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut kammi = kammi::KammiState::new(window, cx).expect("initialize Kammi state");
+        if let Ok(Some(store)) = kammi::store::KammiStoreV1::load(kernel.workspace_path()) {
+            kammi.model = store.settings.model.clone();
+            let model = store.settings.model;
+            kammi.model_input.update(cx, |input, cx| {
+                input.set_value(model, window, cx);
+            });
+            let mut sessions: std::collections::VecDeque<_> = store.sessions.into_iter().collect();
+            for session in &mut sessions {
+                session.interrupt_orphaned_streams();
+            }
+            if let Some(selected_id) = store.selected_session {
+                if let Some(pos) = sessions.iter().position(|s| s.id == selected_id) {
+                    if let Some(session) = sessions.remove(pos) {
+                        kammi.session = session;
+                    }
+                }
+            }
+            kammi.history = sessions;
+            let highest_id = kammi
+                .history
+                .iter()
+                .map(kammi::session::KammiSession::max_identity)
+                .fold(kammi.session.max_identity(), u64::max);
+            kammi.next_request_id = highest_id.saturating_add(1);
+        }
         let atlas_control_focus = atlas_control::focus_handle(cx);
         cx.subscribe(
             &atlas_search,
@@ -144,6 +197,18 @@ impl PhoenixShell {
             },
         )
         .detach();
+        for (key, picker) in GraphColorKey::ALL
+            .into_iter()
+            .zip(graph_color_pickers.iter())
+        {
+            cx.subscribe(
+                picker,
+                move |shell: &mut Self, _, event: &ColorPickerEvent, cx| {
+                    shell.on_graph_color_change(key, event, cx);
+                },
+            )
+            .detach();
+        }
         let restored_shell_state = match shell_state::ShellStateV1::load(kernel.workspace_path()) {
             Ok(state) => state,
             Err(error) => {
@@ -170,6 +235,7 @@ impl PhoenixShell {
             .map(|lease| lease.content.to_string())
             .unwrap_or_default();
         let document_metrics = footer::DocumentMetrics::from_text(&initial_markdown);
+        let text_analytics = phoenix_text_analytics::analyze(&initial_markdown);
         let footer_pulse_until =
             initial_footer_pulse_deadline(footer_motion_arm, document_metrics, Instant::now());
         let (word_band, character_band) = document_metrics.band_names();
@@ -207,7 +273,10 @@ impl PhoenixShell {
             expanded,
             name_input,
             atlas_search,
-            kammi_prompt,
+            entity_name_input,
+            graph_color_pickers,
+            entity_editor: None,
+            kammi,
             edit_mode: EditMode::CreateNote,
             delete_armed: None,
             left_open: restored_shell_state
@@ -248,9 +317,15 @@ impl PhoenixShell {
             atlas_control_focus,
             atlas_selected_candidate: None,
             highlight_reprojection_task: None,
+            analytics_refresh_task: None,
+            text_analytics,
+            analytics_selected_lens: phoenix_text_analytics::LensKind::Echo,
+            analytics_highlight: None,
+            analytics_expanded: false,
             document_metrics,
             status,
         };
+        shell.start_kammi_event_loop(cx);
         shell.initialize_highlights(cx);
         if shell.kernel.analysis_runtime_info().configured
             && std::env::var("PHOENIX_NATIVE_PREWARM_MODELS")
@@ -274,12 +349,14 @@ impl PhoenixShell {
             shell_entity
                 .update(cx, |this, _| {
                     this.save_shell_state();
+                    this.save_kammi_history();
                     true
                 })
                 .unwrap_or(true)
         });
         cx.on_app_quit(|this, cx| {
             this.save_shell_state();
+            this.save_kammi_history();
             let graph = this.graph.borrow_mut().take();
             let background = cx.background_executor().clone();
             async move {
@@ -301,6 +378,74 @@ impl PhoenixShell {
         {
             eprintln!("PHOENIX_SHELL_STATE_SAVE_FAILED {error:#}");
         }
+    }
+
+    fn save_kammi_history(&self) {
+        let settings = kammi::settings::KammiSettings {
+            model: self.kammi.model.clone(),
+        };
+        if let Err(error) = kammi::store::KammiStoreV1::save(
+            self.kernel.workspace_path(),
+            &settings,
+            &self.kammi.session,
+            &self.kammi.history,
+        ) {
+            eprintln!("PHOENIX_KAMMI_HISTORY_SAVE_FAILED {error:#}");
+        }
+    }
+
+    fn start_kammi_event_loop(&mut self, cx: &mut Context<Self>) {
+        let receiver = self.kammi.provider.events().clone();
+        self.kammi.provider_task = Some(cx.spawn(async move |shell, async_cx| {
+            while let Ok(event) = receiver.recv().await {
+                if shell
+                    .update(async_cx, |shell, cx| {
+                        shell.apply_kammi_event(event, cx);
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
+    }
+
+    fn apply_kammi_event(&mut self, event: kammi::provider::ProviderEvent, cx: &mut Context<Self>) {
+        match event {
+            kammi::provider::ProviderEvent::Started { request_id } => {
+                if self.kammi.active_request_id() != Some(request_id) {
+                    return;
+                }
+            }
+            kammi::provider::ProviderEvent::Delta { request_id, text } => {
+                if self.kammi.active_request_id() != Some(request_id) {
+                    return;
+                }
+                if let Some(message) = self.kammi.session.streaming_assistant_mut(request_id) {
+                    message.content.push_str(&text);
+                }
+            }
+            kammi::provider::ProviderEvent::Finished { request_id } => {
+                self.kammi.finish(request_id);
+                self.save_kammi_history();
+            }
+            kammi::provider::ProviderEvent::Failed { request_id, error } => {
+                self.kammi.fail(request_id, error);
+                self.save_kammi_history();
+            }
+            kammi::provider::ProviderEvent::Cancelled { request_id } => {
+                self.kammi.cancelled(request_id);
+                self.save_kammi_history();
+            }
+            kammi::provider::ProviderEvent::Fatal { error } => {
+                self.kammi.generation = kammi::GenerationState::Failed {
+                    message: error.clone(),
+                };
+                self.kammi.error_banner = Some(error);
+                self.status = "KAMMI BLOCKED / OPENROUTER PROVIDER UNAVAILABLE".into();
+            }
+        }
+        cx.notify();
     }
 
     fn start_graph_host(
@@ -667,6 +812,7 @@ impl PhoenixShell {
             self.arm_footer_pulse_for_band_change(next_metrics);
             self.document_metrics = next_metrics;
             self.schedule_highlight_reprojection(editor, cx);
+            self.schedule_text_analytics_refresh(cx);
             cx.notify();
             return;
         }
@@ -735,6 +881,9 @@ impl PhoenixShell {
             .map(|lease| lease.content.to_string())
             .unwrap_or_default();
         let next_metrics = footer::DocumentMetrics::from_text(&markdown);
+        self.text_analytics = phoenix_text_analytics::analyze(&markdown);
+        self.analytics_highlight = None;
+        self.analytics_expanded = false;
         self.document_metrics = next_metrics;
         self.footer_pulse_until =
             initial_footer_pulse_deadline(self.footer_motion_arm, next_metrics, Instant::now());

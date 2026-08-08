@@ -1,0 +1,67 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase3-tier-lock/v1",
+  "frozen_at": "2026-08-04",
+  "disposition": "phase_3_verified",
+  "full_receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase3-constitutional-tiers-e5a659d.json",
+    "bytes": 44441042,
+    "sha256": "ed7a4561fd37272ab302480ea533bb1b44584cb837e7e5e0a3a0e8d8558d2d32"
+  },
+  "phase_2_receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase2-primitive-evidence-e5a659d.json",
+    "bytes": 43273160,
+    "sha256": "a2e27e84a6a0c04020ec376b68e56b3014ff2ef0c09120b5ed91623f37d2388e"
+  },
+  "producer_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 1659392,
+    "sha256": "ec639981c1967323bf64377c9f0c845a3c9b4e9211c9af7e2bb93a51f6ad3c20"
+  },
+  "v2_configuration_sha256": "78ab20fef9d55d37d6dec18387d19c189211cc72ee05c82940c80debe0c23574",
+  "frozen_comparison": {
+    "queries": 532,
+    "candidates": 22898,
+    "candidate_pool_mismatches": 0,
+    "v2_order_mismatches": 0,
+    "v2_score_bit_mismatches": 0
+  },
+  "tier_audit": {
+    "configured_identifier": 0,
+    "complete_exact": 74,
+    "complete_expanded": 8,
+    "admissible_partial": 22816,
+    "rejected": 0,
+    "assignment_mismatches": 0,
+    "missing_in_protected_tier": 0,
+    "expanded_in_exact_tier": 0
+  },
+  "identifier_boundary": {
+    "release_cohorts_configure_identifier_fields": false,
+    "dedicated_constitutional_fixture_passed": true
+  },
+  "latency_nanos": {
+    "mixed_p99": 1900,
+    "longmemeval_p99": 824600
+  },
+  "gates": {
+    "phase_2_configuration_unchanged": true,
+    "feature_schema_unchanged": true,
+    "frozen_artifacts_unchanged": true,
+    "candidate_pool_mismatches_are_zero": true,
+    "v2_order_mismatches_are_zero": true,
+    "v2_score_bit_mismatches_are_zero": true,
+    "rejected_candidates_are_zero": true,
+    "tier_assignment_mismatches_are_zero": true,
+    "missing_groups_never_enter_protected_tiers": true,
+    "expanded_coverage_never_enters_exact_tier": true,
+    "exact_identifier_tier_requires_configuration": true,
+    "protected_tier_precedes_arbitrary_score": true,
+    "stable_identity_resolves_score_ties": true,
+    "smaller_complete_span_is_monotonic": true,
+    "expansion_quality_does_not_lower_tier": true,
+    "zero_warm_allocation_growth": true,
+    "deterministic_ranking_failures_are_zero": true,
+    "frozen_quality_is_unchanged": true
+  },
+  "phase_3_verified": true
+}

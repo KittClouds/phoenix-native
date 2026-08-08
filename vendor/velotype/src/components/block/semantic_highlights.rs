@@ -5,6 +5,8 @@ pub enum SemanticHighlightMode {
     Off,
     #[default]
     Subtle,
+    /// A compact color-tag treatment with a readable foreground, tinted
+    /// surface, and restrained hairline border derived from the semantic hue.
     Vivid,
 }
 

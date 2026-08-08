@@ -5,6 +5,7 @@ mod native_recall;
 mod prepare;
 mod qps;
 mod qps_qualification;
+mod qps_v3;
 mod verify;
 
 use std::collections::BTreeMap;
@@ -120,6 +121,196 @@ fn run() -> Result<()> {
             )?;
             print_json(&receipt)
         }
+        "qps-v3-freeze-baseline" => {
+            let repetitions = args
+                .optional("--repetitions")
+                .unwrap_or("32")
+                .parse::<usize>()
+                .context("--repetitions must be an integer")?;
+            let receipt = qps_v3::freeze_baseline(
+                &manifest,
+                &manifest_path,
+                &args.required_path("--suite")?,
+                &args.required_path("--source")?,
+                &args.required_path("--workload")?,
+                &args.required_path("--gold")?,
+                &args.required_path("--output")?,
+                repetitions,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-verify-evidence" => {
+            let repetitions = args
+                .optional("--repetitions")
+                .unwrap_or("32")
+                .parse::<usize>()
+                .context("--repetitions must be an integer")?;
+            let receipt = qps_v3::verify_evidence(
+                &manifest,
+                &manifest_path,
+                &args.required_path("--phase-1")?,
+                &args.required_path("--suite")?,
+                &args.required_path("--source")?,
+                &args.required_path("--workload")?,
+                &args.required_path("--gold")?,
+                &args.required_path("--output")?,
+                repetitions,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-verify-tiers" => {
+            let repetitions = args
+                .optional("--repetitions")
+                .unwrap_or("32")
+                .parse::<usize>()
+                .context("--repetitions must be an integer")?;
+            let receipt = qps_v3::verify_tiers(
+                &manifest,
+                &manifest_path,
+                &args.required_path("--phase-2")?,
+                &args.required_path("--suite")?,
+                &args.required_path("--source")?,
+                &args.required_path("--workload")?,
+                &args.required_path("--gold")?,
+                &args.required_path("--output")?,
+                repetitions,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-verify-ledger" => {
+            let receipt = qps_v3::verify_ledger(
+                &args.required_path("--phase-3")?,
+                &args.required_path("--workspace-key")?,
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-qualify-ledger" => {
+            let receipt = qps_v3::qualify_external_ledger(
+                &args.required_path("--ledger")?,
+                &args.required_path("--phase-3")?,
+                &args.required_path("--workspace-key")?,
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-audit-corpus" => {
+            let receipt = qps_v3::audit_corpus(
+                &args.required_path("--phase-4")?,
+                &args.required_path("--phase-3")?,
+                &args.required_path("--workspace-key")?,
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-split-ledger" => {
+            let receipt = qps_v3::split_ledger(
+                &args.required_path("--phase-5")?,
+                &args.required_path("--phase-4")?,
+                &args.required_path("--phase-3")?,
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-train-linear" => {
+            let receipt = qps_v3::train_linear(
+                &args.required_path("--phase-6")?,
+                &args.required_path("--phase-4")?,
+                &args.required_path("--phase-3")?,
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-benchmark-kernel" => {
+            let repetitions = args
+                .optional("--repetitions")
+                .unwrap_or("20000")
+                .parse::<usize>()
+                .context("--repetitions must be an integer")?;
+            let receipt = qps_v3::benchmark_kernel(
+                &args.required_path("--phase-3")?,
+                args.optional("--model").map(Path::new),
+                &args.required_path("--output")?,
+                repetitions,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-benchmark-e2e" => {
+            let repetitions = args
+                .optional("--repetitions")
+                .unwrap_or("16")
+                .parse::<usize>()
+                .context("--repetitions must be an integer")?;
+            let receipt = qps_v3::benchmark_e2e(
+                &manifest,
+                &args.required_path("--workload")?,
+                args.optional("--model").map(Path::new),
+                &args.required_path("--output")?,
+                repetitions,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-qualify-performance" => {
+            let receipt = qps_v3::qualify_performance(
+                &args.required_path("--model")?,
+                &args.required_path("--kernel")?,
+                &args.required_path("--e2e")?,
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-shadow" => {
+            let receipt = qps_v3::shadow(
+                &args.required_path("--model")?,
+                &args.required_path("--phase-3")?,
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-promote" => {
+            let receipt = qps_v3::promote(
+                &args.required_path("--model")?,
+                &args.required_path("--phase-8")?,
+                &args.required_path("--phase-9")?,
+                &args.required_path("--shadow")?,
+                &args.required_path("--reconciliation")?,
+                &args.required_path("--active-pointer")?,
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-audit-activation" => {
+            let model = args.optional("--model").map(PathBuf::from);
+            let phase_8 = args.optional("--phase-8").map(PathBuf::from);
+            let phase_9 = args.optional("--phase-9").map(PathBuf::from);
+            let receipt = qps_v3::audit_activation(
+                model.as_deref(),
+                phase_8.as_deref(),
+                phase_9.as_deref(),
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-audit-tree-eligibility" => {
+            let phase_8 = args.optional("--phase-8").map(PathBuf::from);
+            let receipt = qps_v3::audit_tree_eligibility(
+                &args.required_path("--phase-5")?,
+                phase_8.as_deref(),
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
+        "qps-v3-qualify-quality" => {
+            let receipt = qps_v3::qualify_quality(
+                &args.required_path("--model")?,
+                &args.required_path("--phase-6")?,
+                &args.required_path("--phase-4")?,
+                &args.required_path("--phase-3")?,
+                &args.required_path("--graded-suite")?,
+                &args.required_path("--output")?,
+            )?;
+            print_json(&receipt)
+        }
         "qps-concurrent" => {
             let workers = parse_worker_counts(args.optional("--workers").unwrap_or("1,2,4,8,16"))?;
             let operations_per_worker = args
@@ -175,7 +366,18 @@ fn run() -> Result<()> {
         }
         _ => bail!(
             "unknown command {command:?}; expected verify, prepare, baseline, native-recall, \
-             qps-shadow, qps-qualify, qps-learned-qualify, qps-concurrent, qps-concurrent-workload, \
+             qps-shadow, qps-qualify, qps-learned-qualify, qps-v3-freeze-baseline, \
+             qps-v3-verify-evidence, qps-v3-verify-tiers, qps-v3-verify-ledger, \
+             qps-v3-qualify-ledger, \
+             qps-v3-audit-corpus, qps-v3-split-ledger, qps-v3-train-linear, \
+             qps-v3-benchmark-kernel, \
+             qps-v3-benchmark-e2e, \
+             qps-v3-qualify-performance, \
+             qps-v3-shadow, qps-v3-promote, \
+             qps-v3-audit-activation, \
+             qps-v3-audit-tree-eligibility, \
+             qps-v3-qualify-quality, \
+             qps-concurrent, qps-concurrent-workload, \
              or evaluate"
         ),
     }

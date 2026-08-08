@@ -16,6 +16,7 @@ impl EmbeddedGraphApp {
             && self.loaded_graph_view == snapshot.graph_view
             && self.loaded_selection_revision == snapshot.graph_selection.revision
             && self.loaded_review_overlay_revision == snapshot.graph_review_overlay.revision
+            && self.loaded_palette == Some(*snapshot.highlight_palette)
         {
             return Ok(());
         }
@@ -53,6 +54,10 @@ impl EmbeddedGraphApp {
             self.loaded_generation = Some(scene.generation());
             self.loaded_manifold = snapshot.graph_view.manifold;
             self.loaded_graph_view = snapshot.graph_view;
+            // The replacement archive carries baked visual colors. Force the
+            // stored palette through the new GPU buffers even when the palette
+            // value itself did not change between generations.
+            self.loaded_palette = None;
             self.pending_switch = None;
         } else {
             if self.loaded_graph_view.authority.product_index_hash()
@@ -120,6 +125,15 @@ impl EmbeddedGraphApp {
                 .apply_review_overrides(index, &snapshot.graph_review_overlay.entries)
                 .context("update decision-ledger review overlay")?;
             self.loaded_review_overlay_revision = snapshot.graph_review_overlay.revision;
+        }
+        if self.loaded_palette != Some(*snapshot.highlight_palette) {
+            let index = snapshot.scene_product_index.as_ref().ok_or_else(|| {
+                anyhow!("[PHX_PRODUCT_INDEX_MISSING] graph palette requires a resident index")
+            })?;
+            renderer
+                .set_graph_palette(index, snapshot.highlight_palette.graph)
+                .context("apply authoritative graph palette")?;
+            self.loaded_palette = Some(*snapshot.highlight_palette);
         }
         if self.loaded_selection_revision != snapshot.graph_selection.revision {
             renderer

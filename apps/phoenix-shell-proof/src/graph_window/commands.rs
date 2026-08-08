@@ -40,6 +40,7 @@ impl GraphQueueMetrics {
     }
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Clone, Copy, Debug)]
 pub(super) enum GraphWake {
     CommandsReady,

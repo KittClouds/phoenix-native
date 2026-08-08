@@ -9,8 +9,8 @@ use gpui_component::popover::Popover;
 use gpui_component::{Disableable, Sizable};
 use phoenix_app_core::{GraphProvenanceReceipt, KernelCommand, KernelOutcome};
 use phoenix_scene_contract::{
-    GraphAction, GraphScope, GraphSurface, GraphViewState, Manifold, RelationFamily, ReviewMask,
-    SceneSource,
+    GraphAction, GraphCanvas, GraphScope, GraphSurface, GraphViewState, Manifold, RelationFamily,
+    ReviewMask, SceneSource,
 };
 
 const CONTROL_BG: u32 = 0x111514;
@@ -81,6 +81,7 @@ impl PhoenixShell {
             .child(div().text_xs().text_color(rgb(0x59635f)).child("SPACE"))
             .child(manifold_segment(view.manifold, cx));
         row.child(div().flex_1())
+            .child(canvas_toggle(view.canvas, cx))
             .child(self.provenance_popover(cx))
             .child(action_button("graph-fit", "FIT", GraphAction::Fit, cx))
             .child(action_button(
@@ -294,6 +295,21 @@ impl PhoenixShell {
         }
         cx.notify();
     }
+}
+
+fn canvas_toggle(canvas: GraphCanvas, cx: &mut Context<PhoenixShell>) -> impl IntoElement {
+    let (label, tooltip) = match canvas {
+        GraphCanvas::Ink => ("INK", "Canvas: pure black. Click for the green grid."),
+        GraphCanvas::Grid => ("GRID", "Canvas: green grid. Click for pure black."),
+    };
+    Button::new("graph-canvas-toggle")
+        .label(label)
+        .tooltip(tooltip)
+        .small()
+        .ghost()
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.mutate_graph_view(|next| next.canvas = next.canvas.toggled(), "CANVAS", cx);
+        }))
 }
 
 pub(super) fn surface_segment(
@@ -574,6 +590,7 @@ const fn relation_label(family: RelationFamily) -> &'static str {
 const fn manifold_label(manifold: Manifold) -> &'static str {
     match manifold {
         Manifold::Hybrid => "HYBRID",
+        Manifold::Torus => "TORUS",
         Manifold::Hopf => "HOPF",
         Manifold::Caps => "CAPS",
         Manifold::Transit => "TRANSIT",
@@ -595,6 +612,8 @@ mod tests {
         for removed in ["PROJECTION", "FINSLER", "SHELL", "MULTI"] {
             assert!(!visible.contains(&removed));
         }
+        assert!(visible.contains(&"TORUS"));
+        assert!(visible.contains(&"HOPF"));
     }
 
     #[test]

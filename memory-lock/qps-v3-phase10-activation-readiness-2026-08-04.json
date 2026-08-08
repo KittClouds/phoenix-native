@@ -1,0 +1,46 @@
+{
+  "contract": "phoenix.memory.qps-v3-phase10-activation-readiness-lock/v1",
+  "audited_at": "2026-08-04",
+  "disposition": "fallback_and_atomic_promotion_loop_implemented_real_shadow_pending",
+  "receipt": {
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase10-activation-readiness-v2-e5a659d.json",
+    "bytes": 996,
+    "sha256": "585739f16f310508c6f87e17b334c89e84fe901fd8f6a58afe40e83ddf636b4e"
+  },
+  "observed_status": {
+    "engine": "v2_active",
+    "reported_label": "V2 active",
+    "reason": "model_missing"
+  },
+  "fallback_gates": {
+    "missing_model_reports_v2_active": true,
+    "corrupt_model_reports_v2_active": true,
+    "incompatible_model_reports_v2_active": true,
+    "unqualified_model_reports_v2_active": true,
+    "silent_v3_fallback_is_forbidden": true
+  },
+  "fallback_contract_verified": true,
+  "implementation": {
+    "same_candidate_pool_shadow": true,
+    "v2_returned_context_remains_authoritative_during_shadow": true,
+    "stable_high_impact_disagreement_identities": true,
+    "complete_explicit_review_required": true,
+    "v2_better_failures_require_ledger_judgment_identities": true,
+    "same_model_phase8_phase9_shadow_binding": true,
+    "windows_atomic_active_pointer_replacement": true,
+    "rollback_model_identity_retained": true
+  },
+  "producer_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 2402816,
+    "sha256": "178e3c55036045f21bd2b3a420fc8d36030bdd684d8ec751cf8ead0db6af4e69"
+  },
+  "current_promotion_binary": {
+    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
+    "bytes": 2438144,
+    "sha256": "260785b1f90643ad782a71bacc14c074e7fa372483424a366a72263a9812df71"
+  },
+  "shadow_reconciliation_completed": false,
+  "atomic_model_promotion_completed": false,
+  "phase_10_verified": false
+}

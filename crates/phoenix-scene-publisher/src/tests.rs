@@ -2,7 +2,7 @@ use super::*;
 use phoenix_scene_archive::{
     EdgeRecord, NodeIdentityRecord, NodeStyleRecord, PositionRecord, TopologyRecord,
 };
-use phoenix_scene_contract::SceneSource;
+use phoenix_scene_contract::{FamilyMask, SceneSource};
 use phoenix_scene_product_index::{EntityNodeMappingRecord, ReviewState};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -24,7 +24,7 @@ fn publication(generation_id: u64, kind: ScenePublicationKind) -> NativeScenePub
     }];
     let mut node_products = vec![SceneNodeProduct {
         node_id: 41,
-        family_mask: 1,
+        family_mask: FamilyMask::ENTITIES.0 | FamilyMask::CHARACTERS.0,
         scope_mask: 1,
         review_mask: ReviewState::Accepted as u32,
         label: Arc::from("Atlas entity"),
@@ -58,7 +58,7 @@ fn publication(generation_id: u64, kind: ScenePublicationKind) -> NativeScenePub
             }],
             vec![SceneEdgeProduct {
                 edge_id: 99,
-                family_mask: 1,
+                family_mask: FamilyMask::STRUCTURE.0,
                 scope_mask: 1,
                 relation_mask: 1,
                 review_mask: ReviewState::Accepted as u32,
@@ -88,6 +88,7 @@ fn publication(generation_id: u64, kind: ScenePublicationKind) -> NativeScenePub
         topology,
         edges,
         positions,
+        caps_guides: Vec::new(),
         node_products,
         edge_products,
         entity_mappings: mappings,
@@ -133,6 +134,14 @@ fn atomic_manifest_reopens_the_exact_pair() -> Result<(), Box<dyn std::error::Er
                 phoenix_scene_archive::PageKind::BundledPaths,
                 manifold,
             )));
+        let active = reopened.scene.activate_manifold(manifold.into())?;
+        let paths = active.prepared_paths.ok_or("missing preferred path page")?;
+        assert_eq!(paths.paths.len(), active.pages.topology.len());
+        assert!(paths
+            .paths
+            .iter()
+            .enumerate()
+            .all(|(slot, path)| path.edge_slot as usize == slot));
     }
     assert_eq!(
         reopened

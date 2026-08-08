@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "phoenix.qps.relevance-review-decisions/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "schema_version",
+    "reviewer_identity",
+    "reviewed_at_unix_seconds",
+    "attestation",
+    "authorization_context",
+    "decisions"
+  ],
+  "properties": {
+    "contract": {
+      "const": "phoenix.qps.relevance-review-decisions/v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "reviewer_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewed_at_unix_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "attestation": {
+      "enum": ["human_reviewed", "agent_curated_with_user_authorization"]
+    },
+    "authorization_context": {
+      "type": ["string", "null"]
+    },
+    "decisions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "judgment_identity",
+          "verdict",
+          "reason",
+          "source",
+          "confidence"
+        ],
+        "properties": {
+          "judgment_identity": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "verdict": {
+            "enum": ["positive_preferred", "negative_preferred"]
+          },
+          "reason": {
+            "enum": [
+              "partial_match_saturation",
+              "scattered_terms",
+              "phrase_order_failure",
+              "identifier_collision",
+              "fuzzy_collision",
+              "weak_field_evidence",
+              "common_term_dominance",
+              "length_prior_failure",
+              "wrong_concept_proximity",
+              "document_conversation_confusion",
+              "long_query_failure",
+              "real_user_correction"
+            ]
+          },
+          "source": {
+            "enum": ["curated_regression_case", "explicit_user_correction"]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0.5,
+            "maximum": 1.0
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "attestation": {
+            "const": "agent_curated_with_user_authorization"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "authorization_context": {
+            "type": "string",
+            "minLength": 1
+          },
+          "decisions": {
+            "items": {
+              "properties": {
+                "source": {
+                  "const": "curated_regression_case"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

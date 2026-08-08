@@ -7,6 +7,7 @@ rust-version = "1.85"
 publish = false
 
 [dependencies]
+phoenix-hopf-space = { path = "../../crates/phoenix-hopf-space" }
 anyhow = "1.0"
 blake3 = "1.8"
 hashbrown = "0.15"

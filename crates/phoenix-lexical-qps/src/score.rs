@@ -10,6 +10,27 @@ pub(crate) struct Coherence {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub(crate) struct FieldEvidence {
+    pub minimum_complete_span: u32,
+    pub minimum_ordered_span: u32,
+    pub ordered_fraction: f32,
+    pub exact_phrase: bool,
+    pub exact_field: bool,
+}
+
+impl Default for FieldEvidence {
+    fn default() -> Self {
+        Self {
+            minimum_complete_span: u32::MAX,
+            minimum_ordered_span: u32::MAX,
+            ordered_fraction: 0.0,
+            exact_phrase: false,
+            exact_field: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct PositionedGroups {
     pub position: u32,
     pub segment: u16,
@@ -25,6 +46,7 @@ pub(crate) struct CoherenceSignals {
     pub segment: bool,
 }
 
+#[cfg(test)]
 pub(crate) fn measure_field(
     positions: &[PositionedGroups],
     chosen_postings: &[Option<u32>],
@@ -34,8 +56,29 @@ pub(crate) fn measure_field(
     signals: CoherenceSignals,
     precomputed_order: Option<f32>,
 ) -> Coherence {
+    measure_field_with_evidence(
+        positions,
+        chosen_postings,
+        field_len,
+        exact_bonus,
+        proximity_decay,
+        signals,
+        precomputed_order,
+    )
+    .0
+}
+
+pub(crate) fn measure_field_with_evidence(
+    positions: &[PositionedGroups],
+    chosen_postings: &[Option<u32>],
+    field_len: u32,
+    exact_bonus: f32,
+    proximity_decay: f32,
+    signals: CoherenceSignals,
+    precomputed_order: Option<f32>,
+) -> (Coherence, FieldEvidence) {
     if positions.is_empty() {
-        return Coherence::default();
+        return (Coherence::default(), FieldEvidence::default());
     }
     debug_assert!(positions.windows(2).all(|pair| {
         pair[0].field < pair[1].field
@@ -46,16 +89,18 @@ pub(crate) fn measure_field(
         .filter(|posting| posting.is_some())
         .count()
         .max(1);
-    let needs_field_coverage = signals.proximity || signals.order;
-    let (field_mask, field_groups, field_coverage) = if needs_field_coverage {
-        let mut mask = GroupMask::default();
-        for position in positions {
-            mask.union(position.groups);
-        }
-        let groups = mask.count_ones();
-        (mask, groups, groups as f32 / matched_total as f32)
+    let mut field_mask = GroupMask::default();
+    for position in positions {
+        field_mask.union(position.groups);
+    }
+    let field_groups = field_mask.count_ones();
+    let field_coverage = field_groups as f32 / matched_total as f32;
+    let complete_in_field =
+        chosen_postings.iter().all(Option::is_some) && field_groups == chosen_postings.len();
+    let minimum_span = if complete_in_field {
+        minimum_covering_span(positions, field_mask)
     } else {
-        (GroupMask::default(), 0, 0.0)
+        u32::MAX
     };
     let proximity = if signals.proximity {
         let span = minimum_covering_span(positions, field_mask);
@@ -64,9 +109,10 @@ pub(crate) fn measure_field(
     } else {
         0.0
     };
+    let raw_ordered_fraction =
+        precomputed_order.unwrap_or_else(|| ordered_fraction(positions, chosen_postings));
     let order = if signals.order {
-        precomputed_order.unwrap_or_else(|| ordered_fraction(positions, chosen_postings))
-            * field_coverage
+        raw_ordered_fraction * field_coverage
     } else {
         0.0
     };
@@ -82,18 +128,28 @@ pub(crate) fn measure_field(
     } else {
         0.0
     };
-    let exact_field = if field_len as usize == chosen_postings.len() && phrase_match {
-        exact_bonus
-    } else {
-        0.0
-    };
-    Coherence {
-        proximity,
-        order,
-        phrase,
-        segment,
-        exact_field,
-    }
+    let exact_field_match = field_len as usize == chosen_postings.len() && phrase_match;
+    let exact_field = if exact_field_match { exact_bonus } else { 0.0 };
+    (
+        Coherence {
+            proximity,
+            order,
+            phrase,
+            segment,
+            exact_field,
+        },
+        FieldEvidence {
+            minimum_complete_span: minimum_span,
+            minimum_ordered_span: if complete_in_field {
+                minimum_ordered_span(positions, chosen_postings.len())
+            } else {
+                u32::MAX
+            },
+            ordered_fraction: raw_ordered_fraction,
+            exact_phrase: phrase_match,
+            exact_field: exact_field_match,
+        },
+    )
 }
 
 fn minimum_covering_span(positions: &[PositionedGroups], required_mask: GroupMask) -> u32 {
@@ -126,6 +182,38 @@ fn minimum_covering_span(positions: &[PositionedGroups], required_mask: GroupMas
                 }
             }
             left += 1;
+        }
+    }
+    best
+}
+
+fn minimum_ordered_span(positions: &[PositionedGroups], groups: usize) -> u32 {
+    if groups == 0 {
+        return u32::MAX;
+    }
+    if groups == 1 {
+        return 1;
+    }
+    let mut starts = [u32::MAX; MAXIMUM_QUERY_GROUPS];
+    let mut best = u32::MAX;
+    for position in positions {
+        for group in (0..groups).rev() {
+            if !position.groups.contains(group) {
+                continue;
+            }
+            if group == 0 {
+                starts[0] = position.position;
+            } else if starts[group - 1] != u32::MAX {
+                starts[group] = starts[group - 1];
+                if group + 1 == groups {
+                    best = best.min(
+                        position
+                            .position
+                            .saturating_sub(starts[group])
+                            .saturating_add(1),
+                    );
+                }
+            }
         }
     }
     best

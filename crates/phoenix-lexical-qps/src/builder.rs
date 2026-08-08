@@ -143,9 +143,19 @@ impl QpsBuilder {
             }
         }
         let mut postings = Vec::with_capacity(unpacked.len());
+        let mut posting_field_impacts = Vec::with_capacity(unpacked.len() * field_count);
         let mut posting_position_starts = Vec::with_capacity(unpacked.len());
         let mut posting_positions = Vec::new();
         let mut posting_ranges = vec![PostingRange::default(); self.terms.len()];
+        let term_rarities = document_frequency
+            .iter()
+            .map(|&frequency| {
+                let idf = inverse_document_frequency(active_count, frequency as usize);
+                idf / (1.0 + idf)
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let mut field_weighted_tf = vec![0.0_f32; field_count];
         let mut cursor = 0;
         while cursor < unpacked.len() {
             let term = unpacked[cursor].term;
@@ -153,6 +163,7 @@ impl QpsBuilder {
             while cursor < unpacked.len() && unpacked[cursor].term == term {
                 let document = unpacked[cursor].document;
                 let mut weighted_tf = 0.0_f32;
+                field_weighted_tf.fill(0.0);
                 let position_start = checked_u32(posting_positions.len())?;
                 while cursor < unpacked.len()
                     && unpacked[cursor].term == term
@@ -164,8 +175,10 @@ impl QpsBuilder {
                     let field_config = self.field_configs[field];
                     let normalization = 1.0 - field_config.length_normalization
                         + field_config.length_normalization * length / average_field_lengths[field];
-                    weighted_tf += field_config.weight * source.positions.len() as f32
+                    let contribution = field_config.weight * source.positions.len() as f32
                         / normalization.max(0.01);
+                    weighted_tf += contribution;
+                    field_weighted_tf[field] = contribution;
                     posting_positions.extend(source.positions.iter().map(
                         |&(position, segment)| PostingPosition {
                             position,
@@ -182,6 +195,13 @@ impl QpsBuilder {
                 let impact =
                     idf * (self.config.k1 + 1.0) * weighted_tf / (self.config.k1 + weighted_tf);
                 postings.push(PostingRecord { document, impact });
+                posting_field_impacts.extend(field_weighted_tf.iter().map(|field_tf| {
+                    if weighted_tf > 0.0 {
+                        impact * field_tf / weighted_tf
+                    } else {
+                        0.0
+                    }
+                }));
                 posting_position_starts.push(position_start);
             }
             posting_ranges[term as usize] = PostingRange {
@@ -199,6 +219,8 @@ impl QpsBuilder {
             field_ranges.into_boxed_slice(),
             posting_ranges.into_boxed_slice(),
             postings.into_boxed_slice(),
+            posting_field_impacts.into_boxed_slice(),
+            term_rarities,
             posting_position_starts.into_boxed_slice(),
             posting_positions.into_boxed_slice(),
         ))
@@ -218,6 +240,9 @@ impl QpsBuilder {
 fn validate(fields: &[FieldConfig], config: QpsConfig) -> Result<(), QpsError> {
     if fields.is_empty() {
         return Err(QpsError::MissingFields);
+    }
+    if fields.len() < 64 && config.v3_exact_identifier_fields >> fields.len() != 0 {
+        return Err(QpsError::InvalidConfig("V3 exact identifier fields"));
     }
     for field in fields {
         if !field.weight.is_finite()

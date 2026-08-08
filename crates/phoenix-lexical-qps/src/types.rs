@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::ranker::{LinearRankerV1, RankFeatureVector};
+use crate::RankEvidenceV3;
 
 /// Maximum number of independently scored query groups. The coherence kernel
 /// uses two packed `u64` lanes, keeping long-query bookkeeping on the stack.
@@ -64,6 +65,10 @@ pub struct QpsConfig {
     /// Optional deterministic learned composition over evidence already
     /// produced by QPS. Disabled means the frozen hand-tuned V2.01 score.
     pub learned_ranker: LinearRankerV1,
+    /// V3 constitutional exact-identifier fields. Bit `n` protects field `n`.
+    /// This does not participate in V2 retrieval, candidate selection, or its
+    /// diagnostic score.
+    pub v3_exact_identifier_fields: u64,
 }
 
 impl Default for QpsConfig {
@@ -84,6 +89,7 @@ impl Default for QpsConfig {
             maximum_query_groups: 32,
             maximum_expansions_per_group: 16,
             learned_ranker: LinearRankerV1::disabled(),
+            v3_exact_identifier_fields: 0,
         }
     }
 }
@@ -110,6 +116,9 @@ pub struct SearchHit {
     pub document: DocumentId,
     pub external_id: u64,
     pub score: f32,
+    /// Frozen hand-designed V2 score retained only for diagnostics and the
+    /// explicit rollback path. V3 never reads this value as a feature.
+    pub v2_score: f32,
     pub lexical_score: f32,
     pub coverage: f32,
     pub proximity: f32,
@@ -120,6 +129,11 @@ pub struct SearchHit {
     /// Fixed-width evidence used by the optional learned ranker. Keeping it on
     /// the returned hit makes failures auditable without retaining postings.
     pub rank_features: RankFeatureVector,
+    /// Primitive-only V3 evidence. The V2 final score and candidate-strength
+    /// composite are deliberately absent from this schema.
+    pub rank_evidence_v3: RankEvidenceV3,
+    /// Hard constitutional tier computed before any V3 learned score.
+    pub relevance_tier: crate::RelevanceTier,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -183,6 +197,8 @@ pub enum QpsError {
     InvalidExpansionQuality,
     #[error("each query expansion must normalize to exactly one token")]
     InvalidExpansionTerm,
+    #[error("V3 ranker artifact is missing, corrupt, or incompatible")]
+    InvalidV3Ranker,
 }
 
 impl fmt::Display for DocumentId {

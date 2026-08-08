@@ -112,6 +112,16 @@ impl VisualContractDraftV3 {
                 }
             }
         }
+        for guide in &publication.caps_guides {
+            hash_u64(&mut projection, guide.stable_id);
+            for coordinate in guide.center {
+                hash_f32(&mut projection, coordinate);
+            }
+            hash_f32(&mut projection, guide.aperture);
+            hash_f32(&mut projection, guide.radius);
+            hash_u8(&mut projection, guide.role as u8);
+            hash_u32(&mut projection, guide.weight);
+        }
         let mut edge_topology = blake3::Hasher::new();
         let mut edge_roles = blake3::Hasher::new();
         edge_topology.update(b"phoenix-native-v3-edge-topology");
@@ -310,6 +320,7 @@ mod tests {
             topology: vec![],
             edges: vec![],
             positions,
+            caps_guides: Vec::new(),
             node_products: vec![SceneNodeProduct {
                 node_id: 1,
                 family_mask: phoenix_scene_contract::FamilyMask::ENTITIES.0

@@ -78,7 +78,7 @@ impl ShellStateV1 {
         }
         let mut state: Self =
             serde_json::from_slice(&bytes).with_context(|| format!("decode {}", path.display()))?;
-        state.graph_view.normalize_legacy_family_masks();
+        state.graph_view.normalize_persisted_masks();
         state.validate()?;
         Ok(Some(state))
     }
@@ -219,7 +219,7 @@ fn wide_null(path: &Path) -> Vec<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use phoenix_scene_contract::{GraphGeneration, GraphSurface, Manifold};
+    use phoenix_scene_contract::{GraphCanvas, GraphGeneration, GraphSurface, Manifold};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -229,6 +229,7 @@ mod tests {
             GraphViewState::for_archive(GraphGeneration(9), [7; 32], Some([8; 32]));
         graph_view.surface = GraphSurface::Atlas;
         graph_view.manifold = Manifold::Hopf;
+        graph_view.canvas = GraphCanvas::Grid;
         ShellStateV1 {
             format: FORMAT.into(),
             left_open: true,
@@ -275,6 +276,7 @@ mod tests {
         assert_eq!(actual.drawer_tab, DrawerTab::Graph);
         assert_eq!(actual.graph_view.surface, GraphSurface::Atlas);
         assert_eq!(actual.graph_view.manifold, Manifold::Hopf);
+        assert_eq!(actual.graph_view.canvas, GraphCanvas::Grid);
         fs::remove_dir_all(root)?;
         Ok(())
     }

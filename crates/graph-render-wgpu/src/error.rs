@@ -1,4 +1,5 @@
 use graph_model::{EdgeId, ModelError, NodeId};
+use phoenix_scene_contract::TopologyProjectionError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -19,6 +20,8 @@ pub enum RenderError {
     PackedSceneFragmented,
     #[error("scene product index {resource} identity mismatch at slot {slot}")]
     ProductIdentityMismatch { resource: &'static str, slot: usize },
+    #[error("scene product {resource} {id} has no graph palette key")]
+    ProductPaletteKeyMissing { resource: &'static str, id: u64 },
     #[error("review overlay contains {actual} edges, exceeding the fixed limit of {limit}")]
     ReviewOverlayOversized { actual: usize, limit: usize },
     #[error("graph view authority generation does not match the resident GPU scene")]
@@ -53,8 +56,8 @@ pub enum RenderError {
     LabelRender(String),
     #[error("prepared {resource} point range is outside its verified page")]
     PreparedGeometryRange { resource: &'static str },
-    #[error("prepared path references edge slot {slot}, but the scene has {edge_count} edges")]
-    PreparedGeometryEdgeSlot { slot: u32, edge_count: usize },
+    #[error(transparent)]
+    TopologyProjection(#[from] TopologyProjectionError),
     #[error("prepared geometry has {actual} segments, exceeding the fixed limit of {limit}")]
     PreparedGeometryOversized { actual: usize, limit: usize },
 }
