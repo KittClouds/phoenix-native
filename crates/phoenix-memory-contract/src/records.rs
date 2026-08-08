@@ -172,6 +172,49 @@ pub struct CandidateEndpointBindingRecordV3 {
     pub flags: u16,
 }
 
+/// Candidate-only temporal normalization. Source timestamps remain authoritative
+/// on their source records; this envelope preserves every distinct clock rather
+/// than collapsing them into one ambiguous timestamp.
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+#[repr(C)]
+pub struct TemporalEnvelopeRecordV1 {
+    pub id: [u8; 32],
+    pub source_time_millis: i64,
+    pub asserted_at_millis: i64,
+    pub occurred_from_millis: i64,
+    pub occurred_to_millis: i64,
+    pub observed_at_millis: i64,
+    pub valid_time_from_millis: i64,
+    pub valid_time_to_millis: i64,
+    pub system_generation_from: u64,
+    pub system_generation_to: u64,
+    pub original_text: StringRef,
+    pub binding_start: u32,
+    pub binding_count: u32,
+    pub timezone_offset_minutes: i32,
+    pub confidence_bits: u32,
+    pub precision: u16,
+    pub reserved_u16: u16,
+    pub flags: u32,
+    pub reserved: [u32; 2],
+}
+
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+#[repr(C)]
+pub struct TemporalEnvelopeBindingRecordV1 {
+    pub envelope_id: [u8; 32],
+    pub subject_id: [u8; 32],
+    pub evidence_id: u64,
+    pub ordinal: u32,
+    pub subject_kind: u16,
+    pub role: u16,
+    pub flags: u32,
+    pub reserved: u32,
+}
+
+const _: [(); 152] = [(); core::mem::size_of::<TemporalEnvelopeRecordV1>()];
+const _: [(); 88] = [(); core::mem::size_of::<TemporalEnvelopeBindingRecordV1>()];
+
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 #[repr(C)]
 pub struct VocabularyPackRecordV3 {

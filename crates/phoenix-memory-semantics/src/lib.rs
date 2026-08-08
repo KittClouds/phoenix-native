@@ -3,6 +3,7 @@
 //! The core vocabulary is stable. Narrative, conversation, and document
 //! meaning live in detachable packs. This crate cannot promote a candidate.
 
+mod adjudication;
 mod candidate;
 mod consolidation;
 mod lens;
@@ -23,3 +24,10 @@ pub use pack::{
 
 #[cfg(test)]
 mod tests;
+pub use adjudication::{
+    AdjudicationError, DeterministicAdjudicatorV1, MemoryActionV1, MemoryEventV1, NliRelationV1,
+    PolicyProposalV1, PolicyReasonV1, ScopeRelationV1, SemanticAdjudicationInputV1,
+    SourceAuthorityV1, TemporalRelationV1, CUE_CURRENT_STATE, CUE_EXPLICIT_CORRECTION,
+    CUE_FUTURE_INTENTION, CUE_NEGATED_PROPOSITION, CUE_PREVIOUS_STATE, CUE_SCOPE_QUALIFIER,
+    CUE_TEMPORAL_QUALIFIER, CUE_UNCERTAINTY,
+};

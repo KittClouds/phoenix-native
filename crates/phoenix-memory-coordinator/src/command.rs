@@ -1,5 +1,7 @@
 use phoenix_lexical_qps::SearchReceipt;
-use phoenix_memory_contract::{CandidateStatus, ParticipantRole, SourceId, SourceKind};
+use phoenix_memory_contract::{
+    CandidateStatus, ParticipantRole, SourceId, SourceKind, TemporalPrecisionV1,
+};
 use phoenix_workspace::{ContentHash, DocumentLease, DocumentRevision};
 use std::sync::Arc;
 
@@ -175,8 +177,29 @@ pub struct ContextCandidateItem {
     pub endpoint_ids: Arc<[u64]>,
     pub evidence: Arc<[ContextEvidenceExcerpt]>,
     pub producer_identity_hash: [u8; 32],
+    pub valid_time_from_millis: i64,
+    pub valid_time_to_millis: i64,
+    pub temporal_envelopes: Arc<[ContextTemporalEnvelopeV1]>,
     pub status: CandidateStatus,
     pub score: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContextTemporalEnvelopeV1 {
+    pub id: [u8; 32],
+    pub source_time_millis: i64,
+    pub asserted_at_millis: i64,
+    pub occurred_from_millis: i64,
+    pub occurred_to_millis: i64,
+    pub observed_at_millis: i64,
+    pub valid_time_from_millis: i64,
+    pub valid_time_to_millis: i64,
+    pub original_text: Arc<str>,
+    pub evidence_ids: Arc<[u64]>,
+    pub timezone_offset_minutes: i32,
+    pub confidence_bits: u32,
+    pub precision: TemporalPrecisionV1,
+    pub flags: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

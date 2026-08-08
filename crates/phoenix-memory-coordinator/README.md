@@ -32,6 +32,14 @@ The index contains:
 - stable source and content IDs matching the generation formulas.
 
 Returned proposed semantics retain exact evidence excerpts and proposed status.
+They also retain candidate-scoped temporal envelopes with distinct source,
+assertion, occurrence, observation, valid, and system clocks. The coordinator
+does not collapse unknown time into an unbounded interval and does not promote
+temporal observations into accepted truth.
+
+Semantic model duties are explicit: a steerable semantic observer may produce
+broad semantic candidates, while a dedicated NLI observer is reserved for NLI
+adjudication. Neither lane silently substitutes for the other.
 The pending model answer is never indexed because it has not crossed the commit
 boundary.
 

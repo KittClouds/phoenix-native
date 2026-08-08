@@ -1,0 +1,21 @@
+[package]
+name = "phoenix-memory-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+blake3.workspace = true
+bytemuck.workspace = true
+hashbrown.workspace = true
+memmap2.workspace = true
+phoenix-graph-generation-v2 = { path = "../phoenix-graph-generation-v2" }
+phoenix-memory-contract = { path = "../phoenix-memory-contract" }
+phoenix-memory-semantics = { path = "../phoenix-memory-semantics" }
+thiserror.workspace = true
+
+[dev-dependencies]
+phoenix-memory-coordinator = { path = "../phoenix-memory-coordinator" }
+tempfile = "3.20"

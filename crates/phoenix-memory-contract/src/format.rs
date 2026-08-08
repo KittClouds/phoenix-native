@@ -6,7 +6,8 @@ use crate::{
     IdentityCandidateRecord, MemoryStateCandidateRecord, MentionRecordV3, ModelIdentityRecord,
     NliAdjudicationRecord, ParagraphRecord, ProducerCapabilityRecordV3, PublicationReceiptRecord,
     SemanticCandidateRecordV3, SentenceRecord, SourceRecord, SpanRecord, StageReceiptRecord,
-    StructuralEdgeRecord, SupersessionRecord, TemporalCandidateRecord, TurnRecord,
+    StructuralEdgeRecord, SupersessionRecord, TemporalCandidateRecord,
+    TemporalEnvelopeBindingRecordV1, TemporalEnvelopeRecordV1, TurnRecord,
     TypedRelationshipCandidateRecord, ValidityIntervalRecord, VocabularyPackRecordV3,
 };
 use bytemuck::{Pod, Zeroable};
@@ -19,6 +20,7 @@ pub const GRAPH_GENERATION_V3_VERSION: u32 = 3;
 pub const GRAPH_GENERATION_V3_EXTENSION: &str = "phxgg3";
 pub const MAX_GENERATION_BYTES: u64 = 16 << 30;
 pub const MAX_PAGE_COUNT: usize = 64;
+pub const PAGE_COUNT_V3: usize = 41;
 pub const MAX_RECORDS_PER_PAGE: u64 = 64_000_000;
 pub const PAGE_ALIGNMENT: u64 = 64;
 pub const HEADER_FLAG_COMPLETE: u32 = 1;
@@ -66,10 +68,12 @@ pub enum PageKindV3 {
     ProducerCapabilitiesV3 = 37,
     VocabularyPacks = 38,
     CandidateEndpointBindings = 39,
+    TemporalEnvelopes = 40,
+    TemporalEnvelopeBindings = 41,
 }
 
 impl PageKindV3 {
-    pub const ALL: [Self; 39] = [
+    pub const ALL: [Self; PAGE_COUNT_V3] = [
         Self::Strings,
         Self::SourceText,
         Self::Sources,
@@ -109,6 +113,8 @@ impl PageKindV3 {
         Self::ProducerCapabilitiesV3,
         Self::VocabularyPacks,
         Self::CandidateEndpointBindings,
+        Self::TemporalEnvelopes,
+        Self::TemporalEnvelopeBindings,
     ];
 
     pub const fn from_raw(raw: u16) -> Option<Self> {
@@ -190,7 +196,9 @@ pub const fn expected_authority(kind: PageKindV3) -> AuthorityClass {
         | PageKindV3::NliAdjudications
         | PageKindV3::CandidateEvidenceBindings
         | PageKindV3::SemanticCandidates
-        | PageKindV3::CandidateEndpointBindings => AuthorityClass::SemanticCandidate,
+        | PageKindV3::CandidateEndpointBindings
+        | PageKindV3::TemporalEnvelopes
+        | PageKindV3::TemporalEnvelopeBindings => AuthorityClass::SemanticCandidate,
         PageKindV3::ContextualEvidence => AuthorityClass::ContextualEvidenceOnly,
         PageKindV3::Decisions | PageKindV3::ValidityIntervals | PageKindV3::Supersessions => {
             AuthorityClass::DecisionReceipt
@@ -253,6 +261,8 @@ pub const fn expected_record_size(kind: PageKindV3) -> u32 {
         ProducerCapabilitiesV3 => ProducerCapabilityRecordV3,
         VocabularyPacks => VocabularyPackRecordV3,
         CandidateEndpointBindings => CandidateEndpointBindingRecordV3,
+        TemporalEnvelopes => TemporalEnvelopeRecordV1,
+        TemporalEnvelopeBindings => TemporalEnvelopeBindingRecordV1,
     ) as u32
 }
 
@@ -305,6 +315,8 @@ pub const fn expected_record_alignment(kind: PageKindV3) -> u32 {
         ProducerCapabilitiesV3 => ProducerCapabilityRecordV3,
         VocabularyPacks => VocabularyPackRecordV3,
         CandidateEndpointBindings => CandidateEndpointBindingRecordV3,
+        TemporalEnvelopes => TemporalEnvelopeRecordV1,
+        TemporalEnvelopeBindings => TemporalEnvelopeBindingRecordV1,
     ) as u32
 }
 
@@ -372,6 +384,12 @@ fn schema_signature(kind: PageKindV3) -> &'static str {
         }
         PageKindV3::CandidateEndpointBindings => {
             "v3/candidate_endpoint:candidate,endpoint,ordinal,role,flags"
+        }
+        PageKindV3::TemporalEnvelopes => {
+            "v3/temporal_envelope:id,source,asserted,occurred,observed,valid,system,text,bindings,timezone,confidence,precision,flags"
+        }
+        PageKindV3::TemporalEnvelopeBindings => {
+            "v3/temporal_binding:envelope,subject,evidence,ordinal,subject_kind,role,flags"
         }
     }
 }

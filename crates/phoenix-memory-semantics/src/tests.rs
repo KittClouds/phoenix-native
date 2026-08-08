@@ -1,7 +1,10 @@
 use crate::{
     conversation_pack, core_pack, document_pack, narrative_pack, CandidateBuilder,
     ConsolidationEngine, ConsolidationObservation, ConsolidationProposal, ConversationRelation,
-    CoreRelation, DocumentRelation, LensSet, NarrativeRelation, VocabularyRelation,
+    CoreRelation, DeterministicAdjudicatorV1, DocumentRelation, LensSet, MemoryActionV1,
+    MemoryEventV1, NarrativeRelation, NliRelationV1, PolicyReasonV1, ScopeRelationV1,
+    SemanticAdjudicationInputV1, SourceAuthorityV1, TemporalRelationV1, VocabularyRelation,
+    CUE_EXPLICIT_CORRECTION, CUE_TEMPORAL_QUALIFIER,
 };
 use phoenix_memory_contract::{
     CandidateEndpointRoleV3, CandidateStatus, SemanticCandidateFamilyV3,
@@ -192,4 +195,154 @@ fn duplicate_identity_requires_explicit_stable_key_not_label() {
     assert!(with_key
         .kinds
         .contains(&ConsolidationProposal::DuplicateIdentity));
+}
+
+#[test]
+fn authoritative_explicit_correction_closes_and_supersedes_without_deleting_history() {
+    let input = adjudication_input(
+        MemoryEventV1::ExplicitCorrection,
+        NliRelationV1::Contradiction,
+        ScopeRelationV1::Same,
+        TemporalRelationV1::CurrentOverCurrent,
+        SourceAuthorityV1::SubjectExplicit,
+        CUE_EXPLICIT_CORRECTION,
+    );
+    let proposal = DeterministicAdjudicatorV1::default()
+        .adjudicate(input)
+        .expect("valid model lanes");
+    assert_eq!(proposal.action, MemoryActionV1::Supersede);
+    assert_eq!(proposal.reason, PolicyReasonV1::AuthoritativeCorrection);
+    assert!(proposal.close_existing_validity);
+    assert!(proposal.preserve_history);
+    assert!(proposal.requires_explicit_decision);
+}
+
+#[test]
+fn later_state_and_distinct_scope_do_not_collapse_into_one_conflict_rule() {
+    let later = DeterministicAdjudicatorV1::default()
+        .adjudicate(adjudication_input(
+            MemoryEventV1::TemporalUpdate,
+            NliRelationV1::Contradiction,
+            ScopeRelationV1::Same,
+            TemporalRelationV1::LaterState,
+            SourceAuthorityV1::SubjectExplicit,
+            CUE_TEMPORAL_QUALIFIER,
+        ))
+        .expect("later state");
+    assert_eq!(later.action, MemoryActionV1::CloseAndReplace);
+    assert!(later.close_existing_validity);
+
+    let scoped = DeterministicAdjudicatorV1::default()
+        .adjudicate(adjudication_input(
+            MemoryEventV1::ScopeUpdate,
+            NliRelationV1::Contradiction,
+            ScopeRelationV1::Different,
+            TemporalRelationV1::CurrentOverCurrent,
+            SourceAuthorityV1::SubjectExplicit,
+            0,
+        ))
+        .expect("distinct scope");
+    assert_eq!(scoped.action, MemoryActionV1::RetainBoth);
+    assert!(!scoped.close_existing_validity);
+}
+
+#[test]
+fn model_lanes_are_not_interchangeable_and_low_confidence_never_mutates_truth() {
+    let adjudicator = DeterministicAdjudicatorV1::default();
+    let mut input = adjudication_input(
+        MemoryEventV1::Corroboration,
+        NliRelationV1::Entailment,
+        ScopeRelationV1::Same,
+        TemporalRelationV1::CurrentOverCurrent,
+        SourceAuthorityV1::PinnedResult,
+        0,
+    );
+    input.gliclass_role = phoenix_memory_contract::ModelSemanticRoleV3::DedicatedNliObserver;
+    assert_eq!(
+        adjudicator.adjudicate(input),
+        Err(crate::AdjudicationError::InvalidGliclassLane)
+    );
+
+    input = adjudication_input(
+        MemoryEventV1::Corroboration,
+        NliRelationV1::Entailment,
+        ScopeRelationV1::Same,
+        TemporalRelationV1::CurrentOverCurrent,
+        SourceAuthorityV1::PinnedResult,
+        0,
+    );
+    input.modernbert_role = phoenix_memory_contract::ModelSemanticRoleV3::SteerableSemanticObserver;
+    assert_eq!(
+        adjudicator.adjudicate(input),
+        Err(crate::AdjudicationError::InvalidModernbertLane)
+    );
+
+    input = adjudication_input(
+        MemoryEventV1::ExplicitCorrection,
+        NliRelationV1::Contradiction,
+        ScopeRelationV1::Same,
+        TemporalRelationV1::CurrentOverCurrent,
+        SourceAuthorityV1::SubjectExplicit,
+        CUE_EXPLICIT_CORRECTION,
+    );
+    input.memory_event_score = 0.5;
+    let deferred = adjudicator.adjudicate(input).expect("bounded scores");
+    assert_eq!(deferred.action, MemoryActionV1::Defer);
+    assert_eq!(deferred.reason, PolicyReasonV1::InsufficientConfidence);
+
+    let first_identity = input.observation_identity();
+    input.nli_relation = NliRelationV1::Neutral;
+    assert_ne!(first_identity, input.observation_identity());
+}
+
+#[test]
+fn hypothetical_memory_remains_candidate_only_and_conflict_requires_review() {
+    let adjudicator = DeterministicAdjudicatorV1::default();
+    let hypothetical = adjudicator
+        .adjudicate(adjudication_input(
+            MemoryEventV1::HypotheticalStatement,
+            NliRelationV1::Neutral,
+            ScopeRelationV1::Same,
+            TemporalRelationV1::FutureState,
+            SourceAuthorityV1::SubjectExplicit,
+            0,
+        ))
+        .expect("hypothetical");
+    assert_eq!(hypothetical.action, MemoryActionV1::CandidateOnly);
+
+    let conflict = adjudicator
+        .adjudicate(adjudication_input(
+            MemoryEventV1::HardConflict,
+            NliRelationV1::Contradiction,
+            ScopeRelationV1::Same,
+            TemporalRelationV1::CurrentOverCurrent,
+            SourceAuthorityV1::Inferred,
+            0,
+        ))
+        .expect("conflict");
+    assert_eq!(conflict.action, MemoryActionV1::OpenDispute);
+    assert!(conflict.requires_explicit_decision);
+}
+
+fn adjudication_input(
+    memory_event: MemoryEventV1,
+    nli_relation: NliRelationV1,
+    scope_relation: ScopeRelationV1,
+    temporal_relation: TemporalRelationV1,
+    source_authority: SourceAuthorityV1,
+    semantic_cues: u32,
+) -> SemanticAdjudicationInputV1 {
+    SemanticAdjudicationInputV1 {
+        memory_event,
+        memory_event_score: 0.95,
+        nli_relation,
+        nli_score: 0.95,
+        scope_relation,
+        temporal_relation,
+        source_authority,
+        semantic_cues,
+        evidence_count: 2,
+        gliclass_role: phoenix_memory_contract::ModelSemanticRoleV3::SteerableSemanticObserver,
+        modernbert_role: phoenix_memory_contract::ModelSemanticRoleV3::DedicatedNliObserver,
+    }
 }

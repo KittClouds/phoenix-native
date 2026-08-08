@@ -29,6 +29,11 @@ Conversations retain:
 - role, ordinal, event time, reply target, actor, and model identity index;
 - exact UTF-8 turn bodies and content hashes.
 
+Semantic candidates may carry evidence-bound `TemporalEnvelopeRecordV1`
+records. The envelope preserves source, assertion, occurrence, observation,
+valid, and system clocks independently; unknown time is explicit and never
+conflated with an unbounded interval.
+
 Source text has a dedicated page. Semantic labels use a separate string slab,
 so adding labels cannot change the source-set identity.
 
@@ -54,6 +59,10 @@ The V3 page directory retains V2's authority separation:
 - contextual-evidence-only co-occurrence pages;
 - decision-bound decisions, validity intervals, and supersessions;
 - runtime-only capability, model, stage, and publication receipts.
+
+Model identities also declare their semantic duty. Steerable semantic
+observers and dedicated NLI observers are distinct lanes. Verified NLI
+adjudications must reference a model explicitly registered for dedicated NLI.
 
 Every page is required, typed, aligned, schema-hashed, payload-hashed, and
 bounded. Empty capability pages express absence; later producers must use

@@ -1,7 +1,8 @@
 use crate::{
     CommonProducts, ContextCandidateItem, ContextEvidenceExcerpt, ContextItem, ContextPacket,
-    CoordinatorError, LexicalRecallConfig, LexicalRecallReceipt, LexicalRecallStatus, MemoryScope,
-    MemorySourceLocator, RecallTurn, StoredConversation, StoredDocument,
+    ContextTemporalEnvelopeV1, CoordinatorError, LexicalRecallConfig, LexicalRecallReceipt,
+    LexicalRecallStatus, MemoryScope, MemorySourceLocator, RecallTurn, StoredConversation,
+    StoredDocument,
 };
 use hashbrown::{HashMap, HashSet};
 use phoenix_lexical_qps::{
@@ -543,6 +544,38 @@ fn append_candidates(
             .relation_kind
             .len()
             .saturating_add(candidate.value.len());
+        let temporal_envelopes = products
+            .temporal_envelopes
+            .iter()
+            .filter_map(|envelope| {
+                let evidence_ids = envelope
+                    .bindings
+                    .iter()
+                    .filter(|binding| binding.subject_id == candidate.candidate_id)
+                    .map(|binding| binding.evidence_id)
+                    .collect::<Vec<_>>();
+                if evidence_ids.is_empty() {
+                    return None;
+                }
+                candidate_bytes = candidate_bytes.saturating_add(envelope.original_text.len());
+                Some(ContextTemporalEnvelopeV1 {
+                    id: envelope.id,
+                    source_time_millis: envelope.source_time_millis,
+                    asserted_at_millis: envelope.asserted_at_millis,
+                    occurred_from_millis: envelope.occurred_from_millis,
+                    occurred_to_millis: envelope.occurred_to_millis,
+                    observed_at_millis: envelope.observed_at_millis,
+                    valid_time_from_millis: envelope.valid_time_from_millis,
+                    valid_time_to_millis: envelope.valid_time_to_millis,
+                    original_text: envelope.original_text.clone(),
+                    evidence_ids: evidence_ids.into(),
+                    timezone_offset_minutes: envelope.timezone_offset_minutes,
+                    confidence_bits: envelope.confidence.to_bits(),
+                    precision: envelope.precision,
+                    flags: envelope.flags,
+                })
+            })
+            .collect::<Vec<_>>();
         let mut evidence = Vec::with_capacity(mentions.len());
         for mention in mentions {
             let excerpt = source
@@ -577,6 +610,9 @@ fn append_candidates(
                 .into(),
             evidence: evidence.into(),
             producer_identity_hash: candidate.producer_identity_hash,
+            valid_time_from_millis: candidate.valid_time_from_millis,
+            valid_time_to_millis: candidate.valid_time_to_millis,
+            temporal_envelopes: temporal_envelopes.into(),
             status: candidate.status,
             score: 0,
         });

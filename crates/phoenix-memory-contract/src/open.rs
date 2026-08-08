@@ -3,16 +3,18 @@ use crate::{
     validate::validate_header, AuthoritySubjectKind, CandidateEndpointBindingRecordV3,
     CandidateEndpointRoleV3, ContentUnitKind, ContentUnitRecord, ConversationRecord,
     DocumentRevisionRecord, EvidenceRecordV3, GenerationHeaderV3, MemoryContractError,
-    MentionRecordV3, PageDescriptorV3, PageKindV3, ParticipantRole, ProducerCapabilityRecordV3,
-    ProducerProductV3, ProducerStateV3, SemanticCandidateFamilyV3, SemanticCandidateRecordV3,
-    SourceKind, SourceRecord, StringRef, SupersessionRecord, TurnRecord, ValidityIntervalRecord,
-    VocabularyPackKindV3, VocabularyPackRecordV3, SOURCE_FLAG_COMPLETE,
+    MentionRecordV3, ModelSemanticRoleV3, PageDescriptorV3, PageKindV3, ParticipantRole,
+    ProducerCapabilityRecordV3, ProducerProductV3, ProducerStateV3, SemanticCandidateFamilyV3,
+    SemanticCandidateRecordV3, SourceKind, SourceRecord, StringRef, SupersessionRecord,
+    TemporalEnvelopeBindingRecordV1, TemporalEnvelopeRecordV1, TurnRecord, ValidityIntervalRecord,
+    VocabularyPackKindV3, VocabularyPackRecordV3, PAGE_COUNT_V3, SOURCE_FLAG_COMPLETE,
 };
 use bytemuck::Pod;
 use hashbrown::{HashMap, HashSet};
 use memmap2::{Mmap, MmapOptions};
 use phoenix_graph_generation_v2::{
-    CandidateEvidenceBindingRecord, CandidateStatus, ChunkRecord, ModelIdentityRecord,
+    CandidateEvidenceBindingRecord, CandidateStatus, ChunkRecord, EpisodeRecord, EventRecord,
+    ModelIdentityRecord, NliAdjudicationRecord,
 };
 use std::fs::File;
 use std::mem::size_of;
@@ -28,7 +30,7 @@ pub struct OpenExpectation {
 pub struct VerifiedGraphGenerationV3 {
     mmap: Mmap,
     header: GenerationHeaderV3,
-    directory: [PageDescriptorV3; 39],
+    directory: [PageDescriptorV3; PAGE_COUNT_V3],
 }
 
 impl std::fmt::Debug for VerifiedGraphGenerationV3 {
@@ -97,7 +99,7 @@ impl VerifiedGraphGenerationV3 {
         let directory_bytes = mmap
             .get(directory_start..directory_end)
             .ok_or(MemoryContractError::DirectoryOutOfBounds)?;
-        let directory: [PageDescriptorV3; 39] =
+        let directory: [PageDescriptorV3; PAGE_COUNT_V3] =
             bytemuck::try_cast_slice::<u8, PageDescriptorV3>(directory_bytes)
                 .map_err(|_| MemoryContractError::DirectoryOutOfBounds)?
                 .try_into()
@@ -194,6 +196,14 @@ impl VerifiedGraphGenerationV3 {
         )?;
         let model_identities =
             self.typed_page::<ModelIdentityRecord>(PageKindV3::ModelIdentities)?;
+        let nli_adjudications =
+            self.typed_page::<NliAdjudicationRecord>(PageKindV3::NliAdjudications)?;
+        let events = self.typed_page::<EventRecord>(PageKindV3::Events)?;
+        let episodes = self.typed_page::<EpisodeRecord>(PageKindV3::Episodes)?;
+        let temporal_envelopes =
+            self.typed_page::<TemporalEnvelopeRecordV1>(PageKindV3::TemporalEnvelopes)?;
+        let temporal_bindings = self
+            .typed_page::<TemporalEnvelopeBindingRecordV1>(PageKindV3::TemporalEnvelopeBindings)?;
 
         if sources.is_empty()
             || self.header.source_count != sources.len() as u64
@@ -363,6 +373,12 @@ impl VerifiedGraphGenerationV3 {
         }
 
         validate_evidence_ranges(mentions, evidence, &source_kinds, &unit_ranges)?;
+        validate_model_identities(self, model_identities)?;
+        crate::nli::validate_nli_adjudications(
+            nli_adjudications,
+            semantic_candidates,
+            model_identities,
+        )?;
         validate_semantic_candidates(
             self,
             semantic_candidates,
@@ -374,13 +390,23 @@ impl VerifiedGraphGenerationV3 {
             &source_kinds,
             evidence,
         )?;
+        crate::temporal::validate_temporal_envelopes(
+            self,
+            temporal_envelopes,
+            temporal_bindings,
+            semantic_candidates,
+            events,
+            episodes,
+            turns,
+            evidence,
+        )?;
         validate_authority_time(validity, supersessions)
     }
 }
 
 fn validate_source_set_hash(
     header: &GenerationHeaderV3,
-    directory: &[PageDescriptorV3; 39],
+    directory: &[PageDescriptorV3; PAGE_COUNT_V3],
 ) -> Result<(), MemoryContractError> {
     let source_text_hash = directory[(PageKindV3::SourceText as usize) - 1].hash;
     let source_hashes = PageKindV3::ALL
@@ -435,7 +461,7 @@ fn require_source_kind(
     Ok(())
 }
 
-fn validate_index_range(
+pub(crate) fn validate_index_range(
     start: u32,
     count: u32,
     total: usize,
@@ -497,6 +523,26 @@ fn validate_evidence_ranges(
         {
             return Err(MemoryContractError::InvalidSourceModel(
                 "evidence source range is invalid",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_model_identities(
+    generation: &VerifiedGraphGenerationV3,
+    models: &[ModelIdentityRecord],
+) -> Result<(), MemoryContractError> {
+    for model in models {
+        if generation.resolve_string(model.name)?.is_empty()
+            || generation.resolve_string(model.runtime)?.is_empty()
+            || generation.resolve_string(model.artifact_uri)?.is_empty()
+            || model.artifact_hash == [0; 32]
+            || model.config_hash == [0; 32]
+            || ModelSemanticRoleV3::from_flags(model.flags).is_none()
+        {
+            return Err(MemoryContractError::InvalidSourceModel(
+                "model semantic role or identity is invalid",
             ));
         }
     }
@@ -643,7 +689,7 @@ fn validate_semantic_candidates(
     Ok(())
 }
 
-fn ensure_strictly_increasing<T: Ord>(
+pub(crate) fn ensure_strictly_increasing<T: Ord>(
     values: impl IntoIterator<Item = T>,
 ) -> Result<(), MemoryContractError> {
     let mut previous = None;

@@ -17,9 +17,9 @@ mod state;
 
 pub use command::{
     CommittedTurn, ContextCandidateItem, ContextEvidenceExcerpt, ContextItem, ContextPacket,
-    ConversationKey, IngestDocumentRevision, IngestTurn, IngestionOrigin, LexicalRecallPathId,
-    LexicalRecallReceipt, LexicalRecallStatus, MemoryScope, MemorySourceLocator, PendingTurn,
-    RecallTurn, LEXICAL_RECALL_PATH,
+    ContextTemporalEnvelopeV1, ConversationKey, IngestDocumentRevision, IngestTurn,
+    IngestionOrigin, LexicalRecallPathId, LexicalRecallReceipt, LexicalRecallStatus, MemoryScope,
+    MemorySourceLocator, PendingTurn, RecallTurn, LEXICAL_RECALL_PATH,
 };
 pub use coordinator::{
     CoordinatorConfig, CoordinatorMetrics, CoordinatorTicket, DualFaceIngestionCoordinator,
@@ -32,9 +32,10 @@ pub use product::{
     authoritative_product, CancellationProbe, CandidateEndpointDraft, CanonicalBindingDraft,
     CommonProducts, DocumentProduction, DualFaceProducer, EntityDraft, MentionDraft,
     ModelIdentityInputV3, ProducerRegistrationV3, RegistrationSupport, SemanticCandidateDraft,
-    TurnProduction, VocabularyPackDraft, MAX_CANDIDATES_PER_SOURCE, MAX_ENDPOINTS_PER_CANDIDATE,
-    MAX_ENTITIES_PER_SOURCE, MAX_EVIDENCE_PER_CANDIDATE, MAX_MENTIONS_PER_SOURCE,
-    MAX_VOCABULARY_PACKS, NO_MODEL_IDENTITY,
+    TemporalEnvelopeBindingDraftV1, TemporalEnvelopeDraftV1, TurnProduction, VocabularyPackDraft,
+    MAX_CANDIDATES_PER_SOURCE, MAX_ENDPOINTS_PER_CANDIDATE, MAX_ENTITIES_PER_SOURCE,
+    MAX_EVIDENCE_PER_CANDIDATE, MAX_MENTIONS_PER_SOURCE, MAX_TEMPORAL_BINDINGS_PER_ENVELOPE,
+    MAX_TEMPORAL_ENVELOPES_PER_SOURCE, MAX_VOCABULARY_PACKS, NO_MODEL_IDENTITY,
 };
 pub use publication::GenerationPublication;
 pub use shadow::{

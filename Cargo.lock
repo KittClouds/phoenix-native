@@ -5889,6 +5889,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "phoenix-memory-runtime"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytemuck",
+ "hashbrown 0.15.5",
+ "memmap2",
+ "phoenix-graph-generation-v2",
+ "phoenix-memory-contract",
+ "phoenix-memory-coordinator",
+ "phoenix-memory-semantics",
+ "tempfile",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "phoenix-memory-semantics"
 version = "0.1.0"
 dependencies = [

@@ -125,6 +125,33 @@ fn one_coordinator_preserves_exact_document_chunks_and_turn_boundaries() {
         .filter(|unit| unit.kind == ContentUnitKind::Turn as u16)
         .count();
     assert_eq!(turn_units, 2);
+    let temporal_envelopes = generation
+        .typed_page::<phoenix_memory_contract::TemporalEnvelopeRecordV1>(
+            PageKindV3::TemporalEnvelopes,
+        )
+        .expect("temporal envelope page");
+    let temporal_bindings = generation
+        .typed_page::<phoenix_memory_contract::TemporalEnvelopeBindingRecordV1>(
+            PageKindV3::TemporalEnvelopeBindings,
+        )
+        .expect("temporal binding page");
+    assert_eq!(temporal_envelopes.len(), 2);
+    assert_eq!(temporal_bindings.len(), 2);
+    assert!(temporal_envelopes.iter().all(|envelope| {
+        envelope.occurred_from_millis == 500
+            && envelope.occurred_to_millis == 500
+            && envelope.observed_at_millis == 1_000
+            && envelope.system_generation_from <= published.published_generation
+            && envelope.system_generation_to == u64::MAX
+    }));
+    let model_identities = generation
+        .typed_page::<phoenix_memory_contract::ModelIdentityRecord>(PageKindV3::ModelIdentities)
+        .expect("model identity page");
+    assert_eq!(model_identities.len(), 1);
+    assert_eq!(
+        phoenix_memory_contract::ModelSemanticRoleV3::from_flags(model_identities[0].flags),
+        Some(phoenix_memory_contract::ModelSemanticRoleV3::SteerableSemanticObserver)
+    );
     coordinator.shutdown().expect("clean shutdown");
 }
 
@@ -192,6 +219,32 @@ fn recall_reads_committed_history_without_ingesting_pending_answer() {
                 .iter()
                 .all(|evidence| evidence.content.as_ref() == "Alice")
     }));
+    let temporally_bound = packet
+        .proposed_candidates
+        .iter()
+        .find(|candidate| candidate.relation_kind.as_ref() == "core.preference")
+        .expect("temporally bound preference candidate");
+    assert_eq!(temporally_bound.temporal_envelopes.len(), 1);
+    let envelope = &temporally_bound.temporal_envelopes[0];
+    assert_eq!(
+        (envelope.occurred_from_millis, envelope.occurred_to_millis),
+        (500, 500)
+    );
+    assert_eq!(envelope.original_text.as_ref(), "at the remembered time");
+    assert_eq!(
+        envelope.evidence_ids.as_ref(),
+        temporally_bound
+            .evidence
+            .iter()
+            .map(|item| item.evidence_id)
+            .collect::<Vec<_>>()
+    );
+    let timeless = packet
+        .proposed_candidates
+        .iter()
+        .find(|candidate| candidate.relation_kind.as_ref() == "core.attribute")
+        .expect("timeless attribute candidate");
+    assert!(timeless.temporal_envelopes.is_empty());
     assert!(packet
         .items
         .iter()
@@ -798,6 +851,116 @@ fn a_producer_cannot_emit_a_family_registered_as_unsupported() {
     coordinator.shutdown().expect("clean shutdown");
 }
 
+#[test]
+fn dedicated_nli_identity_can_coexist_but_cannot_author_semantic_candidates() {
+    struct DedicatedNliCandidateProducer;
+
+    impl DualFaceProducer for DedicatedNliCandidateProducer {
+        fn analyze_document(
+            &self,
+            request: &IngestDocumentRevision,
+            _cancellation: &CancellationProbe,
+        ) -> Result<DocumentProduction, CoordinatorError> {
+            let mut common = common_fixture(&request.lease.content);
+            for candidate in &mut common.candidates {
+                candidate.model_identity_index = Some(1);
+            }
+            Ok(DocumentProduction {
+                structural: structural_fixture(request),
+                common,
+            })
+        }
+
+        fn analyze_turn(
+            &self,
+            _conversation_external_id: &[u8],
+            _turn: &CommittedTurn,
+            _cancellation: &CancellationProbe,
+        ) -> Result<TurnProduction, CoordinatorError> {
+            Ok(TurnProduction::default())
+        }
+    }
+
+    let temp = TempDir::new().expect("temporary artifact directory");
+    let mut config = test_config(temp.path());
+    config.model_identities = Arc::from([
+        config.model_identities[0].clone(),
+        ModelIdentityInputV3 {
+            name: Arc::from("modernbert-nli"),
+            runtime: Arc::from("ort-test"),
+            artifact_uri: Arc::from("fixture://modernbert-nli"),
+            artifact_hash: [0x71; 32],
+            config_hash: [0x72; 32],
+            semantic_role: phoenix_memory_contract::ModelSemanticRoleV3::DedicatedNliObserver,
+        },
+    ]);
+    let coordinator =
+        DualFaceIngestionCoordinator::new(config, Arc::new(DedicatedNliCandidateProducer))
+            .expect("dedicated NLI may coexist as an unused observer lane");
+    let error = coordinator
+        .try_ingest_document(document_request(31, "Alice remembers Rome."))
+        .expect("submit document")
+        .wait()
+        .expect_err("dedicated NLI must not author broad semantic candidates");
+    assert!(matches!(
+        error,
+        CoordinatorError::ProducerAuthority(
+            "semantic candidates require the steerable semantic-observer lane"
+        )
+    ));
+    coordinator.shutdown().expect("clean shutdown");
+}
+
+#[test]
+fn malformed_temporal_clock_flags_fail_closed_before_publication() {
+    struct InvalidTemporalProducer;
+
+    impl DualFaceProducer for InvalidTemporalProducer {
+        fn analyze_document(
+            &self,
+            request: &IngestDocumentRevision,
+            _cancellation: &CancellationProbe,
+        ) -> Result<DocumentProduction, CoordinatorError> {
+            let mut common = common_fixture(&request.lease.content);
+            common.temporal_envelopes[0].flags &=
+                !phoenix_memory_contract::TEMPORAL_FLAG_OCCURRENCE_TIME;
+            Ok(DocumentProduction {
+                structural: structural_fixture(request),
+                common,
+            })
+        }
+
+        fn analyze_turn(
+            &self,
+            _conversation_external_id: &[u8],
+            _turn: &CommittedTurn,
+            _cancellation: &CancellationProbe,
+        ) -> Result<TurnProduction, CoordinatorError> {
+            Ok(TurnProduction::default())
+        }
+    }
+
+    let temp = TempDir::new().expect("temporary artifact directory");
+    let coordinator = DualFaceIngestionCoordinator::new(
+        test_config(temp.path()),
+        Arc::new(InvalidTemporalProducer),
+    )
+    .expect("coordinator");
+    let error = coordinator
+        .try_ingest_document(document_request(32, "Alice remembers Rome."))
+        .expect("submit document")
+        .wait()
+        .expect_err("clock/flag mismatch must fail closed");
+    assert!(matches!(error, CoordinatorError::InvalidCandidate));
+    assert!(coordinator
+        .try_verify_current()
+        .expect("submit verify")
+        .wait()
+        .expect("verify current")
+        .is_none());
+    coordinator.shutdown().expect("clean shutdown");
+}
+
 fn coordinator(
     artifact_dir: &std::path::Path,
     producer: Arc<FixtureProducer>,
@@ -816,6 +979,7 @@ fn test_config(artifact_dir: &std::path::Path) -> CoordinatorConfig {
             artifact_uri: Arc::from("fixture://model"),
             artifact_hash: [0x31; 32],
             config_hash: [0x32; 32],
+            semantic_role: phoenix_memory_contract::ModelSemanticRoleV3::SteerableSemanticObserver,
         }],
     )
 }
@@ -981,6 +1145,7 @@ fn common_fixture(content: &str) -> CommonProducts {
     let evidence_id = nonzero_u64(b"evidence", source_hash.as_bytes());
     let candidate_id = candidate_hash(b"candidate/claim", source_hash.as_bytes());
     let second_candidate_id = candidate_hash(b"candidate/attribute", source_hash.as_bytes());
+    let temporal_envelope_id = candidate_hash(b"temporal/envelope", source_hash.as_bytes());
     let mut candidates = vec![
         SemanticCandidateDraft {
             candidate_id,
@@ -1059,6 +1224,32 @@ fn common_fixture(content: &str) -> CommonProducts {
             flags: 0,
         }],
         candidates,
+        temporal_envelopes: vec![crate::TemporalEnvelopeDraftV1 {
+            id: temporal_envelope_id,
+            source_time_millis: 1_000,
+            asserted_at_millis: 1_000,
+            occurred_from_millis: 500,
+            occurred_to_millis: 500,
+            observed_at_millis: 1_000,
+            valid_time_from_millis: 500,
+            valid_time_to_millis: i64::MAX,
+            original_text: Arc::from("at the remembered time"),
+            bindings: Arc::from([crate::TemporalEnvelopeBindingDraftV1 {
+                subject_id: candidate_id,
+                evidence_id,
+                subject_kind: phoenix_memory_contract::TemporalSubjectKindV1::SemanticCandidate,
+                role: phoenix_memory_contract::TemporalBindingRoleV1::Primary,
+                flags: 0,
+            }]),
+            timezone_offset_minutes: phoenix_memory_contract::TIMEZONE_OFFSET_UNKNOWN,
+            confidence: 0.95,
+            precision: phoenix_memory_contract::TemporalPrecisionV1::Instant,
+            flags: phoenix_memory_contract::TEMPORAL_FLAG_SOURCE_TIME
+                | phoenix_memory_contract::TEMPORAL_FLAG_ASSERTED_TIME
+                | phoenix_memory_contract::TEMPORAL_FLAG_OCCURRENCE_TIME
+                | phoenix_memory_contract::TEMPORAL_FLAG_OBSERVED_TIME
+                | phoenix_memory_contract::TEMPORAL_FLAG_EXPLICIT_TEXT,
+        }],
     }
 }
 

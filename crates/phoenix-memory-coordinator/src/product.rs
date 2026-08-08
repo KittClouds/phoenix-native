@@ -1,8 +1,11 @@
 use crate::{CommittedTurn, CoordinatorError, IngestDocumentRevision};
 use phoenix_analysis_contract::PhoenixStructuralSubstrateV1;
 use phoenix_memory_contract::{
-    CandidateEndpointRoleV3, CandidateStatus, CanonicalBindingKind, ParticipantRole,
-    ProducerProductV3, SemanticCandidateFamilyV3, VocabularyPackKindV3,
+    CandidateEndpointRoleV3, CandidateStatus, CanonicalBindingKind, ModelSemanticRoleV3,
+    ParticipantRole, ProducerProductV3, SemanticCandidateFamilyV3, TemporalBindingRoleV1,
+    TemporalPrecisionV1, TemporalSubjectKindV1, VocabularyPackKindV3, TEMPORAL_FLAG_ASSERTED_TIME,
+    TEMPORAL_FLAG_EXPLICIT_TEXT, TEMPORAL_FLAG_OBSERVED_TIME, TEMPORAL_FLAG_OCCURRENCE_TIME,
+    TEMPORAL_FLAG_SOURCE_TIME, TIMEZONE_OFFSET_UNKNOWN, TIME_UNKNOWN,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -13,6 +16,8 @@ pub const MAX_CANDIDATES_PER_SOURCE: usize = 1_000_000;
 pub const MAX_EVIDENCE_PER_CANDIDATE: usize = 64;
 pub const MAX_ENDPOINTS_PER_CANDIDATE: usize = 32;
 pub const MAX_VOCABULARY_PACKS: usize = 64;
+pub const MAX_TEMPORAL_ENVELOPES_PER_SOURCE: usize = 250_000;
+pub const MAX_TEMPORAL_BINDINGS_PER_ENVELOPE: usize = 64;
 pub const NO_MODEL_IDENTITY: u32 = u32::MAX;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -22,9 +27,11 @@ pub struct ModelIdentityInputV3 {
     pub artifact_uri: Arc<str>,
     pub artifact_hash: [u8; 32],
     pub config_hash: [u8; 32],
+    pub semantic_role: ModelSemanticRoleV3,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
 pub enum RegistrationSupport {
     Supported,
     Unsupported,
@@ -89,6 +96,33 @@ pub struct SemanticCandidateDraft {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TemporalEnvelopeBindingDraftV1 {
+    pub subject_id: [u8; 32],
+    pub evidence_id: u64,
+    pub subject_kind: TemporalSubjectKindV1,
+    pub role: TemporalBindingRoleV1,
+    pub flags: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TemporalEnvelopeDraftV1 {
+    pub id: [u8; 32],
+    pub source_time_millis: i64,
+    pub asserted_at_millis: i64,
+    pub occurred_from_millis: i64,
+    pub occurred_to_millis: i64,
+    pub observed_at_millis: i64,
+    pub valid_time_from_millis: i64,
+    pub valid_time_to_millis: i64,
+    pub original_text: Arc<str>,
+    pub bindings: Arc<[TemporalEnvelopeBindingDraftV1]>,
+    pub timezone_offset_minutes: i32,
+    pub confidence: f32,
+    pub precision: TemporalPrecisionV1,
+    pub flags: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CandidateEndpointDraft {
     pub endpoint_id: u64,
     pub role: CandidateEndpointRoleV3,
@@ -113,6 +147,7 @@ pub struct CommonProducts {
     pub canonical_bindings: Vec<CanonicalBindingDraft>,
     pub vocabulary_packs: Vec<VocabularyPackDraft>,
     pub candidates: Vec<SemanticCandidateDraft>,
+    pub temporal_envelopes: Vec<TemporalEnvelopeDraftV1>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -182,6 +217,7 @@ pub(crate) fn validate_common_products(
         || products.mentions.len() > MAX_MENTIONS_PER_SOURCE
         || products.candidates.len() > MAX_CANDIDATES_PER_SOURCE
         || products.vocabulary_packs.len() > MAX_VOCABULARY_PACKS
+        || products.temporal_envelopes.len() > MAX_TEMPORAL_ENVELOPES_PER_SOURCE
     {
         return Err(CoordinatorError::Oversized);
     }
@@ -251,6 +287,51 @@ pub(crate) fn validate_common_products(
             || candidate.valid_time_from_millis > candidate.valid_time_to_millis
             || !candidate.confidence.is_finite()
             || candidate.producer_identity_hash == [0; 32]
+        {
+            return Err(CoordinatorError::InvalidCandidate);
+        }
+    }
+    let candidate_ids = products
+        .candidates
+        .iter()
+        .map(|candidate| candidate.candidate_id)
+        .collect::<hashbrown::HashSet<_>>();
+    let evidence_ids = products
+        .mentions
+        .iter()
+        .map(|mention| mention.evidence_id)
+        .collect::<hashbrown::HashSet<_>>();
+    let mut envelope_ids = hashbrown::HashSet::with_capacity(products.temporal_envelopes.len());
+    for envelope in &products.temporal_envelopes {
+        let source_present = envelope.source_time_millis != TIME_UNKNOWN;
+        let asserted_present = envelope.asserted_at_millis != TIME_UNKNOWN;
+        let occurred_from_present = envelope.occurred_from_millis != TIME_UNKNOWN;
+        let occurred_to_present = envelope.occurred_to_millis != TIME_UNKNOWN;
+        let observed_present = envelope.observed_at_millis != TIME_UNKNOWN;
+        let explicit_text = !envelope.original_text.is_empty();
+        if envelope.id == [0; 32]
+            || !envelope_ids.insert(envelope.id)
+            || envelope.bindings.is_empty()
+            || envelope.bindings.len() > MAX_TEMPORAL_BINDINGS_PER_ENVELOPE
+            || !envelope.confidence.is_finite()
+            || !(0.0..=1.0).contains(&envelope.confidence)
+            || envelope.valid_time_from_millis > envelope.valid_time_to_millis
+            || source_present != (envelope.flags & TEMPORAL_FLAG_SOURCE_TIME != 0)
+            || asserted_present != (envelope.flags & TEMPORAL_FLAG_ASSERTED_TIME != 0)
+            || observed_present != (envelope.flags & TEMPORAL_FLAG_OBSERVED_TIME != 0)
+            || !observed_present
+            || occurred_from_present != occurred_to_present
+            || occurred_from_present != (envelope.flags & TEMPORAL_FLAG_OCCURRENCE_TIME != 0)
+            || (occurred_from_present
+                && envelope.occurred_from_millis > envelope.occurred_to_millis)
+            || explicit_text != (envelope.flags & TEMPORAL_FLAG_EXPLICIT_TEXT != 0)
+            || (envelope.timezone_offset_minutes != TIMEZONE_OFFSET_UNKNOWN
+                && !(-1439..=1439).contains(&envelope.timezone_offset_minutes))
+            || envelope.bindings.iter().any(|binding| {
+                binding.subject_kind != TemporalSubjectKindV1::SemanticCandidate
+                    || !candidate_ids.contains(&binding.subject_id)
+                    || !evidence_ids.contains(&binding.evidence_id)
+            })
         {
             return Err(CoordinatorError::InvalidCandidate);
         }

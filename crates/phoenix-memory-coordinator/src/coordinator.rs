@@ -371,6 +371,10 @@ pub(crate) fn validate_registrations(config: &CoordinatorConfig) -> Result<(), C
             || registration
                 .model_identity_index
                 .is_some_and(|index| index as usize >= config.model_identities.len())
+            || registration.model_identity_index.is_some_and(|index| {
+                config.model_identities[index as usize].semantic_role
+                    == phoenix_memory_contract::ModelSemanticRoleV3::DedicatedNliObserver
+            })
             || (crate::authoritative_product(registration.product)
                 && registration.support != crate::RegistrationSupport::Supported)
         {

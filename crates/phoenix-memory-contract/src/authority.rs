@@ -1,5 +1,120 @@
 pub const SOURCE_FLAG_COMPLETE: u16 = 1;
 pub const TIME_UNBOUNDED: i64 = i64::MAX;
+pub const TIME_UNKNOWN: i64 = i64::MIN + 1;
+pub const TIMEZONE_OFFSET_UNKNOWN: i32 = i32::MIN;
+
+pub const TEMPORAL_FLAG_SOURCE_TIME: u32 = 1 << 0;
+pub const TEMPORAL_FLAG_ASSERTED_TIME: u32 = 1 << 1;
+pub const TEMPORAL_FLAG_OCCURRENCE_TIME: u32 = 1 << 2;
+pub const TEMPORAL_FLAG_OBSERVED_TIME: u32 = 1 << 3;
+pub const TEMPORAL_FLAG_EXPLICIT_TEXT: u32 = 1 << 4;
+pub const TEMPORAL_FLAG_NORMALIZED: u32 = 1 << 5;
+pub const TEMPORAL_FLAG_UNCERTAIN: u32 = 1 << 6;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u16)]
+pub enum TemporalPrecisionV1 {
+    Unknown = 1,
+    Instant = 2,
+    Minute = 3,
+    Hour = 4,
+    Day = 5,
+    Month = 6,
+    Year = 7,
+    Interval = 8,
+    Relative = 9,
+    Ordinal = 10,
+}
+
+impl TemporalPrecisionV1 {
+    pub const fn from_raw(raw: u16) -> Option<Self> {
+        match raw {
+            1 => Some(Self::Unknown),
+            2 => Some(Self::Instant),
+            3 => Some(Self::Minute),
+            4 => Some(Self::Hour),
+            5 => Some(Self::Day),
+            6 => Some(Self::Month),
+            7 => Some(Self::Year),
+            8 => Some(Self::Interval),
+            9 => Some(Self::Relative),
+            10 => Some(Self::Ordinal),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u16)]
+pub enum TemporalSubjectKindV1 {
+    SemanticCandidate = 1,
+    Event = 2,
+    Episode = 3,
+    Turn = 4,
+}
+
+impl TemporalSubjectKindV1 {
+    pub const fn from_raw(raw: u16) -> Option<Self> {
+        match raw {
+            1 => Some(Self::SemanticCandidate),
+            2 => Some(Self::Event),
+            3 => Some(Self::Episode),
+            4 => Some(Self::Turn),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u16)]
+pub enum TemporalBindingRoleV1 {
+    Primary = 1,
+    Member = 2,
+    Context = 3,
+}
+
+impl TemporalBindingRoleV1 {
+    pub const fn from_raw(raw: u16) -> Option<Self> {
+        match raw {
+            1 => Some(Self::Primary),
+            2 => Some(Self::Member),
+            3 => Some(Self::Context),
+            _ => None,
+        }
+    }
+}
+
+/// Semantic model duties are explicit. A dedicated NLI observer is not a
+/// fallback for steerable classification, and a steerable classifier is not
+/// silently substituted for the dedicated NLI lane.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u16)]
+pub enum ModelSemanticRoleV3 {
+    SteerableSemanticObserver = 1,
+    DedicatedNliObserver = 2,
+    Other = 3,
+}
+
+impl ModelSemanticRoleV3 {
+    pub const MASK: u32 = 0xff;
+
+    pub const fn from_raw(raw: u16) -> Option<Self> {
+        match raw {
+            1 => Some(Self::SteerableSemanticObserver),
+            2 => Some(Self::DedicatedNliObserver),
+            3 => Some(Self::Other),
+            _ => None,
+        }
+    }
+
+    pub const fn from_flags(flags: u32) -> Option<Self> {
+        Self::from_raw((flags & Self::MASK) as u16)
+    }
+
+    pub const fn flags(self) -> u32 {
+        self as u32
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u16)]

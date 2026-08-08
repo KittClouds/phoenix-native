@@ -364,6 +364,19 @@ fn validate_candidate_capabilities(
                 "producer emitted a product registered as unsupported",
             ));
         }
+        if candidate.model_identity_index.is_some_and(|index| {
+            config
+                .model_identities
+                .get(index as usize)
+                .is_none_or(|model| {
+                    model.semantic_role
+                        != phoenix_memory_contract::ModelSemanticRoleV3::SteerableSemanticObserver
+                })
+        }) {
+            return Err(CoordinatorError::ProducerAuthority(
+                "semantic candidates require the steerable semantic-observer lane",
+            ));
+        }
     }
     Ok(())
 }

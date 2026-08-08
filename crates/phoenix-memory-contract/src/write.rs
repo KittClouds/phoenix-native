@@ -9,10 +9,11 @@ use crate::{
     MentionRecordV3, ModelIdentityRecord, NliAdjudicationRecord, PageDescriptorV3, PageKindV3,
     ParagraphRecord, ProducerCapabilityRecordV3, PublicationReceiptRecord,
     SemanticCandidateRecordV3, SentenceRecord, SpanRecord, StageReceiptRecord,
-    StructuralEdgeRecord, SupersessionRecord, TemporalCandidateRecord, TurnRecord,
+    StructuralEdgeRecord, SupersessionRecord, TemporalCandidateRecord,
+    TemporalEnvelopeBindingRecordV1, TemporalEnvelopeRecordV1, TurnRecord,
     TypedRelationshipCandidateRecord, ValidityIntervalRecord, VerifiedGraphGenerationV3,
     VocabularyPackRecordV3, GRAPH_GENERATION_V3_MAGIC, GRAPH_GENERATION_V3_VERSION,
-    HEADER_FLAG_COMPLETE, MAX_GENERATION_BYTES, PAGE_ALIGNMENT, PAGE_FLAG_REQUIRED,
+    HEADER_FLAG_COMPLETE, MAX_GENERATION_BYTES, PAGE_ALIGNMENT, PAGE_COUNT_V3, PAGE_FLAG_REQUIRED,
 };
 use bytemuck::{bytes_of, cast_slice, Pod, Zeroable};
 use std::fs::{self, OpenOptions};
@@ -70,6 +71,8 @@ pub struct GenerationPagesV3 {
     pub producer_capabilities_v3: Vec<ProducerCapabilityRecordV3>,
     pub vocabulary_packs: Vec<VocabularyPackRecordV3>,
     pub candidate_endpoint_bindings: Vec<CandidateEndpointBindingRecordV3>,
+    pub temporal_envelopes: Vec<TemporalEnvelopeRecordV1>,
+    pub temporal_envelope_bindings: Vec<TemporalEnvelopeBindingRecordV1>,
 }
 
 impl GenerationPagesV3 {
@@ -139,6 +142,10 @@ impl GenerationPagesV3 {
             .sort_unstable_by_key(|record| (record.candidate_id, record.ordinal));
         self.candidate_evidence_bindings
             .sort_unstable_by_key(|record| (record.candidate_id, record.ordinal));
+        self.temporal_envelopes
+            .sort_unstable_by_key(|record| record.id);
+        self.temporal_envelope_bindings
+            .sort_unstable_by_key(|record| (record.envelope_id, record.ordinal));
         let mut endpoint_cursor = 0_usize;
         for candidate in &mut self.semantic_candidates {
             candidate.endpoint_start = endpoint_cursor as u32;
@@ -151,6 +158,19 @@ impl GenerationPagesV3 {
                 endpoint_cursor += 1;
             }
             candidate.endpoint_count = (endpoint_cursor - start) as u32;
+        }
+        let mut temporal_cursor = 0_usize;
+        for envelope in &mut self.temporal_envelopes {
+            envelope.binding_start = temporal_cursor as u32;
+            let start = temporal_cursor;
+            while self
+                .temporal_envelope_bindings
+                .get(temporal_cursor)
+                .is_some_and(|binding| binding.envelope_id == envelope.id)
+            {
+                temporal_cursor += 1;
+            }
+            envelope.binding_count = (temporal_cursor - start) as u32;
         }
         let mut binding_cursor = 0_usize;
         for candidate in &mut self.semantic_candidates {
@@ -173,7 +193,7 @@ impl GenerationPagesV3 {
         // producers must emit canonical grouped order before this writer.
     }
 
-    fn payloads(&self) -> [PagePayload<'_>; 39] {
+    fn payloads(&self) -> [PagePayload<'_>; PAGE_COUNT_V3] {
         [
             PagePayload::bytes(PageKindV3::Strings, &self.strings),
             PagePayload::bytes(PageKindV3::SourceText, &self.source_text),
@@ -231,6 +251,11 @@ impl GenerationPagesV3 {
             PagePayload::records(
                 PageKindV3::CandidateEndpointBindings,
                 &self.candidate_endpoint_bindings,
+            ),
+            PagePayload::records(PageKindV3::TemporalEnvelopes, &self.temporal_envelopes),
+            PagePayload::records(
+                PageKindV3::TemporalEnvelopeBindings,
+                &self.temporal_envelope_bindings,
             ),
         ]
     }
@@ -292,7 +317,7 @@ fn write_generation_file(
     let directory_offset = align_up(header_size, PAGE_ALIGNMENT);
     let directory_len = (size_of::<PageDescriptorV3>() * PageKindV3::ALL.len()) as u64;
     let mut cursor = align_up(directory_offset + directory_len, PAGE_ALIGNMENT);
-    let mut directory = [PageDescriptorV3::zeroed(); 39];
+    let mut directory = [PageDescriptorV3::zeroed(); PAGE_COUNT_V3];
 
     for (index, payload) in payloads.iter().enumerate() {
         if payload.kind != PageKindV3::ALL[index] {

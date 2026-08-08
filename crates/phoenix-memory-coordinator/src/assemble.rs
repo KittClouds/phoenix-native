@@ -13,7 +13,8 @@ use phoenix_memory_contract::{
     EvidenceRole, MentionRecordV3, MixedSourceBuilder, ModelIdentityRecord, ParagraphRecord,
     PreparedMixedSource, ProducerCapabilityRecordV3, ProducerStateV3, PublicationReceiptRecord,
     PublicationStatus, SemanticCandidateRecordV3, SentenceRecord, SourceKind, SpanRecord,
-    StringRef, TurnInput, VocabularyPackRecordV3,
+    StringRef, TemporalEnvelopeBindingRecordV1, TemporalEnvelopeRecordV1, TurnInput,
+    VocabularyPackRecordV3,
 };
 
 pub(crate) fn prepare_generation<P: DualFaceProducer>(
@@ -354,7 +355,7 @@ fn append_models<P: DualFaceProducer>(
             )?,
             artifact_hash: model.artifact_hash,
             config_hash: model.config_hash,
-            flags: 0,
+            flags: model.semantic_role.flags(),
             reserved: 0,
         });
     }
@@ -371,6 +372,7 @@ fn append_common_products<P: DualFaceProducer>(
     let mut entity_sources = HashSet::new();
     let mut evidence_ids = HashSet::new();
     let mut candidate_ids = HashSet::new();
+    let mut temporal_envelope_ids = HashSet::new();
     let mut vocabulary_packs = HashMap::<u64, VocabularyPackDraft>::new();
 
     for stored in documents {
@@ -417,6 +419,7 @@ fn append_common_products<P: DualFaceProducer>(
             &mut entity_sources,
             &mut evidence_ids,
             &mut candidate_ids,
+            &mut temporal_envelope_ids,
             &mut vocabulary_packs,
             prepared,
             state.published_generation.saturating_add(1),
@@ -457,6 +460,7 @@ fn append_common_products<P: DualFaceProducer>(
                 &mut entity_sources,
                 &mut evidence_ids,
                 &mut candidate_ids,
+                &mut temporal_envelope_ids,
                 &mut vocabulary_packs,
                 prepared,
                 state.published_generation.saturating_add(1),
@@ -511,6 +515,7 @@ fn append_source_products(
     entity_sources: &mut HashSet<(u64, u64)>,
     evidence_ids: &mut HashSet<u64>,
     candidate_ids: &mut HashSet<[u8; 32]>,
+    temporal_envelope_ids: &mut HashSet<[u8; 32]>,
     vocabulary_packs: &mut HashMap<u64, VocabularyPackDraft>,
     prepared: &mut PreparedMixedSource,
     system_generation: u64,
@@ -662,6 +667,59 @@ fn append_source_products(
                 family: candidate.family as u16,
                 status: candidate.status as u16,
                 flags: candidate.flags,
+                reserved: [0; 2],
+            });
+    }
+    for envelope in &products.temporal_envelopes {
+        if !temporal_envelope_ids.insert(envelope.id) {
+            return Err(CoordinatorError::InvalidCandidate);
+        }
+        let binding_start = u32::try_from(prepared.pages.temporal_envelope_bindings.len())
+            .map_err(|_| CoordinatorError::Oversized)?;
+        for (ordinal, binding) in envelope.bindings.iter().enumerate() {
+            prepared
+                .pages
+                .temporal_envelope_bindings
+                .push(TemporalEnvelopeBindingRecordV1 {
+                    envelope_id: envelope.id,
+                    subject_id: binding.subject_id,
+                    evidence_id: binding.evidence_id,
+                    ordinal: u32::try_from(ordinal).map_err(|_| CoordinatorError::Oversized)?,
+                    subject_kind: binding.subject_kind as u16,
+                    role: binding.role as u16,
+                    flags: binding.flags,
+                    reserved: 0,
+                });
+        }
+        prepared
+            .pages
+            .temporal_envelopes
+            .push(TemporalEnvelopeRecordV1 {
+                id: envelope.id,
+                source_time_millis: envelope.source_time_millis,
+                asserted_at_millis: envelope.asserted_at_millis,
+                occurred_from_millis: envelope.occurred_from_millis,
+                occurred_to_millis: envelope.occurred_to_millis,
+                observed_at_millis: envelope.observed_at_millis,
+                valid_time_from_millis: envelope.valid_time_from_millis,
+                valid_time_to_millis: envelope.valid_time_to_millis,
+                system_generation_from: system_generation,
+                system_generation_to: u64::MAX,
+                original_text: if envelope.original_text.is_empty() {
+                    StringRef::default()
+                } else {
+                    append_string(
+                        &mut prepared.pages.strings,
+                        envelope.original_text.as_bytes(),
+                    )?
+                },
+                binding_start,
+                binding_count: envelope.bindings.len() as u32,
+                timezone_offset_minutes: envelope.timezone_offset_minutes,
+                confidence_bits: envelope.confidence.to_bits(),
+                precision: envelope.precision as u16,
+                reserved_u16: 0,
+                flags: envelope.flags,
                 reserved: [0; 2],
             });
     }
