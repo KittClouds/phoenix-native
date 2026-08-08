@@ -58,8 +58,8 @@ pub use release_lock::{
     RELEASE_MANIFOLD_COUNT,
 };
 pub use resident_memory::{
-    ResidentMemory, ResidentMemoryError, ResidentMemorySnapshot, ResidentRecallIndexes,
-    VerifiedMemoryPublication,
+    ResidentMemory, ResidentMemoryError, ResidentMemoryRuntimeSnapshotV1, ResidentMemorySnapshot,
+    ResidentRecallIndexes, VerifiedMemoryPublication,
 };
 pub use scene_rebuild::NativeScenePublishCommand;
 use state::*;

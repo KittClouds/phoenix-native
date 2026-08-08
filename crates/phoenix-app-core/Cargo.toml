@@ -20,6 +20,7 @@ phoenix-graph-generation-v2 = { path = "../phoenix-graph-generation-v2" }
 phoenix-hopf-space = { path = "../phoenix-hopf-space" }
 phoenix-memory-contract = { path = "../phoenix-memory-contract" }
 phoenix-memory-coordinator = { path = "../phoenix-memory-coordinator" }
+phoenix-memory-runtime = { path = "../phoenix-memory-runtime" }
 phoenix-scene-archive = { path = "../phoenix-scene-archive" }
 phoenix-scene-compiler = { path = "../phoenix-scene-compiler" }
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }

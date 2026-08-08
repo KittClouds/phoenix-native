@@ -120,6 +120,12 @@ pub struct AtlasMemorySummary {
     pub pending_document_count: u64,
     pub active_scope_hash: [u8; 32],
     pub queue_high_water: u64,
+    pub runtime_registered: bool,
+    pub policy_ledger_sequence: u64,
+    pub current_memory_records: u64,
+    pub active_memory_records: u64,
+    pub recursive_working_nodes: u64,
+    pub recursive_working_edges: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -499,6 +505,12 @@ fn memory_summary(
         pending_document_count: u64::from(resident.pending_document_count),
         active_scope_hash: resident.active_scope.fingerprint(),
         queue_high_water: resident.commands.queue_high_water,
+        runtime_registered: resident.runtime.registered,
+        policy_ledger_sequence: resident.runtime.ledger_sequence,
+        current_memory_records: u64::from(resident.runtime.projected_records),
+        active_memory_records: u64::from(resident.runtime.active_records),
+        recursive_working_nodes: u64::from(resident.runtime.working_nodes),
+        recursive_working_edges: u64::from(resident.runtime.working_edges),
         ..AtlasMemorySummary::default()
     };
     let Some(publication) = resident.publication.as_ref() else {

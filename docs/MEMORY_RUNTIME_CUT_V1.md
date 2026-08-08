@@ -2,8 +2,8 @@
 
 Date: 2026-08-08
 
-Status: implemented and scoped qualification passed; deliberately unregistered
-from the live Phoenix application.
+Status: implemented, registered in `phoenix-app-core`, scoped qualification
+passed, and live restart verified.
 
 ## Delivered pipeline
 
@@ -96,12 +96,27 @@ The complete memory slice currently passes 38 tests across contract,
 coordinator, semantics, and runtime, scoped Clippy with warnings denied, and an
 optimized release build on the isolated target.
 
+## Application registration receipt
+
+- `ResidentMemory` owns one registered policy runtime rooted beside the V3
+  authority store.
+- Every verified V3 generation materializes and verifies its immutable
+  `.phxmemory` projection before becoming the resident publication.
+- The Atlas Control runtime lane reports registration, policy sequence, active
+  current-memory records, and recursive working-set node/edge counts.
+- Live restart used
+  `C:\phoenix-bin\memory-runtime-registered-20260808\phoenix-shell.exe` and
+  restored workspace document 7 plus scene generation 24.
+- The live empty decision ledger produced the expected 176-byte header-only
+  projection for ledger sequence 0. Existing candidate status was not silently
+  promoted into policy memory.
+
 ## Explicit limits
 
-- The runtime is not registered in `phoenix-app-core`.
-- The application was not launched or restarted.
 - Real GLiClass and ModernBERT-NLI inference outputs are not yet connected to
   decision commands.
+- Policy decisions and recursive queries do not yet have mutation controls in
+  the application UI; Atlas Control is read-only for this runtime cut.
 - The recursive working set currently contains active semantic candidates and
   stable entity endpoints. Event, episode, causal, and temporal-envelope nodes
   remain the next graph-widening cut.

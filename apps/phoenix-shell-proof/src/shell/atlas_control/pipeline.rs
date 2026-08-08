@@ -130,9 +130,10 @@ pub(super) fn render(
                     true,
                 ))
                 .child(runtime_lane(
-                    "RESIDENT MEMORY",
+                    "POLICY MEMORY RUNTIME",
                     memory_runtime(control),
-                    control.memory.generation_hash.is_some(),
+                    control.memory.runtime_registered
+                        && control.memory.generation_hash.is_some(),
                 )),
         )
         .when_some(control.last_run.as_ref(), |page, receipt| {
@@ -186,11 +187,14 @@ fn memory_runtime(control: &AtlasControlSnapshot) -> String {
         return "No V3 publication".to_owned();
     }
     format!(
-        "{} notes · {} chats · {} turns · {} proposed",
+        "{} notes | {} chats | {} proposed | policy {} | current {} | graph {}/{}",
         control.memory.document_count,
         control.memory.conversation_count,
-        control.memory.turn_count,
-        control.memory.proposed_candidates
+        control.memory.proposed_candidates,
+        control.memory.policy_ledger_sequence,
+        control.memory.active_memory_records,
+        control.memory.recursive_working_nodes,
+        control.memory.recursive_working_edges,
     )
 }
 

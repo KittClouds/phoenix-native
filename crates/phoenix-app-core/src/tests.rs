@@ -219,6 +219,13 @@ fn kernel_memory_commands_share_one_typed_generation_and_scope(
     assert_eq!(publication.receipt.conversation_count, 1);
     assert_eq!(publication.receipt.turn_count, 1);
     assert_eq!(snapshot.resident_memory.commands.queue_high_water, 1);
+    assert!(snapshot.resident_memory.runtime.registered);
+    assert_eq!(snapshot.resident_memory.runtime.ledger_sequence, 0);
+    assert!(snapshot.resident_memory.runtime.projection_hash.is_some());
+    assert_eq!(snapshot.resident_memory.runtime.projected_records, 0);
+    assert_eq!(snapshot.resident_memory.runtime.active_records, 0);
+    assert_eq!(snapshot.resident_memory.runtime.working_nodes, 0);
+    assert_eq!(snapshot.resident_memory.runtime.working_edges, 0);
     let context_item = &snapshot
         .resident_memory
         .last_context
@@ -247,6 +254,12 @@ fn kernel_memory_commands_share_one_typed_generation_and_scope(
     assert_eq!(atlas.memory.conversation_count, 1);
     assert_eq!(atlas.memory.turn_count, 1);
     assert_eq!(atlas.memory.indexed_items, 1);
+    assert!(atlas.memory.runtime_registered);
+    assert_eq!(atlas.memory.policy_ledger_sequence, 0);
+    assert_eq!(atlas.memory.current_memory_records, 0);
+    assert_eq!(atlas.memory.active_memory_records, 0);
+    assert_eq!(atlas.memory.recursive_working_nodes, 0);
+    assert_eq!(atlas.memory.recursive_working_edges, 0);
     assert!(atlas.memory.supported_producers > 0);
     assert!(atlas.memory.unsupported_producers > 0);
     kernel.shutdown()?;

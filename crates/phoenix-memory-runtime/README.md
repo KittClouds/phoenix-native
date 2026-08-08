@@ -1,8 +1,8 @@
 # Phoenix memory runtime V1
 
-`phoenix-memory-runtime` is the unregistered runtime cut connecting verified V3
-semantic candidates to deterministic memory truth and bounded recursive graph
-reasoning.
+`phoenix-memory-runtime` connects verified V3 semantic candidates to
+deterministic memory truth and bounded recursive graph reasoning. The live
+application registers it through `phoenix-app-core::ResidentMemory`.
 
 ```text
 verified PhoenixGraphGenerationV3
@@ -80,7 +80,9 @@ memory substrate.
 
 ## Registration boundary
 
-This crate is not registered in `phoenix-app-core` and does not change the live
-application. Production wiring waits for larger-corpus projection benchmarks,
-crash/restart qualification, provenance-completeness receipts, and live recall
-integration.
+`phoenix-app-core` opens the append-only policy ledger at startup and
+transactionally materializes a verified projection plus packed working set
+before installing each V3 generation. Atlas Control exposes read-only runtime
+counts. Policy commands, recursive-query UI, larger-corpus projection
+benchmarks, and provenance-complete real-model decision wiring remain separate
+promotion cuts.

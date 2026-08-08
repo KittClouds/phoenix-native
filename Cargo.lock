@@ -5708,6 +5708,7 @@ dependencies = [
  "phoenix-hopf-space",
  "phoenix-memory-contract",
  "phoenix-memory-coordinator",
+ "phoenix-memory-runtime",
  "phoenix-scene-archive",
  "phoenix-scene-compiler",
  "phoenix-scene-contract",

@@ -22,6 +22,11 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
+mod runtime;
+
+use runtime::RegisteredMemoryRuntimeV1;
+pub use runtime::ResidentMemoryRuntimeSnapshotV1;
+
 const NER_SOURCE_MASK: u16 = 1;
 const IDENTITY_PACK_ID: u64 = 0x5048_5849_4445_4e54;
 const CONTEXT_PACK_ID: u64 = 0x5048_5843_4f4e_5458;
@@ -48,12 +53,15 @@ pub struct ResidentMemorySnapshot {
     pub last_context: Option<Arc<ContextPacket>>,
     pub pending_document_count: u32,
     pub commands: CoordinatorMetrics,
+    pub runtime: ResidentMemoryRuntimeSnapshotV1,
 }
 
 #[derive(Debug, Error)]
 pub enum ResidentMemoryError {
     #[error(transparent)]
     Coordinator(#[from] CoordinatorError),
+    #[error(transparent)]
+    Runtime(#[from] phoenix_memory_runtime::MemoryRuntimeError),
     #[error("resident memory lock is poisoned: {0}")]
     Poisoned(&'static str),
     #[error("no exact structural product is registered for this document revision")]
@@ -133,6 +141,7 @@ pub struct ResidentMemory {
     stale_sources: RwLock<hashbrown::HashSet<phoenix_memory_contract::SourceId>>,
     producer: Arc<KernelMemoryProducer>,
     bounded_commands: DualFaceIngestionCoordinator<KernelMemoryProducer>,
+    runtime: RwLock<RegisteredMemoryRuntimeV1>,
 }
 
 impl ResidentMemory {
@@ -168,6 +177,7 @@ impl ResidentMemory {
             .maximum_candidate_pool
             .max(maximum_context_items);
         let bounded_commands = DualFaceIngestionCoordinator::new(config, Arc::clone(&producer))?;
+        let runtime = RegisteredMemoryRuntimeV1::open(root.join("memory-runtime-v1"))?;
         Ok(Self {
             namespace_hash,
             publication: RwLock::new(None),
@@ -180,6 +190,7 @@ impl ResidentMemory {
             stale_sources: RwLock::new(hashbrown::HashSet::new()),
             producer,
             bounded_commands,
+            runtime: RwLock::new(runtime),
         })
     }
 
@@ -281,6 +292,11 @@ impl ResidentMemory {
             )
             .unwrap_or(u32::MAX),
             commands: self.bounded_commands.metrics(),
+            runtime: self
+                .runtime
+                .read()
+                .map_err(|_| ResidentMemoryError::Poisoned("memory runtime"))?
+                .snapshot(),
         })
     }
 
@@ -354,6 +370,10 @@ impl ResidentMemory {
         let graph = Arc::new(
             VerifiedGraphGenerationV3::open(&receipt.path).map_err(CoordinatorError::from)?,
         );
+        self.runtime
+            .write()
+            .map_err(|_| ResidentMemoryError::Poisoned("memory runtime"))?
+            .install_generation(&graph)?;
         let publication = Arc::new(VerifiedMemoryPublication { receipt, graph });
         *self
             .publication
@@ -696,6 +716,9 @@ fn common_products(analysis: &PhoenixDocumentAnalysisV1) -> CommonProducts {
         canonical_bindings,
         vocabulary_packs,
         candidates,
+        // The document lease currently carries revision and content authority,
+        // but no source/asserted/observed clock. Do not fabricate time.
+        temporal_envelopes: Vec::new(),
     }
 }
 
