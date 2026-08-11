@@ -675,7 +675,9 @@ fn rhythm_notice(has_monotony: bool, longest_run: u32) -> impl IntoElement {
             0x382b16,
             0xf0c84e,
             "!  Monotony detected",
-            format!("{longest_run} consecutive sentences have similar length. Break the pattern for variety."),
+            format!(
+                "{longest_run} consecutive sentences have similar length. Break the pattern for variety."
+            ),
         )
     } else {
         (

@@ -71,9 +71,12 @@ pub(crate) fn split(
             == 0,
         collection_cohort_leaks_are_zero: split.audit.collection_cohort_leaks == 0,
         future_time_holdout_is_strict: split.audit.future_time_ordering_violations == 0
-            && split.audit.blind_test_judgments > 0,
+            && split.audit.future_time_holdout_judgments > 0,
         unseen_source_holdout_is_strict: split.audit.source_leaks == 0
-            && split.audit.blind_test_judgments > 0,
+            && split.audit.unseen_source_holdout_judgments > 0,
+        every_major_class_is_represented: split.audit.training_major_classes_missing == 0
+            && split.audit.development_major_classes_missing == 0
+            && split.audit.blind_test_major_classes_missing == 0,
         constitutional_regression_suite_is_frozen: !phase_3.mixed_suite.queries.is_empty()
             && frozen_constitutional > 0,
         longmemeval_release_cohort_is_frozen: !phase_3.longmemeval_release.queries.is_empty()
@@ -122,6 +125,7 @@ struct Phase6Gates {
     collection_cohort_leaks_are_zero: bool,
     future_time_holdout_is_strict: bool,
     unseen_source_holdout_is_strict: bool,
+    every_major_class_is_represented: bool,
     constitutional_regression_suite_is_frozen: bool,
     longmemeval_release_cohort_is_frozen: bool,
     frozen_holdouts_are_never_training: bool,
@@ -142,6 +146,7 @@ impl Phase6Gates {
             && self.collection_cohort_leaks_are_zero
             && self.future_time_holdout_is_strict
             && self.unseen_source_holdout_is_strict
+            && self.every_major_class_is_represented
             && self.constitutional_regression_suite_is_frozen
             && self.longmemeval_release_cohort_is_frozen
             && self.frozen_holdouts_are_never_training
@@ -367,6 +372,7 @@ mod tests {
             collection_cohort_leaks_are_zero: true,
             future_time_holdout_is_strict: true,
             unseen_source_holdout_is_strict: true,
+            every_major_class_is_represented: true,
             constitutional_regression_suite_is_frozen: true,
             longmemeval_release_cohort_is_frozen: true,
             frozen_holdouts_are_never_training: true,

@@ -1,3 +1,4 @@
+mod agent_control;
 mod analytics;
 mod atlas_control;
 mod atlas_entities;
@@ -29,6 +30,7 @@ use phoenix_app_core::GraphProvenanceReceipt;
 use phoenix_app_core::{KernelCommand, KernelOutcome, KernelSnapshot, PhoenixKernel};
 use phoenix_scene_contract::{GraphColorKey, ResidentSceneLoadError};
 use phoenix_workspace::{DocumentLease, EntryId, EntryKind, WorkspaceEntry, ROOT_ID};
+use smallvec::SmallVec;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -48,6 +50,7 @@ const RIGHT_SIDEBAR_INITIAL_WIDTH: f32 = 320.;
 const RIGHT_SIDEBAR_MIN_WIDTH: f32 = 260.;
 const RIGHT_SIDEBAR_MAX_WIDTH: f32 = 480.;
 const FOOTER_WARNING_PULSE: Duration = Duration::from_millis(1_400);
+const KAMMI_UI_EVENT_BATCH: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum EditMode {
@@ -87,6 +90,9 @@ pub struct PhoenixShell {
     graph_color_pickers: Vec<Entity<ColorPickerState>>,
     entity_editor: Option<registry_editor::RegistryEditorState>,
     kammi: kammi::KammiState,
+    _agent_control_runtime: phoenix_agent_control::AgentControlRuntime,
+    agent_control_task: Option<Task<()>>,
+    agent_receipts: agent_control::AgentReceiptJournal,
     edit_mode: EditMode,
     delete_armed: Option<EntryId>,
     left_open: bool,
@@ -163,10 +169,10 @@ impl PhoenixShell {
             .collect::<Vec<_>>();
         let mut kammi = kammi::KammiState::new(window, cx).expect("initialize Kammi state");
         if let Ok(Some(store)) = kammi::store::KammiStoreV1::load(kernel.workspace_path()) {
-            kammi.model = store.settings.model.clone();
-            let model = store.settings.model;
-            kammi.model_input.update(cx, |input, cx| {
-                input.set_value(model, window, cx);
+            kammi.settings = store.settings.normalize();
+            let system_prompt = kammi.settings.system_prompt.clone();
+            kammi.system_prompt_input.update(cx, |input, cx| {
+                input.set_value(system_prompt, window, cx);
             });
             let mut sessions: std::collections::VecDeque<_> = store.sessions.into_iter().collect();
             for session in &mut sessions {
@@ -254,6 +260,12 @@ impl PhoenixShell {
             .unwrap_or_else(|| {
                 drawer::DrawerLayout::new(proof_mode || soak_mode || design_preview)
             });
+        let (agent_control_tx, agent_control_rx) = async_channel::bounded(32);
+        let agent_control_runtime =
+            phoenix_agent_control::spawn_control_runtime(kernel.workspace_path(), agent_control_tx)
+                .expect("start local Phoenix agent control endpoint");
+        let agent_receipts = agent_control::AgentReceiptJournal::open(kernel.workspace_path())
+            .expect("open Phoenix agent idempotency receipts");
         let mut shell = Self {
             kernel,
             editor,
@@ -277,6 +289,9 @@ impl PhoenixShell {
             graph_color_pickers,
             entity_editor: None,
             kammi,
+            _agent_control_runtime: agent_control_runtime,
+            agent_control_task: None,
+            agent_receipts,
             edit_mode: EditMode::CreateNote,
             delete_armed: None,
             left_open: restored_shell_state
@@ -325,6 +340,7 @@ impl PhoenixShell {
             document_metrics,
             status,
         };
+        shell.start_agent_control_loop(agent_control_rx, cx);
         shell.start_kammi_event_loop(cx);
         shell.initialize_highlights(cx);
         if shell.kernel.analysis_runtime_info().configured
@@ -381,12 +397,9 @@ impl PhoenixShell {
     }
 
     fn save_kammi_history(&self) {
-        let settings = kammi::settings::KammiSettings {
-            model: self.kammi.model.clone(),
-        };
         if let Err(error) = kammi::store::KammiStoreV1::save(
             self.kernel.workspace_path(),
-            &settings,
+            &self.kammi.settings,
             &self.kammi.session,
             &self.kammi.history,
         ) {
@@ -398,9 +411,23 @@ impl PhoenixShell {
         let receiver = self.kammi.provider.events().clone();
         self.kammi.provider_task = Some(cx.spawn(async move |shell, async_cx| {
             while let Ok(event) = receiver.recv().await {
+                let mut events = SmallVec::<[kammi::provider::ProviderEvent; 8]>::new();
+                events.push(event);
+                while events.len() < KAMMI_UI_EVENT_BATCH {
+                    match receiver.try_recv() {
+                        Ok(event) => events.push(event),
+                        Err(_) => break,
+                    }
+                }
                 if shell
                     .update(async_cx, |shell, cx| {
-                        shell.apply_kammi_event(event, cx);
+                        let mut changed = false;
+                        for event in events {
+                            changed |= shell.apply_kammi_event(event);
+                        }
+                        if changed {
+                            cx.notify();
+                        }
                     })
                     .is_err()
                 {
@@ -410,19 +437,21 @@ impl PhoenixShell {
         }));
     }
 
-    fn apply_kammi_event(&mut self, event: kammi::provider::ProviderEvent, cx: &mut Context<Self>) {
+    fn apply_kammi_event(&mut self, event: kammi::provider::ProviderEvent) -> bool {
         match event {
             kammi::provider::ProviderEvent::Started { request_id } => {
                 if self.kammi.active_request_id() != Some(request_id) {
-                    return;
+                    return false;
                 }
             }
             kammi::provider::ProviderEvent::Delta { request_id, text } => {
                 if self.kammi.active_request_id() != Some(request_id) {
-                    return;
+                    return false;
                 }
                 if let Some(message) = self.kammi.session.streaming_assistant_mut(request_id) {
                     message.content.push_str(&text);
+                } else {
+                    return false;
                 }
             }
             kammi::provider::ProviderEvent::Finished { request_id } => {
@@ -445,7 +474,7 @@ impl PhoenixShell {
                 self.status = "KAMMI BLOCKED / OPENROUTER PROVIDER UNAVAILABLE".into();
             }
         }
-        cx.notify();
+        true
     }
 
     fn start_graph_host(
@@ -668,7 +697,6 @@ impl PhoenixShell {
                     }
                     self.select_entry(created, cx);
                 }
-                let _ = self.kernel.drain_events();
                 self.status = format!(
                     "COMMITTED / {verb} / KERNEL REVISION {} / SEQUENCE {}",
                     receipt.kernel_revision, receipt.sequence
@@ -721,7 +749,6 @@ impl PhoenixShell {
                 let _ = self.kernel.execute(KernelCommand::SelectEntry(parent));
                 self.reload_editor_from_kernel(cx);
                 self.initialize_highlights(cx);
-                let _ = self.kernel.drain_events();
                 self.delete_armed = None;
                 self.status = format!(
                     "COMMITTED / REMOVED {removed} ITEM(S) / SEQUENCE {}",
@@ -751,7 +778,6 @@ impl PhoenixShell {
         }
         match self.kernel.execute(KernelCommand::SelectEntry(id)) {
             Ok(receipt) => {
-                let _ = self.kernel.drain_events();
                 self.reload_editor_from_kernel(cx);
                 self.initialize_highlights(cx);
                 self.status =
@@ -785,7 +811,6 @@ impl PhoenixShell {
                 }
                 self.editor
                     .update(cx, |editor, cx| editor.mark_embedded_saved(cx));
-                let _ = self.kernel.drain_events();
                 true
             }
             Err(error) => {
@@ -850,7 +875,6 @@ impl PhoenixShell {
                     receipt.sequence
                 )
                 .into();
-                let _ = self.kernel.drain_events();
             }
             Err(error) => {
                 if let Ok(snapshot) = self.kernel.snapshot() {

@@ -31,8 +31,8 @@ impl Default for KammiStoreV1 {
 }
 
 impl KammiStoreV1 {
-    pub fn file_path(workspace_dir: &Path) -> PathBuf {
-        workspace_dir.join(HISTORY_FILE_NAME)
+    pub fn file_path(workspace_path: &Path) -> PathBuf {
+        workspace_path.with_file_name(HISTORY_FILE_NAME)
     }
 
     pub fn load(workspace_dir: &Path) -> Result<Option<Self>> {
@@ -69,7 +69,7 @@ impl KammiStoreV1 {
             anyhow::bail!("Kammi store size exceeds 8MB limit");
         }
 
-        let tmp_path = workspace_dir.join(format!("{HISTORY_FILE_NAME}.tmp"));
+        let tmp_path = pending_path(&path);
         fs::write(&tmp_path, json.as_bytes())
             .with_context(|| format!("write temporary Kammi store to {}", tmp_path.display()))?;
 
@@ -81,6 +81,12 @@ impl KammiStoreV1 {
 
         Ok(())
     }
+}
+
+fn pending_path(path: &Path) -> PathBuf {
+    let mut pending = path.as_os_str().to_os_string();
+    pending.push(format!(".{}.tmp", std::process::id()));
+    PathBuf::from(pending)
 }
 
 fn sessions_for_store(
@@ -125,5 +131,61 @@ mod tests {
                 .collect::<Vec<_>>(),
             [7, 8]
         );
+    }
+
+    #[test]
+    fn store_is_a_sibling_of_the_workspace_manifest() {
+        let workspace = Path::new(r"C:\Users\test\Phoenix\workspace-v1.json");
+
+        assert_eq!(
+            KammiStoreV1::file_path(workspace),
+            Path::new(r"C:\Users\test\Phoenix\workspace-v1.json.kammi-v1.json")
+        );
+    }
+
+    #[test]
+    fn pending_store_is_a_sibling_not_a_child_of_the_workspace_manifest() {
+        let store = Path::new(r"C:\Users\test\Phoenix\workspace-v1.json.kammi-v1.json");
+        let pending = pending_path(store);
+
+        assert_eq!(pending.parent(), store.parent());
+        assert!(pending
+            .file_name()
+            .expect("pending file name")
+            .to_string_lossy()
+            .starts_with("workspace-v1.json.kammi-v1.json."));
+    }
+
+    #[test]
+    fn save_and_load_round_trip_next_to_a_workspace_file() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "phoenix-kammi-store-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("create test directory");
+        let workspace = root.join("workspace-v1.json");
+        fs::write(&workspace, b"{}").expect("write workspace fixture");
+
+        let mut settings = KammiSettings::default();
+        settings
+            .select_or_add_model("google/gemini-3.6-flash")
+            .expect("valid model");
+        settings.reasoning = super::super::settings::ReasoningLevel::High;
+        let active = KammiSession::new(11);
+        let history = VecDeque::new();
+
+        KammiStoreV1::save(&workspace, &settings, &active, &history).expect("save Kammi store");
+        let loaded = KammiStoreV1::load(&workspace)
+            .expect("load Kammi store")
+            .expect("stored payload");
+
+        assert_eq!(loaded.settings, settings);
+        assert_eq!(loaded.selected_session, Some(11));
+        assert_eq!(loaded.sessions.len(), 1);
+        fs::remove_dir_all(root).expect("remove test directory");
     }
 }

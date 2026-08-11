@@ -257,18 +257,38 @@ fn operational_evidence(ledger: &RelevanceLedgerV3) -> OperationalEvidenceGate {
 }
 
 fn hard_negative_groups(ledger: &RelevanceLedgerV3) -> HardNegativeGroupAudit {
+    let judgments_by_identity = ledger
+        .judgments
+        .iter()
+        .map(|judgment| (judgment.identity, judgment))
+        .collect::<HashMap<_, _>>();
     let mut groups = HashMap::<(KeyedIdentity, KeyedIdentity), usize>::new();
     for judgment in ledger.active_model_training_judgments() {
+        let mut root = judgment;
+        while let Some(parent_identity) = root.supersedes {
+            let Some(parent) = judgments_by_identity.get(&parent_identity).copied() else {
+                break;
+            };
+            root = parent;
+        }
         *groups
-            .entry((judgment.query_identity, judgment.positive_document_version))
+            .entry((root.query_identity, root.positive_document_version))
             .or_default() += 1;
     }
+    let reviewed_groups = groups.len();
+    let partial_review_groups = groups
+        .values()
+        .filter(|count| (1..=2).contains(*count))
+        .count();
+    let eligible_groups = groups.values().filter(|count| **count >= 3).count();
     HardNegativeGroupAudit {
-        eligible_groups: groups.len(),
+        eligible_groups,
         groups_with_three_to_five: groups
             .values()
             .filter(|count| (3..=5).contains(*count))
             .count(),
+        reviewed_groups,
+        partial_review_groups,
     }
 }
 
@@ -301,6 +321,8 @@ struct FailureClassCount {
 struct HardNegativeGroupAudit {
     eligible_groups: usize,
     groups_with_three_to_five: usize,
+    reviewed_groups: usize,
+    partial_review_groups: usize,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -433,6 +455,9 @@ struct FrozenCandidate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use phoenix_lexical_qps::{
+        PairwiseJudgmentDraftV3, PairwiseJudgmentV3, SplitGroupProvenanceV3,
+    };
 
     #[test]
     fn target_gate_requires_every_dimension() {
@@ -459,5 +484,154 @@ mod tests {
         assert_eq!(operational.explicit_user_corrections, 0);
         assert!(!operational.post_bootstrap_minimum_met);
         assert!(!operational.included_in_initial_bootstrap_verification);
+    }
+
+    #[test]
+    fn reversed_review_remains_in_the_mined_root_group() {
+        let mut ledger = RelevanceLedgerV3::default();
+        append_review(&mut ledger, 7, 20, 30, 1, false);
+        append_review(&mut ledger, 7, 20, 31, 3, false);
+        append_review(&mut ledger, 7, 20, 32, 5, true);
+
+        let audit = hard_negative_groups(&ledger);
+        assert_eq!(audit.reviewed_groups, 1);
+        assert_eq!(audit.partial_review_groups, 0);
+        assert_eq!(audit.eligible_groups, 1);
+        assert_eq!(audit.groups_with_three_to_five, 1);
+    }
+
+    #[test]
+    fn partial_review_groups_are_reported_but_not_eligible() {
+        let mut ledger = RelevanceLedgerV3::default();
+        append_review(&mut ledger, 7, 20, 30, 1, false);
+        append_review(&mut ledger, 7, 20, 31, 3, false);
+        append_review(&mut ledger, 8, 40, 50, 5, false);
+        append_review(&mut ledger, 8, 40, 51, 7, true);
+        append_review(&mut ledger, 8, 40, 52, 9, false);
+
+        let audit = hard_negative_groups(&ledger);
+        assert_eq!(audit.reviewed_groups, 2);
+        assert_eq!(audit.partial_review_groups, 1);
+        assert_eq!(audit.eligible_groups, 1);
+        assert_eq!(audit.groups_with_three_to_five, 1);
+    }
+
+    fn append_review(
+        ledger: &mut RelevanceLedgerV3,
+        query: u8,
+        positive: u8,
+        negative: u8,
+        generation: u64,
+        reversed: bool,
+    ) {
+        let root = judgment(query, positive, negative, generation, None, false);
+        let root_identity = root.identity;
+        ledger.append(root).expect("append mined root");
+        let review = judgment(
+            query,
+            positive,
+            negative,
+            generation + 1,
+            Some(root_identity),
+            reversed,
+        );
+        ledger.append(review).expect("append reviewed judgment");
+    }
+
+    fn judgment(
+        query: u8,
+        positive: u8,
+        negative: u8,
+        generation: u64,
+        supersedes: Option<phoenix_lexical_qps::JudgmentIdentity>,
+        reversed: bool,
+    ) -> PairwiseJudgmentV3 {
+        let positive_identity = keyed(positive);
+        let negative_identity = keyed(negative);
+        let split_groups = SplitGroupProvenanceV3 {
+            query_family_identity: keyed(query.saturating_add(80)),
+            positive_source_identity: keyed(positive.saturating_add(100)),
+            negative_source_identity: keyed(negative.saturating_add(100)),
+            positive_near_duplicate_cluster_identity: keyed(positive.saturating_add(140)),
+            negative_near_duplicate_cluster_identity: keyed(negative.saturating_add(140)),
+            entity_or_identifier_family_identity: keyed(query.saturating_add(180)),
+            collection_cohort_identity: keyed(query.saturating_add(200)),
+            collected_at_unix_seconds: 1_800_000_000 + generation,
+        };
+        let (preferred, rejected, preferred_position, rejected_position, split_groups) = if reversed
+        {
+            (
+                negative_identity,
+                positive_identity,
+                1,
+                0,
+                reverse_split_groups(split_groups),
+            )
+        } else {
+            (positive_identity, negative_identity, 0, 1, split_groups)
+        };
+        PairwiseJudgmentV3::from_draft(PairwiseJudgmentDraftV3 {
+            workspace_identity: keyed(250),
+            query_identity: keyed(query),
+            positive_document_version: preferred,
+            negative_document_version: rejected,
+            positive_features: evidence(),
+            negative_features: evidence(),
+            positive_tier: RelevanceTier::CompleteExactGroups,
+            negative_tier: RelevanceTier::CompleteExactGroups,
+            candidate_pool: vec![positive_identity, negative_identity].into_boxed_slice(),
+            positive_position: preferred_position,
+            negative_position: rejected_position,
+            split_groups,
+            frozen_holdout: None,
+            v2_model_identity: [1; 32],
+            challenger_model_identity: [2; 32],
+            reason: JudgmentReasonV3::WrongConceptProximity,
+            source: if supersedes.is_some() {
+                JudgmentSourceV3::CuratedRegressionCase
+            } else {
+                JudgmentSourceV3::AutomaticallyMinedNegative
+            },
+            confidence: if supersedes.is_some() { 0.9 } else { 0.5 },
+            weight: if supersedes.is_some() { 1.5 } else { 0.5 },
+            index_generation: generation,
+            supersedes,
+            contradicts: if reversed {
+                supersedes
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice()
+            } else {
+                Box::new([])
+            },
+        })
+    }
+
+    fn evidence() -> RankEvidenceV3 {
+        RankEvidenceV3 {
+            schema_version: 3,
+            query_groups: 1,
+            matched_groups: 1,
+            missing_groups: 0,
+            query_flags: 0,
+            field_count: 1,
+            values: [0.0; 30],
+        }
+    }
+
+    fn keyed(value: u8) -> KeyedIdentity {
+        KeyedIdentity::from_bytes([value; 32])
+    }
+
+    fn reverse_split_groups(groups: SplitGroupProvenanceV3) -> SplitGroupProvenanceV3 {
+        SplitGroupProvenanceV3 {
+            positive_source_identity: groups.negative_source_identity,
+            negative_source_identity: groups.positive_source_identity,
+            positive_near_duplicate_cluster_identity: groups
+                .negative_near_duplicate_cluster_identity,
+            negative_near_duplicate_cluster_identity: groups
+                .positive_near_duplicate_cluster_identity,
+            ..groups
+        }
     }
 }

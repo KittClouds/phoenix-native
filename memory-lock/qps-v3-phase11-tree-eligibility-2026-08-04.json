@@ -1,12 +1,26 @@
 {
-  "contract": "phoenix.memory.qps-v3-phase11-tree-eligibility-lock/v1",
-  "audited_at": "2026-08-04",
-  "disposition": "tree_ineligible_linear_model_remains_required",
+  "contract": "phoenix.memory.qps-v3-phase11-tree-eligibility-lock/v2",
+  "audited_at": "2026-08-08",
+  "disposition": "deferred_linear_unqualified",
   "receipt": {
-    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase11-tree-eligibility-v2-e5a659d.json",
-    "bytes": 1166,
-    "sha256": "f5173d3cba26bc68d7d06c470989737cf11b42a25d6ef770fd93ea37105ff6d1"
+    "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase11-tree-decision-v2-final2-20260808.json",
+    "bytes": 1327,
+    "sha256": "4153737cd31b7b065c6ad22d6844cfbf5909db12a631acf49deaf5d68971d0c3"
   },
+  "inputs": {
+    "phase_5": {
+      "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase5-agent-curated-bootstrap-v7.json",
+      "bytes": 3173,
+      "sha256": "8af35178fe549a51b45a1ff98b9e878dd4e2f7c3a94c60d493422be1ad078d40"
+    },
+    "phase_8": {
+      "path": "C:\\benchmarks\\phoenix-qps-v3-20260804\\phase8-agent-curated-quality-v3.json",
+      "bytes": 5142,
+      "sha256": "b35d8c0e36381f3869996cdd6ef0e67bff6484d829bf30b5a5a2cc4fee33e5fa"
+    },
+    "tree_evidence": null
+  },
+  "reconciled_pairs": 7828,
   "gates": {
     "linear_model_passed_promotion": false,
     "at_least_10000_reconciled_pairs": false,
@@ -14,16 +28,23 @@
     "blind_quality_improves_beyond_linear": false,
     "rank_160_p99_below_15_microseconds": false,
     "artifact_below_256_kib": false,
-    "constitutional_invariants_preserved": false
+    "constitutional_invariants_preserved": false,
+    "evidence_bindings_match": false
   },
   "tree_eligible": false,
   "tree_model_enabled": false,
   "policy_verified": true,
-  "required_machine": "deterministic monotonic linear V3",
+  "active_machine_requirement": "V2 active until deterministic monotonic linear V3 qualifies",
+  "phase_11_scope": "tree eligibility decision only; QPS V3 promotion is not asserted",
   "producer_binary": {
-    "path": "C:\\phoenix-bin\\qps-v3-phase1-20260804\\phoenix-memory-lock.exe",
-    "bytes": 2402816,
-    "sha256": "178e3c55036045f21bd2b3a420fc8d36030bdd684d8ec751cf8ead0db6af4e69"
+    "path": "C:\\phoenix-bin\\qps-v3-phase11-20260808-final2\\phoenix-memory-lock.exe",
+    "bytes": 2495488,
+    "sha256": "57031fc95238367283b2acb87a3b02560538bef50c65a514ca921cb78af1048f"
   },
-  "phase_11_verified": false
+  "phase_11_verified": true,
+  "limits": [
+    "Phase 8 remains unverified, so V3 is not promoted.",
+    "Phase 10 remains unverified and V2 is the reported active engine.",
+    "No tree challenger evidence was supplied and no tree model is enabled."
+  ]
 }

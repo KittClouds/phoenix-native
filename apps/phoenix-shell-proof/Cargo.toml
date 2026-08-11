@@ -20,6 +20,7 @@ gpui-animated-gradient-text = { path = "../../crates/gpui-animated-gradient-text
 graph-model = { path = "../../crates/graph-model" }
 graph-render-wgpu = { path = "../../crates/graph-render-wgpu" }
 phoenix-app-core = { path = "../../crates/phoenix-app-core" }
+phoenix-agent-control = { path = "../../crates/phoenix-agent-control" }
 phoenix-scene-archive = { path = "../../crates/phoenix-scene-archive" }
 phoenix-scene-contract = { path = "../../crates/phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../../crates/phoenix-scene-product-index" }
@@ -31,6 +32,7 @@ pollster.workspace = true
 raw-window-handle.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+smallvec.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 velotype = { path = "../../vendor/velotype" }

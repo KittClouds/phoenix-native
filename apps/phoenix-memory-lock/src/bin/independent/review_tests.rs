@@ -133,7 +133,7 @@ fn application_supersedes_candidate_and_activates_only_review() {
     assert_eq!(publication.appended, 1);
     assert_eq!(publication.active_training_judgments, 1);
     let reviewed: RelevanceLedgerV3 =
-        serde_json::from_slice(&std::fs::read(output_path).unwrap()).unwrap();
+        serde_json::from_slice(&std::fs::read(&output_path).unwrap()).unwrap();
     assert_eq!(reviewed.judgments.len(), 2);
     assert_eq!(
         reviewed.active_model_training_judgments()[0].source,
@@ -143,4 +143,65 @@ fn application_supersedes_candidate_and_activates_only_review() {
         reviewed.active_model_training_judgments()[0].supersedes,
         Some(candidate.identity)
     );
+
+    let repeated_ledger = directory.path().join("reviewed-repeated.json");
+    let repeated_receipt = directory.path().join("receipt-repeated.json");
+    let repeated = apply(
+        &output_path,
+        &decisions_path,
+        &repeated_ledger,
+        &repeated_receipt,
+    )
+    .unwrap();
+    assert_eq!(repeated.submitted, 1);
+    assert_eq!(repeated.appended, 0);
+    assert_eq!(repeated.already_applied, 1);
+    assert_eq!(repeated.revised, 0);
+    let unchanged: RelevanceLedgerV3 =
+        serde_json::from_slice(&std::fs::read(&repeated_ledger).unwrap()).unwrap();
+    assert_eq!(unchanged, reviewed);
+
+    std::fs::write(
+        &decisions_path,
+        serde_json::to_vec(&serde_json::json!({
+            "contract": DECISIONS_CONTRACT,
+            "schema_version": 1,
+            "reviewer_identity": "test-fixture-curator",
+            "reviewed_at_unix_seconds": 2,
+            "attestation": "human_reviewed",
+            "authorization_context": null,
+            "decisions": [{
+                "judgment_identity": hex(candidate.identity.as_bytes()),
+                "verdict": "negative_preferred",
+                "reason": "phrase_order_failure",
+                "source": "curated_regression_case",
+                "confidence": 0.9
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let revised_ledger = directory.path().join("reviewed-revised.json");
+    let revised_receipt = directory.path().join("receipt-revised.json");
+    let revision = apply(
+        &repeated_ledger,
+        &decisions_path,
+        &revised_ledger,
+        &revised_receipt,
+    )
+    .unwrap();
+    assert_eq!(revision.appended, 1);
+    assert_eq!(revision.already_applied, 0);
+    assert_eq!(revision.revised, 1);
+    let revised: RelevanceLedgerV3 =
+        serde_json::from_slice(&std::fs::read(revised_ledger).unwrap()).unwrap();
+    assert_eq!(revised.judgments.len(), 3);
+    let active = revised.active_model_training_judgments();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].positive_document_version, negative);
+    assert_eq!(active[0].negative_document_version, positive);
+    assert_eq!(active[0].supersedes, Some(reviewed.judgments[1].identity));
+    assert!(active[0]
+        .contradicts
+        .contains(&reviewed.judgments[1].identity));
 }

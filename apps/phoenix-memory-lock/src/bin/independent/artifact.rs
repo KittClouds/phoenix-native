@@ -109,6 +109,7 @@ pub(super) struct ReviewItem {
     pub(super) dataset: &'static str,
     pub(super) query_id: String,
     pub(super) query: String,
+    pub(super) reference_answer: String,
     pub(super) positive: ReviewDocument,
     pub(super) negative: ReviewDocument,
     pub(super) positive_v2_position: usize,
@@ -121,4 +122,7 @@ pub(super) struct ReviewDocument {
     pub(super) id: String,
     pub(super) title: String,
     pub(super) text: String,
+    pub(super) collected_at_unix_seconds: u64,
+    pub(super) source_time_label: String,
+    pub(super) reviewer_context: String,
 }

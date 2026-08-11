@@ -276,6 +276,10 @@ impl WorkspaceDocument {
         self.entries.iter().find(|entry| entry.id == id)
     }
 
+    pub fn entries(&self) -> &[WorkspaceEntry] {
+        &self.entries
+    }
+
     pub fn active_entry(&self) -> Option<EntryId> {
         self.active_entry
     }

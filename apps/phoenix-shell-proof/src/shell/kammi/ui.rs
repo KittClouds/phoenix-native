@@ -1,7 +1,9 @@
 use super::{
     provider::{ProviderMessage, ProviderRequest},
     session::{KammiMessage, KammiRole, KammiSession, MessageState, PendingInsertion},
-    settings::{clear_openrouter_key, store_openrouter_key, validate_model_id},
+    settings::{
+        clear_openrouter_key, contains_openrouter_key, store_openrouter_key, validate_model_id,
+    },
     GenerationState, KammiPanel, KammiTab, ProviderStatus, RightSidebarPage,
 };
 use crate::shell::{PhoenixShell, BORDER, CANVAS, SURFACE, TEXT, TEXT_MUTED};
@@ -127,10 +129,10 @@ impl PhoenixShell {
             ProviderStatus::Error { .. } => ("ERROR", 0xee5555),
         };
 
-        let model_label = if self.kammi.model.trim().is_empty() {
+        let model_label = if self.kammi.settings.model.trim().is_empty() {
             "no model set".to_string()
         } else {
-            self.kammi.model.clone()
+            self.kammi.settings.model.clone()
         };
 
         div()
@@ -230,7 +232,8 @@ impl PhoenixShell {
             })
     }
 
-    fn render_kammi_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    #[allow(dead_code)]
+    fn render_kammi_settings_legacy(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let key_status = if self.kammi.has_api_key {
             "API key: CONFIGURED (Stored in Windows Credential Manager)"
         } else {
@@ -394,9 +397,28 @@ impl PhoenixShell {
                     )
                     .child(
                         div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
                             .text_xs()
                             .text_color(rgb(TEXT_MUTED))
-                            .child(format!("{msg_count} messages")),
+                            .child(format!("{msg_count} messages"))
+                            .child(
+                                div()
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_sm()
+                                    .text_color(rgb(0xee8888))
+                                    .hover(|this| this.bg(rgb(0x311818)))
+                                    .child("DELETE")
+                                    .on_mouse_down(
+                                        gpui::MouseButton::Left,
+                                        cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            this.delete_kammi_history_session(s_id, cx);
+                                        }),
+                                    ),
+                            ),
                     )
                     .on_mouse_down(
                         gpui::MouseButton::Left,
@@ -462,6 +484,21 @@ impl PhoenixShell {
                             })),
                     ),
             )
+            .when_some(self.kammi.error_banner.as_ref(), |chat, error| {
+                chat.child(
+                    div()
+                        .mx_3()
+                        .mt_2()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(rgb(0x703333))
+                        .bg(rgb(0x311818))
+                        .text_xs()
+                        .text_color(rgb(0xee8888))
+                        .child(error.clone()),
+                )
+            })
             .child(match self.kammi.tab {
                 KammiTab::Context => self.render_kammi_context_tab(note, cx).into_any_element(),
                 KammiTab::Session => self.render_kammi_session_tab(note, cx).into_any_element(),
@@ -702,7 +739,9 @@ impl PhoenixShell {
                         .child(message.content),
                 )
         } else {
-            let model_tag = message.model.unwrap_or_else(|| self.kammi.model.clone());
+            let model_tag = message
+                .model
+                .unwrap_or_else(|| self.kammi.settings.model.clone());
             let is_streaming = message.state == MessageState::Streaming;
             let is_failed =
                 message.state == MessageState::Failed || message.state == MessageState::Interrupted;
@@ -832,7 +871,17 @@ impl PhoenixShell {
         }
     }
 
-    fn save_kammi_api_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn delete_kammi_history_session(&mut self, session_id: u64, cx: &mut Context<Self>) {
+        self.kammi
+            .history
+            .retain(|session| session.id != session_id);
+        self.save_kammi_history();
+        self.status = "KAMMI / CONVERSATION DELETED".into();
+        cx.notify();
+    }
+
+    #[allow(dead_code)]
+    fn save_kammi_api_key_legacy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let key_text = self.kammi.api_key_input.read(cx).value().trim().to_string();
         if key_text.is_empty() {
             self.kammi.error_banner = Some("API key cannot be empty".to_string());
@@ -855,7 +904,8 @@ impl PhoenixShell {
         cx.notify();
     }
 
-    fn clear_kammi_api_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    #[allow(dead_code)]
+    fn clear_kammi_api_key_legacy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match clear_openrouter_key() {
             Ok(()) => {
                 self.kammi.has_api_key = false;
@@ -871,14 +921,15 @@ impl PhoenixShell {
         cx.notify();
     }
 
-    fn save_kammi_model(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    #[allow(dead_code)]
+    fn save_kammi_model_legacy(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let model_text = self.kammi.model_input.read(cx).value().trim().to_string();
         match validate_model_id(&model_text) {
             Ok(validated) => {
-                self.kammi.model = validated;
+                self.kammi.settings.model = validated;
                 self.kammi.error_banner = None;
                 self.save_kammi_history();
-                self.status = format!("KAMMI / MODEL SET TO {}", self.kammi.model).into();
+                self.status = format!("KAMMI / MODEL SET TO {}", self.kammi.settings.model).into();
             }
             Err(err) => {
                 self.kammi.error_banner = Some(format!("Invalid model ID: {err}"));
@@ -900,7 +951,7 @@ impl PhoenixShell {
             return;
         }
 
-        if self.kammi.model.trim().is_empty() {
+        if self.kammi.settings.model.trim().is_empty() {
             self.kammi.panel = KammiPanel::Settings;
             self.kammi.error_banner =
                 Some("Please set a model ID in Settings (e.g. openai/gpt-4o).".to_string());
@@ -910,6 +961,18 @@ impl PhoenixShell {
 
         let prompt = self.kammi.composer.read(cx).value().trim().to_string();
         if prompt.is_empty() {
+            return;
+        }
+        if contains_openrouter_key(&prompt) {
+            self.kammi
+                .composer
+                .update(cx, |input, cx| input.set_value("", window, cx));
+            self.kammi.panel = KammiPanel::Settings;
+            self.kammi.error_banner = Some(
+                "A credential-looking value was blocked from chat history. Paste API keys only into the protected Connection field."
+                    .to_string(),
+            );
+            cx.notify();
             return;
         }
 
@@ -939,7 +1002,7 @@ impl PhoenixShell {
             id: assistant_req_id,
             role: KammiRole::Assistant,
             content: String::new(),
-            model: Some(self.kammi.model.clone()),
+            model: Some(self.kammi.settings.model.clone()),
             state: MessageState::Streaming,
         });
 
@@ -954,22 +1017,33 @@ impl PhoenixShell {
             });
         }
 
-        let provider_msgs = self
-            .kammi
-            .session
-            .messages
-            .iter()
-            .filter(|m| m.id != assistant_req_id)
-            .map(|m| ProviderMessage {
-                role: m.role,
-                content: m.content.clone(),
-            })
-            .collect();
+        let mut provider_msgs = Vec::with_capacity(
+            self.kammi.session.messages.len()
+                + usize::from(!self.kammi.settings.system_prompt.is_empty()),
+        );
+        if !self.kammi.settings.system_prompt.is_empty() {
+            provider_msgs.push(ProviderMessage {
+                role: KammiRole::System,
+                content: self.kammi.settings.system_prompt.clone(),
+            });
+        }
+        provider_msgs.extend(
+            self.kammi
+                .session
+                .messages
+                .iter()
+                .filter(|message| message.id != assistant_req_id)
+                .map(|message| ProviderMessage {
+                    role: message.role,
+                    content: message.content.clone(),
+                }),
+        );
 
         let req = ProviderRequest {
             request_id: assistant_req_id,
-            model: self.kammi.model.clone(),
+            model: self.kammi.settings.model.clone(),
             messages: provider_msgs,
+            reasoning: self.kammi.settings.reasoning,
         };
 
         self.kammi.generation = GenerationState::Streaming {
@@ -1041,7 +1115,7 @@ impl PhoenixShell {
         let model = msg
             .model
             .clone()
-            .unwrap_or_else(|| self.kammi.model.clone());
+            .unwrap_or_else(|| self.kammi.settings.model.clone());
 
         let result = if let Some(pending) = pending {
             self.editor.update(cx, |editor, cx| {

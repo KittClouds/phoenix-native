@@ -118,8 +118,8 @@ pub(crate) fn generate(inputs: &BuildInputs, outputs: &BuildOutputs) -> Result<P
     write_json_atomic(
         &outputs.review,
         &ReviewPacket {
-            contract: "phoenix.qps.relevance-review-packet/v1",
-            schema_version: 1,
+            contract: "phoenix.qps.relevance-review-packet/v2",
+            schema_version: 2,
             instructions: "Review each pair against the query and emit a separate decisions file; do not edit keyed identities or feature vectors.",
             negative_label_warning: "The positive is human-annotated gold; the same-tier V2 negative remains non-authoritative until explicitly reviewed.",
             items: review_items,
@@ -179,6 +179,7 @@ pub(crate) fn generate(inputs: &BuildInputs, outputs: &BuildOutputs) -> Result<P
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append_review_candidates(
     ledger: &mut RelevanceLedgerV3,
     dataset: &SourceDataset,
@@ -250,6 +251,7 @@ fn append_review_candidates(
                 dataset: dataset.name,
                 query_id: query.id.clone(),
                 query: query.text.clone(),
+                reference_answer: query.reference_answer.clone(),
                 positive: review_document(&prepared.documents[positive.external_id as usize - 1]),
                 negative: review_document(&prepared.documents[negative.external_id as usize - 1]),
                 positive_v2_position: positive_position,
@@ -807,6 +809,9 @@ pub(super) fn review_document(document: &SourceDocument) -> ReviewDocument {
         id: document.id.clone(),
         title: document.title.clone(),
         text: document.text.clone(),
+        collected_at_unix_seconds: document.collected_at,
+        source_time_label: document.source_time_label.clone(),
+        reviewer_context: document.reviewer_context.clone(),
     }
 }
 

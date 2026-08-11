@@ -43,7 +43,6 @@ impl PhoenixShell {
                     receipt.sequence
                 )
                 .into();
-                let _ = self.kernel.drain_events();
             }
             Err(error) => self.status = format!("HIGHLIGHTS BLOCKED / {error}").into(),
         }

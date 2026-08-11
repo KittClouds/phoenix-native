@@ -39,6 +39,7 @@ fn query(kind: QueryKind, text: &str) -> SourceQuery {
     SourceQuery {
         id: "q".to_owned(),
         text: text.to_owned(),
+        reference_answer: String::new(),
         relevant: HashMap::new(),
         family: "f".to_owned(),
         entity_family: "e".to_owned(),

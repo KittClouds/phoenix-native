@@ -1,0 +1,10 @@
+{
+  "contract": "phoenix.qps.review-provenance-revocation/v1",
+  "revoked_receipt_contract": "phoenix.qps.agent-curation-receipt/v1",
+  "revoked_method": "dataset-gold-positive versus frozen same-tier V2 candidate; structural, identity, and primitive-evidence checks; no blind or release labels",
+  "artifact_scope": "C:\\benchmarks\\phoenix-qps-v3-20260804\\*agent-curated*",
+  "reason": "The removed curate-benchmark command performed structural validation but no semantic pair review, then labeled every mined pair positive_preferred and CuratedRegressionCase. Its outputs are diagnostic only and are forbidden as authoritative Phase 5, 7, 8, 10, or 11 promotion evidence.",
+  "replacement_path": "phoenix-v3-independent-data apply-reviews with explicit per-pair semantic decisions",
+  "v3_promotion_effect": "V2 active; Phase 8 and Phase 10 remain unverified",
+  "revoked": true
+}

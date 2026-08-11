@@ -248,6 +248,8 @@ mod tests {
             text: format!("evidence for {id}"),
             source_family: source_family.to_owned(),
             collected_at: 1,
+            source_time_label: String::new(),
+            reviewer_context: String::new(),
         }
     }
 
@@ -255,6 +257,7 @@ mod tests {
         SourceQuery {
             id: id.to_owned(),
             text: format!("query {id}"),
+            reference_answer: String::new(),
             relevant: [(relevant.to_owned(), 4)].into_iter().collect(),
             family: id.to_owned(),
             entity_family: id.to_owned(),

@@ -13,12 +13,15 @@ pub(crate) struct SourceDocument {
     pub text: String,
     pub source_family: String,
     pub collected_at: u64,
+    pub source_time_label: String,
+    pub reviewer_context: String,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct SourceQuery {
     pub id: String,
     pub text: String,
+    pub reference_answer: String,
     pub relevant: HashMap<String, u8>,
     pub family: String,
     pub entity_family: String,
@@ -78,6 +81,8 @@ pub(crate) fn load_beir(
             title: document.title,
             text: document.text,
             collected_at,
+            source_time_label: String::new(),
+            reviewer_context: String::new(),
         })
         .collect::<Vec<_>>();
     let raw_queries = read_jsonl::<BeirQuery>(&root.join("queries.jsonl"))?;
@@ -92,6 +97,7 @@ pub(crate) fn load_beir(
                 collection_cohort: format!("{name}:{qrels_split}:annotation:{}", query.id),
                 id: query.id,
                 text: query.text,
+                reference_answer: String::new(),
                 relevant,
                 collected_at,
                 kind,
@@ -124,12 +130,15 @@ pub(crate) fn load_locomo(path: &Path, scenes: std::ops::Range<usize>) -> Result
             for turn in session.turns {
                 evidence_time.insert(turn.dia_id.clone(), timestamp);
                 known_evidence.insert(turn.dia_id.clone());
+                let reviewer_context = turn.reviewer_context();
                 documents.push(SourceDocument {
                     id: format!("{}:{}", sample.sample_id, turn.dia_id),
                     title: turn.speaker,
                     text: turn.text,
                     source_family: format!("locomo:{}:conversation", sample.sample_id),
                     collected_at: timestamp,
+                    source_time_label: session.time_label.clone(),
+                    reviewer_context,
                 });
             }
         }
@@ -149,6 +158,7 @@ pub(crate) fn load_locomo(path: &Path, scenes: std::ops::Range<usize>) -> Result
                 .filter_map(|id| evidence_time.get(id).copied())
                 .max()
                 .unwrap_or_else(|| locomo_timestamp(scene, 1));
+            let reference_answer = qa.reference_answer();
             queries.push(SourceQuery {
                 id: format!("{}:qa:{qa_index}", sample.sample_id),
                 family: format!(
@@ -163,6 +173,7 @@ pub(crate) fn load_locomo(path: &Path, scenes: std::ops::Range<usize>) -> Result
                 ),
                 collection_cohort: format!("locomo:{}:evidence-day:{timestamp}", sample.sample_id),
                 text: qa.question,
+                reference_answer,
                 relevant,
                 collected_at: timestamp,
                 kind: QueryKind::Conversation {
@@ -327,8 +338,33 @@ struct LocomoSample {
 #[derive(Deserialize)]
 struct LocomoQa {
     question: String,
+    #[serde(default)]
+    answer: serde_json::Value,
+    #[serde(default)]
+    adversarial_answer: serde_json::Value,
     evidence: Vec<String>,
     category: u8,
+}
+
+impl LocomoQa {
+    fn reference_answer(&self) -> String {
+        let value = if self.answer.is_null() {
+            self.adversarial_answer.clone()
+        } else {
+            self.answer.clone()
+        };
+        render_reference_answer(value)
+    }
+}
+
+fn render_reference_answer(value: serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(value) => value,
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        serde_json::Value::Null => String::new(),
+        value => serde_json::to_string(&value).unwrap_or_default(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -339,20 +375,41 @@ struct LocomoConversation {
 
 struct LocomoSession {
     number: usize,
+    time_label: String,
     turns: Vec<LocomoTurn>,
 }
 
 impl LocomoConversation {
     fn sessions(self) -> Vec<LocomoSession> {
-        let mut sessions = self
-            .values
-            .into_iter()
-            .filter_map(|(name, value)| {
-                let number = name.strip_prefix("session_")?.parse::<usize>().ok()?;
-                let turns = serde_json::from_value::<Vec<LocomoTurn>>(value).ok()?;
-                Some(LocomoSession { number, turns })
-            })
-            .collect::<Vec<_>>();
+        let mut labels = HashMap::<usize, String>::new();
+        let mut sessions = Vec::new();
+        for (name, value) in self.values {
+            let Some(suffix) = name.strip_prefix("session_") else {
+                continue;
+            };
+            if let Some(number) = suffix
+                .strip_suffix("_date_time")
+                .and_then(|value| value.parse::<usize>().ok())
+            {
+                if let Some(label) = value.as_str() {
+                    labels.insert(number, label.to_owned());
+                }
+                continue;
+            }
+            let Some(number) = suffix.parse::<usize>().ok() else {
+                continue;
+            };
+            if let Ok(turns) = serde_json::from_value::<Vec<LocomoTurn>>(value) {
+                sessions.push(LocomoSession {
+                    number,
+                    time_label: String::new(),
+                    turns,
+                });
+            }
+        }
+        for session in &mut sessions {
+            session.time_label = labels.remove(&session.number).unwrap_or_default();
+        }
         sessions.sort_unstable_by_key(|session| session.number);
         sessions
     }
@@ -363,6 +420,24 @@ struct LocomoTurn {
     speaker: String,
     dia_id: String,
     text: String,
+    #[serde(default)]
+    blip_caption: String,
+    #[serde(default)]
+    query: String,
+}
+
+impl LocomoTurn {
+    fn reviewer_context(&self) -> String {
+        match (self.blip_caption.is_empty(), self.query.is_empty()) {
+            (true, true) => String::new(),
+            (false, true) => format!("image caption: {}", self.blip_caption),
+            (true, false) => format!("image query: {}", self.query),
+            (false, false) => format!(
+                "image caption: {}; image query: {}",
+                self.blip_caption, self.query
+            ),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -381,6 +456,55 @@ mod tests {
     fn session_order_becomes_strict_time_order() {
         assert!(locomo_timestamp(2, 8) > locomo_timestamp(2, 7));
         assert!(locomo_timestamp(3, 1) > locomo_timestamp(2, 1));
+    }
+
+    #[test]
+    fn session_preserves_official_time_label_for_semantic_review() {
+        let conversation: LocomoConversation = serde_json::from_value(serde_json::json!({
+            "speaker_a": "A",
+            "session_1_date_time": "1:56 pm on 8 May, 2023",
+            "session_1": [{"speaker": "A", "dia_id": "D1:1", "text": "hello"}]
+        }))
+        .unwrap();
+        let sessions = conversation.sessions();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].time_label, "1:56 pm on 8 May, 2023");
+    }
+
+    #[test]
+    fn reference_answer_accepts_numeric_and_adversarial_forms() {
+        let numeric: LocomoQa = serde_json::from_value(serde_json::json!({
+            "question": "when",
+            "answer": 2022,
+            "evidence": ["D1:1"],
+            "category": 1
+        }))
+        .unwrap();
+        let adversarial: LocomoQa = serde_json::from_value(serde_json::json!({
+            "question": "why",
+            "adversarial_answer": "because",
+            "evidence": ["D1:1"],
+            "category": 1
+        }))
+        .unwrap();
+        assert_eq!(numeric.reference_answer(), "2022");
+        assert_eq!(adversarial.reference_answer(), "because");
+    }
+
+    #[test]
+    fn image_caption_is_preserved_only_as_reviewer_context() {
+        let turn: LocomoTurn = serde_json::from_value(serde_json::json!({
+            "speaker": "Melanie",
+            "dia_id": "D1:12",
+            "text": "take a look",
+            "blip_caption": "a painting of a sunset over a lake",
+            "query": "painting sunrise"
+        }))
+        .unwrap();
+        assert_eq!(
+            turn.reviewer_context(),
+            "image caption: a painting of a sunset over a lake; image query: painting sunrise"
+        );
     }
 
     #[test]
@@ -425,6 +549,8 @@ mod tests {
             text: text.to_owned(),
             source_family: id.to_owned(),
             collected_at: 1,
+            source_time_label: String::new(),
+            reviewer_context: String::new(),
         }
     }
 
@@ -432,6 +558,7 @@ mod tests {
         SourceQuery {
             id: id.to_owned(),
             text: id.to_owned(),
+            reference_answer: String::new(),
             relevant: [(relevant.to_owned(), 4)].into_iter().collect(),
             family: id.to_owned(),
             entity_family: id.to_owned(),

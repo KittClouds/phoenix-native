@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
 
 use phoenix_lexical_qps::{
-    JudgmentReasonV3, LeakageSplitV3, LinearRankerV3, PrimarySplitV3, RankEvidenceV3,
-    RelevanceLedgerV3, RelevanceTier,
+    leakage_split_identity_v3, JudgmentReasonV3, LeakageSplitV3, LinearRankerV3, PrimarySplitV3,
+    RankEvidenceV3, RelevanceLedgerV3, RelevanceTier,
 };
 
-use super::train::LinearModelArtifactV3;
+use super::train::{decode_hex_32, LinearModelArtifactV3};
 use super::*;
 
 const CONTRACT: &str = "phoenix.memory.qps-v3-quality-qualification/v1";
@@ -38,6 +38,13 @@ pub(crate) fn qualify(
         || !phase_4.phase_4_verified
     {
         bail!("Phase 8 requires a verified Phase 4 ledger");
+    }
+    let ledger_identity = decode_hex_32(&sha256_bytes(&serde_json::to_vec(&phase_4.ledger)?))?;
+    if model.training_ledger_identity != ledger_identity
+        || model.training_receipt.leakage_split_identity
+            != leakage_split_identity_v3(&phase_6.split)
+    {
+        bail!("Phase 8 model is not bound to the supplied Phase 4 ledger and Phase 6 split");
     }
     let phase_3: FrozenPhase3 = read_json(phase_3_path, "Phase 3 receipt")?;
     if phase_3.contract != "phoenix.memory.qps-v3-constitutional-tiers/v1"
@@ -487,7 +494,7 @@ impl MetricAccumulator {
     }
 }
 
-fn all_reasons() -> [JudgmentReasonV3; 12] {
+fn all_reasons() -> [JudgmentReasonV3; 11] {
     [
         JudgmentReasonV3::PartialMatchSaturation,
         JudgmentReasonV3::ScatteredTerms,
@@ -500,7 +507,6 @@ fn all_reasons() -> [JudgmentReasonV3; 12] {
         JudgmentReasonV3::WrongConceptProximity,
         JudgmentReasonV3::DocumentConversationConfusion,
         JudgmentReasonV3::LongQueryFailure,
-        JudgmentReasonV3::RealUserCorrection,
     ]
 }
 

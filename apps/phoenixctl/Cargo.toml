@@ -1,0 +1,12 @@
+[package]
+name = "phoenixctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+phoenix-agent-control = { path = "../../crates/phoenix-agent-control" }
+phoenix-workspace = { path = "../../crates/phoenix-workspace" }
+serde_json.workspace = true

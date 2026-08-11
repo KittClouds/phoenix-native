@@ -31,6 +31,19 @@ pub struct AgentBlockDraft {
     pub text: SharedString,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentBlockSnapshot {
+    pub block_id: Uuid,
+    pub kind: BlockKind,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentDocumentSnapshot {
+    pub editor_revision: u64,
+    pub blocks: Vec<AgentBlockSnapshot>,
+}
+
 impl AgentBlockDraft {
     pub fn paragraph(text: impl Into<SharedString>) -> Self {
         Self {
@@ -98,6 +111,43 @@ pub enum AgentCommandError {
 }
 
 impl Editor {
+    pub fn agent_document_snapshot(&self, cx: &gpui::App) -> AgentDocumentSnapshot {
+        let blocks = self
+            .document
+            .visible_blocks()
+            .iter()
+            .map(|visible| {
+                let block = visible.entity.read(cx);
+                AgentBlockSnapshot {
+                    block_id: block.record.id,
+                    kind: block.kind(),
+                    text: block.display_text().to_string(),
+                }
+            })
+            .collect();
+        AgentDocumentSnapshot {
+            editor_revision: self.document_revision,
+            blocks,
+        }
+    }
+
+    pub fn agent_anchor_after_block(
+        &self,
+        block_id: Uuid,
+        cx: &gpui::App,
+    ) -> Result<AgentAnchor, AgentCommandError> {
+        let block = self
+            .document
+            .block_entity_by_uuid(block_id)
+            .ok_or(AgentCommandError::AnchorMissing(block_id))?;
+        let block = block.read(cx);
+        Ok(AgentAnchor {
+            editor_revision: self.document_revision,
+            block_id,
+            byte_offset: block.display_text().len(),
+        })
+    }
+
     /// Development-only caret entry point used by host shells before a model
     /// runtime exists. The resulting operation is indistinguishable from one
     /// submitted by a future provider at the editor boundary.

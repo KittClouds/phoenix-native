@@ -2,14 +2,20 @@
 mod artifact;
 #[path = "independent/build.rs"]
 mod build;
-#[path = "independent/curate.rs"]
-mod curate;
+#[path = "independent/finalize.rs"]
+mod finalize;
 #[path = "independent/fuzzy.rs"]
 mod fuzzy;
+#[path = "independent/merge.rs"]
+mod merge;
 #[path = "independent/partition.rs"]
 mod partition;
 #[path = "independent/review.rs"]
 mod review;
+#[path = "independent/review_batch.rs"]
+mod review_batch;
+#[path = "independent/review_bundle.rs"]
+mod review_bundle;
 #[path = "independent/source.rs"]
 mod source;
 
@@ -59,18 +65,76 @@ fn run() -> Result<()> {
             )?;
             println!("{}", serde_json::to_string_pretty(&publication)?);
         }
-        "curate-benchmark" => {
-            let publication = curate::curate(
-                &args.required_path("--ledger")?,
-                &args.required_path("--review-packet")?,
-                &args.required_path("--generation-receipt")?,
-                args.required("--authorization-context")?,
-                args.required("--reviewer-identity")?,
-                args.required("--reviewed-at")?
-                    .parse::<u64>()
-                    .context("--reviewed-at must be a Unix timestamp")?,
-                &args.required_path("--decisions-output")?,
+        "finalize-audited-decisions" => {
+            let publication = finalize::finalize(
+                &args.required_path("--decision-cut-a")?,
+                &args.required_path("--decision-cut-b")?,
+                &args.required_path("--audit-a")?,
+                &args.required_path("--audit-b")?,
+                &args.required_path("--audit-c")?,
+                &args.required_path("--output")?,
                 &args.required_path("--receipt-output")?,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&publication)?);
+        }
+        "merge-agent-decisions" => {
+            let publication = merge::merge(
+                &args.required_path("--cuts-root")?,
+                &args.required_path("--packet")?,
+                &args.required_path("--output")?,
+                &args.required_path("--receipt-output")?,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&publication)?);
+        }
+        "prepare-review-batch" => {
+            let publication = review_batch::prepare(
+                &args.required_path("--review-packet")?,
+                &args.required_path("--locomo")?,
+                args.optional_path("--exclude-batch").as_deref(),
+                args.required("--limit")?
+                    .parse::<usize>()
+                    .context("--limit must be a positive integer")?,
+                &args.required_path("--output")?,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&publication)?);
+        }
+        "audit-review-batch" => {
+            let publication = review_batch::audit(
+                &args.required_path("--batch")?,
+                &args.required_path("--output")?,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&publication)?);
+        }
+        "prepare-review-bundles" => {
+            let publication = review_bundle::prepare(
+                &args.required_path("--review-packet")?,
+                &args.required_path("--locomo")?,
+                args.optional_path("--exclude-batch").as_deref(),
+                &args.required_path("--phase-5")?,
+                args.required("--limit")?
+                    .parse::<usize>()
+                    .context("--limit must be a positive integer")?,
+                &args.required_path("--output")?,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&publication)?);
+        }
+        "prepare-confirmation-bundles" => {
+            let publication = review_bundle::prepare_confirmation(
+                &args.required_path("--review-packet")?,
+                &args.required_path("--locomo")?,
+                &args.required_path("--exclude-batch")?,
+                &args.required_path("--phase-5")?,
+                args.required("--limit")?
+                    .parse::<usize>()
+                    .context("--limit must be a positive integer")?,
+                &args.required_path("--output")?,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&publication)?);
+        }
+        "audit-review-bundles" => {
+            let publication = review_bundle::audit(
+                &args.required_path("--batch")?,
+                &args.required_path("--output")?,
             )?;
             println!("{}", serde_json::to_string_pretty(&publication)?);
         }
@@ -80,7 +144,7 @@ fn run() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&partitions.audit())?);
         }
         _ => bail!(
-            "expected `generate`, `curate-benchmark`, `apply-reviews`, or `audit-locomo-partitions`"
+            "expected `generate`, `prepare-review-batch`, `audit-review-batch`, `prepare-review-bundles`, `prepare-confirmation-bundles`, `audit-review-bundles`, `apply-reviews`, `finalize-audited-decisions`, `merge-agent-decisions`, or `audit-locomo-partitions`"
         ),
     }
     Ok(())
@@ -119,5 +183,11 @@ impl Args {
             .iter()
             .find_map(|(candidate, value)| (candidate == name).then_some(value.as_str()))
             .with_context(|| format!("missing {name}"))
+    }
+
+    fn optional_path(&self, name: &str) -> Option<PathBuf> {
+        self.0
+            .iter()
+            .find_map(|(candidate, value)| (candidate == name).then(|| PathBuf::from(value)))
     }
 }

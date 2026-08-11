@@ -81,7 +81,6 @@ impl PhoenixShell {
                     receipt.sequence
                 )
                 .into();
-                let _ = self.kernel.drain_events();
             }
             Err(error) => {
                 if let Ok(snapshot) = self.kernel.snapshot() {

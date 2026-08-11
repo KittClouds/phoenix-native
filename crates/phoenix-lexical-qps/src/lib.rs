@@ -36,9 +36,9 @@ pub use ranker::{
     RankFeatureVector, RankerTrainingConfig, RankerTrainingReceipt, RANK_FEATURE_COUNT,
 };
 pub use ranker_v3::{
-    rank_evidence_schema_identity_v3, train_linear_ranker_v3, FeatureNormalizationV3,
-    LinearRankerV3, LinearTrainingConfigV3, LinearTrainingReceiptV3, LINEAR_RANKER_V3_VERSION,
-    RANK_EVIDENCE_V3_SCHEMA_IDENTITY,
+    leakage_split_identity_v3, rank_evidence_schema_identity_v3, train_linear_ranker_v3,
+    FeatureNormalizationV3, LinearRankerV3, LinearTrainingConfigV3, LinearTrainingReceiptV3,
+    LINEAR_RANKER_V3_VERSION, RANK_EVIDENCE_V3_SCHEMA_IDENTITY,
 };
 pub use split_v3::{
     JudgmentSplitV3, LeakageSplitAuditV3, LeakageSplitV3, PrimarySplitV3,

@@ -292,10 +292,11 @@ fn run() -> Result<()> {
             print_json(&receipt)
         }
         "qps-v3-audit-tree-eligibility" => {
-            let phase_8 = args.optional("--phase-8").map(PathBuf::from);
+            let tree_evidence = args.optional("--tree-evidence").map(PathBuf::from);
             let receipt = qps_v3::audit_tree_eligibility(
                 &args.required_path("--phase-5")?,
-                phase_8.as_deref(),
+                &args.required_path("--phase-8")?,
+                tree_evidence.as_deref(),
                 &args.required_path("--output")?,
             )?;
             print_json(&receipt)

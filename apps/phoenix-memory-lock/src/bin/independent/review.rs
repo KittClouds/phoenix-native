@@ -3,10 +3,10 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 use phoenix_lexical_qps::{
-    JudgmentReasonV3, JudgmentSourceV3, PairwiseJudgmentDraftV3, PairwiseJudgmentV3,
-    RelevanceLedgerV3, SplitGroupProvenanceV3,
+    JudgmentIdentity, JudgmentReasonV3, JudgmentSourceV3, PairwiseJudgmentDraftV3,
+    PairwiseJudgmentV3, RelevanceLedgerV3, SplitGroupProvenanceV3,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -30,11 +30,22 @@ pub(crate) fn apply(
     let decisions: ReviewDecisions = read_json(decisions_path, "review decisions")?;
     decisions.validate()?;
 
-    let already_superseded = ledger
+    let source_indices = ledger
         .judgments
         .iter()
-        .filter_map(|judgment| judgment.supersedes)
-        .collect::<HashSet<_>>();
+        .enumerate()
+        .map(|(index, judgment)| (hex(judgment.identity.as_bytes()), index))
+        .collect::<HashMap<_, _>>();
+    let mut root_by_identity = HashMap::with_capacity(ledger.judgments.len());
+    let mut owner_by_root = HashMap::with_capacity(ledger.judgments.len());
+    for (index, judgment) in ledger.judgments.iter().enumerate() {
+        let root = judgment
+            .supersedes
+            .and_then(|parent| root_by_identity.get(&parent).copied())
+            .unwrap_or(judgment.identity);
+        root_by_identity.insert(judgment.identity, root);
+        owner_by_root.insert(root, index);
+    }
     let mut next_generation = ledger
         .judgments
         .iter()
@@ -44,14 +55,15 @@ pub(crate) fn apply(
         .checked_add(1)
         .context("ledger generation exhausted")?;
     let mut appended = 0_usize;
+    let mut already_applied = 0_usize;
+    let mut revised = 0_usize;
     let mut positive_confirmed = 0_usize;
     let mut preference_reversed = 0_usize;
     let mut reviewed_rows = Vec::with_capacity(decisions.decisions.len());
     for decision in &decisions.decisions {
-        let source_index = ledger
-            .judgments
-            .iter()
-            .position(|judgment| hex(judgment.identity.as_bytes()) == decision.judgment_identity)
+        let source_index = source_indices
+            .get(&decision.judgment_identity)
+            .copied()
             .with_context(|| {
                 format!(
                     "review references unknown judgment {}",
@@ -59,20 +71,45 @@ pub(crate) fn apply(
                 )
             })?;
         let source = ledger.judgments[source_index].clone();
-        if source.source != JudgmentSourceV3::AutomaticallyMinedNegative
-            || already_superseded.contains(&source.identity)
-        {
+        if source.source != JudgmentSourceV3::AutomaticallyMinedNegative {
             bail!(
-                "review {} is not an active mined-negative candidate",
+                "review {} does not reference a mined-negative root",
                 decision.judgment_identity
             );
         }
+        let owner_index = owner_by_root
+            .get(&source.identity)
+            .copied()
+            .context("review lineage owner is missing")?;
+        let owner = &ledger.judgments[owner_index];
         let reversed = decision.verdict == ReviewVerdict::NegativePreferred;
+        if owner.identity != source.identity {
+            if review_matches(&source, owner, decision, reversed)? {
+                already_applied += 1;
+                continue;
+            }
+            revised += 1;
+        }
+        let supersedes = if owner.identity == source.identity {
+            source.identity
+        } else {
+            owner.identity
+        };
+        let contradicts =
+            if owner.identity != source.identity && review_direction(&source, owner)? != reversed {
+                vec![owner.identity].into_boxed_slice()
+            } else if owner.identity == source.identity && reversed {
+                vec![source.identity].into_boxed_slice()
+            } else {
+                Box::new([])
+            };
         let reviewed = PairwiseJudgmentV3::from_draft(reviewed_draft(
             &source,
             decision,
             next_generation,
             reversed,
+            supersedes,
+            contradicts,
         ));
         reviewed_rows.push(reviewed);
         next_generation = next_generation
@@ -97,7 +134,10 @@ pub(crate) fn apply(
         reviewed_at_unix_seconds: decisions.reviewed_at_unix_seconds,
         attestation: decisions.attestation,
         authorization_context: decisions.authorization_context,
+        submitted: decisions.decisions.len(),
         appended,
+        already_applied,
+        revised,
         positive_confirmed,
         preference_reversed,
         active_training_judgments: ledger.active_model_training_indices().len(),
@@ -110,9 +150,38 @@ pub(crate) fn apply(
         contract: RECEIPT_CONTRACT,
         ledger: file_identity(output_path)?,
         receipt: file_identity(receipt_path)?,
+        submitted: decisions.decisions.len(),
         appended,
+        already_applied,
+        revised,
         active_training_judgments: receipt.active_training_judgments,
     })
+}
+
+fn review_matches(
+    source: &PairwiseJudgmentV3,
+    owner: &PairwiseJudgmentV3,
+    decision: &ReviewDecision,
+    reversed: bool,
+) -> Result<bool> {
+    Ok(review_direction(source, owner)? == reversed
+        && owner.reason == decision.reason
+        && owner.source == decision.source
+        && owner.confidence == decision.confidence)
+}
+
+fn review_direction(source: &PairwiseJudgmentV3, reviewed: &PairwiseJudgmentV3) -> Result<bool> {
+    if reviewed.positive_document_version == source.positive_document_version
+        && reviewed.negative_document_version == source.negative_document_version
+    {
+        Ok(false)
+    } else if reviewed.positive_document_version == source.negative_document_version
+        && reviewed.negative_document_version == source.positive_document_version
+    {
+        Ok(true)
+    } else {
+        bail!("active review lineage changed the candidate pair")
+    }
 }
 
 fn reviewed_draft(
@@ -120,6 +189,8 @@ fn reviewed_draft(
     decision: &ReviewDecision,
     generation: u64,
     reversed: bool,
+    supersedes: JudgmentIdentity,
+    contradicts: Box<[JudgmentIdentity]>,
 ) -> PairwiseJudgmentDraftV3 {
     let (positive_document_version, negative_document_version) = if reversed {
         (
@@ -172,12 +243,8 @@ fn reviewed_draft(
         confidence: decision.confidence,
         weight: source_weight(decision.source),
         index_generation: generation,
-        supersedes: Some(source.identity),
-        contradicts: if reversed {
-            vec![source.identity].into_boxed_slice()
-        } else {
-            Box::new([])
-        },
+        supersedes: Some(supersedes),
+        contradicts,
     }
 }
 
@@ -280,7 +347,10 @@ pub(crate) struct Publication {
     contract: &'static str,
     ledger: FileIdentity,
     receipt: FileIdentity,
+    submitted: usize,
     appended: usize,
+    already_applied: usize,
+    revised: usize,
     active_training_judgments: usize,
 }
 
@@ -295,7 +365,10 @@ struct ReviewApplicationReceipt {
     reviewed_at_unix_seconds: u64,
     attestation: ReviewAttestation,
     authorization_context: Option<String>,
+    submitted: usize,
     appended: usize,
+    already_applied: usize,
+    revised: usize,
     positive_confirmed: usize,
     preference_reversed: usize,
     active_training_judgments: usize,

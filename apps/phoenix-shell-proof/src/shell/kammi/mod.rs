@@ -1,6 +1,7 @@
 pub mod provider;
 pub mod session;
 pub mod settings;
+mod settings_ui;
 pub mod store;
 pub mod ui;
 
@@ -8,7 +9,7 @@ use gpui::{AppContext as _, Entity, ScrollHandle, Task, Window};
 use gpui_component::input::InputState;
 use provider::{spawn_provider_runtime, KammiProviderRuntime};
 use session::{KammiSession, MessageState, PendingInsertion};
-use settings::load_openrouter_key;
+use settings::{load_openrouter_key, KammiSettings};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -71,6 +72,7 @@ pub struct KammiState {
     pub composer: Entity<InputState>,
     pub model_input: Entity<InputState>,
     pub api_key_input: Entity<InputState>,
+    pub system_prompt_input: Entity<InputState>,
     pub session: KammiSession,
     pub history: VecDeque<KammiSession>,
     pub provider: KammiProviderRuntime,
@@ -78,7 +80,7 @@ pub struct KammiState {
     pub generation: GenerationState,
     pub next_request_id: u64,
     pub has_api_key: bool,
-    pub model: String,
+    pub settings: KammiSettings,
     #[allow(dead_code)]
     pub scroll: ScrollHandle,
     pub pending_insertion: Option<PendingInsertion>,
@@ -103,6 +105,11 @@ impl KammiState {
                 .masked(true)
                 .placeholder("OpenRouter API key")
         });
+        let system_prompt_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .auto_grow(4, 12)
+                .placeholder("Define Kammi's role, voice, boundaries, and working style...")
+        });
 
         let provider = spawn_provider_runtime()?;
         let has_api_key = load_openrouter_key().ok().flatten().is_some();
@@ -114,6 +121,7 @@ impl KammiState {
             composer,
             model_input,
             api_key_input,
+            system_prompt_input,
             session: KammiSession::new(1),
             history: VecDeque::new(),
             provider,
@@ -121,7 +129,7 @@ impl KammiState {
             generation: GenerationState::Idle,
             next_request_id: 2,
             has_api_key,
-            model: String::new(),
+            settings: KammiSettings::default(),
             scroll,
             pending_insertion: None,
             error_banner: None,
@@ -131,7 +139,7 @@ impl KammiState {
     pub fn provider_status(&self) -> ProviderStatus {
         if matches!(self.generation, GenerationState::Streaming { .. }) {
             return ProviderStatus::Generating {
-                model: self.model.clone(),
+                model: self.settings.model.clone(),
             };
         }
         if let GenerationState::Failed { message } = &self.generation {
@@ -139,9 +147,9 @@ impl KammiState {
                 message: message.clone(),
             };
         }
-        if self.has_api_key && !self.model.trim().is_empty() {
+        if self.has_api_key && !self.settings.model.trim().is_empty() {
             ProviderStatus::Ready {
-                model: self.model.clone(),
+                model: self.settings.model.clone(),
             }
         } else {
             ProviderStatus::Unconfigured

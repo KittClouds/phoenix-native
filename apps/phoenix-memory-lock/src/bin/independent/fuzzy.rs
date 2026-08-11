@@ -15,6 +15,7 @@ use super::source::{SourceDataset, SourceQuery};
 
 const TARGET_FUZZY_JUDGMENTS_PER_DATASET: usize = 120;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn append_fuzzy_review_candidates(
     ledger: &mut RelevanceLedgerV3,
     dataset: &SourceDataset,
@@ -111,6 +112,7 @@ pub(super) fn append_fuzzy_review_candidates(
                 dataset: dataset.name,
                 query_id: fuzzy_query.id.clone(),
                 query: fuzzy_query.text.clone(),
+                reference_answer: fuzzy_query.reference_answer.clone(),
                 positive: review_document(&prepared.documents[positive.external_id as usize - 1]),
                 negative: review_document(&prepared.documents[negative.external_id as usize - 1]),
                 positive_v2_position: positive_position,

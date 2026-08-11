@@ -219,6 +219,10 @@ pub fn train_linear_ranker_v3(
     let normalization = FeatureNormalizationV3::identity();
     let mut weights = [0.0; RANK_EVIDENCE_V3_FEATURE_COUNT];
     let initial_pairwise_loss = pairwise_loss(&weights, normalization, &training);
+    // The objective contains one L2 term for the complete ledger. SGD visits
+    // every judgment once per epoch, so distribute its gradient across those
+    // visits instead of applying the full penalty once per row.
+    let l2_gradient_per_judgment = distributed_l2_gradient(config.l2_penalty, training.len());
     for _ in 0..config.epochs {
         for judgment in &training {
             let difference = normalized_difference(
@@ -230,7 +234,8 @@ pub fn train_linear_ranker_v3(
             let pair_weight = judgment.weight * judgment.confidence;
             let pressure = pair_weight / (1.0 + margin.exp());
             for (weight, delta) in weights.iter_mut().zip(difference) {
-                *weight += config.learning_rate * (pressure * delta - config.l2_penalty * *weight);
+                *weight +=
+                    config.learning_rate * (pressure * delta - l2_gradient_per_judgment * *weight);
                 *weight = weight.max(0.0);
             }
         }
@@ -248,7 +253,7 @@ pub fn train_linear_ranker_v3(
                     .unwrap_or(f32::NEG_INFINITY)
         })
         .count();
-    let leakage_split_identity = split_identity(split);
+    let leakage_split_identity = leakage_split_identity_v3(split);
     let receipt = LinearTrainingReceiptV3 {
         training_ledger_identity,
         leakage_split_identity,
@@ -264,6 +269,11 @@ pub fn train_linear_ranker_v3(
         pairwise_accuracy: correctly_ordered as f32 / training.len() as f32,
     };
     Ok((model, receipt))
+}
+
+#[inline]
+fn distributed_l2_gradient(l2_penalty: f32, judgments: usize) -> f32 {
+    (2.0 * l2_penalty) / judgments.max(1) as f32
 }
 
 pub const fn rank_evidence_schema_identity_v3() -> [u8; 32] {
@@ -282,7 +292,7 @@ fn computed_rank_evidence_schema_identity_v3() -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
-fn split_identity(split: &LeakageSplitV3) -> [u8; 32] {
+pub fn leakage_split_identity_v3(split: &LeakageSplitV3) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"phoenix-qps-leakage-split-identity-v3\0");
     for assignment in &split.assignments {
@@ -382,7 +392,7 @@ mod tests {
 
     #[test]
     fn deterministic_training_improves_pairwise_loss_from_zero_initialization() {
-        let ledger = training_ledger(20);
+        let ledger = training_ledger(55);
         let split = LeakageSplitV3::build(&ledger).unwrap();
         let first =
             train_linear_ranker_v3(&ledger, &split, [7; 32], LinearTrainingConfigV3::default())
@@ -392,9 +402,16 @@ mod tests {
                 .unwrap();
         assert_eq!(first, second);
         assert!(first.1.final_pairwise_loss < first.1.initial_pairwise_loss);
-        assert_eq!(first.1.training_judgments, 12);
-        assert_eq!(first.1.correctly_ordered, 12);
+        assert_eq!(first.1.training_judgments, 33);
+        assert_eq!(first.1.correctly_ordered, 33);
         assert!(first.0.weights.iter().all(|weight| *weight >= 0.0));
+    }
+
+    #[test]
+    fn l2_gradient_is_applied_once_per_epoch_not_once_per_row() {
+        assert_eq!(distributed_l2_gradient(0.1, 4), 0.05);
+        assert_eq!(distributed_l2_gradient(0.1, 1), 0.2);
+        assert_eq!(distributed_l2_gradient(0.1, 0), 0.2);
     }
 
     fn training_ledger(count: u8) -> RelevanceLedgerV3 {
@@ -419,19 +436,19 @@ mod tests {
                 positive_position: 0,
                 negative_position: 1,
                 split_groups: SplitGroupProvenanceV3 {
-                    query_family_identity: keyed(value),
-                    positive_source_identity: keyed(value.saturating_add(20)),
-                    negative_source_identity: keyed(value.saturating_add(40)),
-                    positive_near_duplicate_cluster_identity: keyed(value.saturating_add(60)),
-                    negative_near_duplicate_cluster_identity: keyed(value.saturating_add(100)),
-                    entity_or_identifier_family_identity: keyed(value.saturating_add(140)),
-                    collection_cohort_identity: keyed(value.saturating_add(180)),
+                    query_family_identity: scoped_keyed(value, 1),
+                    positive_source_identity: scoped_keyed(value, 2),
+                    negative_source_identity: scoped_keyed(value, 3),
+                    positive_near_duplicate_cluster_identity: scoped_keyed(value, 4),
+                    negative_near_duplicate_cluster_identity: scoped_keyed(value, 5),
+                    entity_or_identifier_family_identity: scoped_keyed(value, 6),
+                    collection_cohort_identity: scoped_keyed(value, 7),
                     collected_at_unix_seconds: 1_700_000_000 + u64::from(value),
                 },
                 frozen_holdout: None,
                 v2_model_identity: [2; 32],
                 challenger_model_identity: [3; 32],
-                reason: JudgmentReasonV3::RealUserCorrection,
+                reason: major_reason(value),
                 source: JudgmentSourceV3::CuratedRegressionCase,
                 confidence: 1.0,
                 weight: 1.0,
@@ -446,6 +463,29 @@ mod tests {
 
     fn keyed(value: u8) -> KeyedIdentity {
         KeyedIdentity::from_bytes([value; 32])
+    }
+
+    fn scoped_keyed(value: u8, domain: u8) -> KeyedIdentity {
+        let mut bytes = [value; 32];
+        bytes[1] = domain;
+        KeyedIdentity::from_bytes(bytes)
+    }
+
+    fn major_reason(value: u8) -> JudgmentReasonV3 {
+        const REASONS: [JudgmentReasonV3; 11] = [
+            JudgmentReasonV3::PartialMatchSaturation,
+            JudgmentReasonV3::ScatteredTerms,
+            JudgmentReasonV3::PhraseOrderFailure,
+            JudgmentReasonV3::IdentifierCollision,
+            JudgmentReasonV3::FuzzyCollision,
+            JudgmentReasonV3::WeakFieldEvidence,
+            JudgmentReasonV3::CommonTermDominance,
+            JudgmentReasonV3::LengthPriorFailure,
+            JudgmentReasonV3::WrongConceptProximity,
+            JudgmentReasonV3::DocumentConversationConfusion,
+            JudgmentReasonV3::LongQueryFailure,
+        ];
+        REASONS[usize::from(value - 1) % REASONS.len()]
     }
 
     fn evidence() -> RankEvidenceV3 {

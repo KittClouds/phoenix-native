@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://phoenix.local/schemas/qps-v3-tree-challenger-evidence-v1.json",
+  "title": "QPS V3 Tree Challenger Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "reconciled_pairs",
+    "phase_5_receipt_sha256",
+    "phase_8_receipt_sha256",
+    "linear_model_identity",
+    "tree_model_identity_sha256",
+    "tree_model_artifact",
+    "residual",
+    "blind",
+    "performance",
+    "monotonic_constraints_verified",
+    "constitutional_regressions",
+    "deterministic_ranking_failures"
+  ],
+  "properties": {
+    "contract": {
+      "const": "phoenix.memory.qps-v3-tree-challenger-evidence/v1"
+    },
+    "reconciled_pairs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "phase_5_receipt_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "phase_8_receipt_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "linear_model_identity": {
+      "type": "array",
+      "minItems": 32,
+      "maxItems": 32,
+      "items": { "type": "integer", "minimum": 0, "maximum": 255 }
+    },
+    "tree_model_identity_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "tree_model_artifact": {
+      "$ref": "#/$defs/fileIdentity"
+    },
+    "residual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repeatable_feature_interactions",
+        "independent_holdout_slices"
+      ],
+      "properties": {
+        "repeatable_feature_interactions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "independent_holdout_slices": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "blind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "linear_ndcg_at_10",
+        "tree_ndcg_at_10",
+        "linear_mrr",
+        "tree_mrr"
+      ],
+      "properties": {
+        "linear_ndcg_at_10": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tree_ndcg_at_10": { "type": "number", "minimum": 0, "maximum": 1 },
+        "linear_mrr": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tree_mrr": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "performance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_count", "samples", "rank_p99_nanos"],
+      "properties": {
+        "candidate_count": { "type": "integer", "minimum": 0 },
+        "samples": { "type": "integer", "minimum": 0 },
+        "rank_p99_nanos": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "monotonic_constraints_verified": { "type": "boolean" },
+    "constitutional_regressions": { "type": "integer", "minimum": 0 },
+    "deterministic_ranking_failures": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "fileIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "bytes", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

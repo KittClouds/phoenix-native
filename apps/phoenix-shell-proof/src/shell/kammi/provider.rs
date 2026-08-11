@@ -1,20 +1,66 @@
 use super::session::KammiRole;
-use super::settings::{load_openrouter_key, validate_model_id};
+use super::settings::{load_openrouter_key, validate_model_id, ReasoningLevel};
 use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
 use openrouter_rs::{
     api::chat::{ChatCompletionRequest, Message},
-    types::Role,
+    types::{Effort, Role},
     OpenRouterClient,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::Instant;
 
 const COMMAND_CAPACITY: usize = 16;
-const EVENT_CAPACITY: usize = 256;
+const EVENT_CAPACITY: usize = 32;
 const MAX_REQUEST_MESSAGES: usize = 256;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_OUTPUT_TOKENS: u32 = 4_096;
+// A provider can emit token fragments much faster than GPUI can usefully paint
+// them. Coalescing at 10 Hz keeps the root Phoenix view responsive while still
+// presenting visibly streamed output.
+const STREAM_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
+const STREAM_BATCH_CAPACITY: usize = 4 * 1024;
+const STREAM_BATCH_MAX_BYTES: usize = 32 * 1024;
+
+struct DeltaBatch {
+    text: String,
+    flush_at: Option<Instant>,
+}
+
+impl DeltaBatch {
+    fn new() -> Self {
+        Self {
+            text: String::with_capacity(STREAM_BATCH_CAPACITY),
+            flush_at: None,
+        }
+    }
+
+    fn push(&mut self, fragment: &str, now: Instant) {
+        if self.text.is_empty() {
+            self.flush_at = Some(now + STREAM_FLUSH_INTERVAL);
+        }
+        self.text.push_str(fragment);
+    }
+
+    fn flush_at(&self) -> Option<Instant> {
+        self.flush_at
+    }
+
+    fn reached_size_limit(&self) -> bool {
+        self.text.len() >= STREAM_BATCH_MAX_BYTES
+    }
+
+    fn take_event(&mut self, request_id: u64) -> Option<ProviderEvent> {
+        if self.text.is_empty() {
+            return None;
+        }
+        self.flush_at = None;
+        let text = std::mem::replace(&mut self.text, String::with_capacity(STREAM_BATCH_CAPACITY));
+        Some(ProviderEvent::Delta { request_id, text })
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum ProviderCommand {
@@ -27,6 +73,7 @@ pub struct ProviderRequest {
     pub request_id: u64,
     pub model: String,
     pub messages: Vec<ProviderMessage>,
+    pub reasoning: ReasoningLevel,
 }
 
 #[derive(Clone, Debug)]
@@ -144,7 +191,7 @@ async fn provider_loop(
                     if let Err(err) =
                         run_generation(request, events_task.clone(), cancel_flag_task).await
                     {
-                        let err_msg = err.to_string();
+                        let err_msg = format!("{err:#}");
                         let _ = events_task
                             .send(ProviderEvent::Failed {
                                 request_id: req_id,
@@ -181,18 +228,8 @@ async fn run_generation(
     events: async_channel::Sender<ProviderEvent>,
     cancel_flag: Arc<AtomicBool>,
 ) -> Result<()> {
+    let completion = build_completion_request(&request)?;
     let model = validate_model_id(&request.model)?;
-    anyhow::ensure!(
-        request.messages.len() <= MAX_REQUEST_MESSAGES,
-        "OpenRouter request exceeds {MAX_REQUEST_MESSAGES} messages"
-    );
-    let request_bytes = request.messages.iter().try_fold(0usize, |total, message| {
-        total.checked_add(message.content.len())
-    });
-    anyhow::ensure!(
-        request_bytes.is_some_and(|bytes| bytes <= MAX_REQUEST_BYTES),
-        "OpenRouter request exceeds {MAX_REQUEST_BYTES} UTF-8 bytes"
-    );
 
     let api_key = load_openrouter_key()?.context("OpenRouter API key is not configured")?;
 
@@ -202,15 +239,6 @@ async fn run_generation(
         .app_categories(["writing"])
         .build()
         .context("build OpenRouter client")?;
-
-    let messages = request.messages.iter().map(to_openrouter_message).collect();
-
-    let completion = ChatCompletionRequest::builder()
-        .model(model.as_str())
-        .messages(messages)
-        .max_tokens(MAX_OUTPUT_TOKENS)
-        .build()
-        .context("build OpenRouter chat request")?;
 
     events
         .send(ProviderEvent::Started {
@@ -224,7 +252,24 @@ async fn run_generation(
         .await
         .context("start OpenRouter stream")?;
 
-    while let Some(chunk) = stream.next().await {
+    let mut pending = DeltaBatch::new();
+    loop {
+        let next = if let Some(flush_at) = pending.flush_at() {
+            tokio::select! {
+                biased;
+                _ = tokio::time::sleep_until(flush_at) => {
+                    flush_delta_batch(request.request_id, &events, &mut pending).await?;
+                    continue;
+                }
+                next = stream.next() => next,
+            }
+        } else {
+            stream.next().await
+        };
+        let Some(chunk) = next else {
+            break;
+        };
+
         if cancel_flag.load(Ordering::SeqCst) {
             events
                 .send(ProviderEvent::Cancelled {
@@ -241,7 +286,7 @@ async fn run_generation(
                 let friendly_err = if msg.contains("401") || msg.contains("Unauthorized") {
                     "OpenRouter rejected the API key (401 Unauthorized).".to_string()
                 } else if msg.contains("404") || msg.contains("Not Found") {
-                    format!("Model '{}' was not found or is unavailable.", request.model)
+                    format!("Model '{model}' was not found or is unavailable.")
                 } else if msg.contains("429") || msg.contains("Too Many Requests") {
                     "OpenRouter rate limit reached (429 Too Many Requests).".to_string()
                 } else {
@@ -258,15 +303,14 @@ async fn run_generation(
             if content.is_empty() {
                 continue;
             }
-            events
-                .send(ProviderEvent::Delta {
-                    request_id: request.request_id,
-                    text: content.to_owned(),
-                })
-                .await?;
+            pending.push(content, Instant::now());
+            if pending.reached_size_limit() {
+                flush_delta_batch(request.request_id, &events, &mut pending).await?;
+            }
         }
     }
 
+    flush_delta_batch(request.request_id, &events, &mut pending).await?;
     events
         .send(ProviderEvent::Finished {
             request_id: request.request_id,
@@ -274,6 +318,56 @@ async fn run_generation(
         .await?;
 
     Ok(())
+}
+
+async fn flush_delta_batch(
+    request_id: u64,
+    events: &async_channel::Sender<ProviderEvent>,
+    pending: &mut DeltaBatch,
+) -> Result<()> {
+    if let Some(event) = pending.take_event(request_id) {
+        events.send(event).await?;
+    }
+    Ok(())
+}
+
+fn build_completion_request(request: &ProviderRequest) -> Result<ChatCompletionRequest> {
+    let model = validate_model_id(&request.model)?;
+    anyhow::ensure!(
+        request.messages.len() <= MAX_REQUEST_MESSAGES,
+        "OpenRouter request exceeds {MAX_REQUEST_MESSAGES} messages"
+    );
+    let request_bytes = request.messages.iter().try_fold(0usize, |total, message| {
+        total.checked_add(message.content.len())
+    });
+    anyhow::ensure!(
+        request_bytes.is_some_and(|bytes| bytes <= MAX_REQUEST_BYTES),
+        "OpenRouter request exceeds {MAX_REQUEST_BYTES} UTF-8 bytes"
+    );
+
+    let messages = request.messages.iter().map(to_openrouter_message).collect();
+    let mut builder = ChatCompletionRequest::builder();
+    builder
+        .model(model)
+        .messages(messages)
+        .max_tokens(MAX_OUTPUT_TOKENS);
+    if let Some(effort) = openrouter_effort(request.reasoning) {
+        builder.reasoning_effort(effort);
+    }
+    builder.build().context("build OpenRouter chat request")
+}
+
+fn openrouter_effort(level: ReasoningLevel) -> Option<Effort> {
+    match level {
+        ReasoningLevel::Auto => None,
+        ReasoningLevel::None => Some(Effort::None),
+        ReasoningLevel::Minimal => Some(Effort::Minimal),
+        ReasoningLevel::Low => Some(Effort::Low),
+        ReasoningLevel::Medium => Some(Effort::Medium),
+        ReasoningLevel::High => Some(Effort::High),
+        ReasoningLevel::Max => Some(Effort::Max),
+        ReasoningLevel::Xhigh => Some(Effort::Xhigh),
+    }
 }
 
 fn to_openrouter_message(message: &ProviderMessage) -> Message {
@@ -294,6 +388,7 @@ mod tests {
             request_id: 1,
             model: "openai/gpt-4o".to_string(),
             messages,
+            reasoning: ReasoningLevel::Auto,
         }
     }
 
@@ -362,5 +457,77 @@ mod tests {
             .expect_err("oversized request must fail");
 
         assert!(error.to_string().contains("exceeds 256 messages"));
+    }
+
+    #[test]
+    fn request_shape_preserves_system_prompt_and_reasoning_effort() {
+        let request = ProviderRequest {
+            request_id: 7,
+            model: "google/gemini-2.5-flash".to_string(),
+            messages: vec![
+                ProviderMessage {
+                    role: KammiRole::System,
+                    content: "Be concise and cite uncertainty.".to_string(),
+                },
+                ProviderMessage {
+                    role: KammiRole::User,
+                    content: "Hello".to_string(),
+                },
+            ],
+            reasoning: ReasoningLevel::High,
+        };
+
+        let completion = build_completion_request(&request).unwrap();
+        let json = serde_json::to_value(completion).unwrap();
+
+        assert_eq!(json["model"], "google/gemini-2.5-flash");
+        assert_eq!(json["messages"][0]["role"], "system");
+        assert_eq!(
+            json["messages"][0]["content"],
+            "Be concise and cite uncertainty."
+        );
+        assert_eq!(json["reasoning"]["effort"], "high");
+    }
+
+    #[test]
+    fn automatic_reasoning_omits_provider_override() {
+        let completion = build_completion_request(&request(Vec::new())).unwrap();
+        let json = serde_json::to_value(completion).unwrap();
+
+        assert!(json.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn token_fragments_are_coalesced_losslessly_before_ui_delivery() {
+        let now = Instant::now();
+        let mut batch = DeltaBatch::new();
+        for _ in 0..10_000 {
+            batch.push("x", now);
+        }
+
+        let event = batch.take_event(17).expect("coalesced delta");
+        match event {
+            ProviderEvent::Delta { request_id, text } => {
+                assert_eq!(request_id, 17);
+                assert_eq!(text.len(), 10_000);
+                assert!(text.bytes().all(|byte| byte == b'x'));
+            }
+            _ => panic!("expected delta"),
+        }
+        assert!(batch.take_event(17).is_none());
+    }
+
+    #[test]
+    fn stream_batch_has_bounded_time_and_size_flushes() {
+        let now = Instant::now();
+        let mut batch = DeltaBatch::new();
+        batch.push("a", now);
+
+        assert_eq!(batch.flush_at(), Some(now + STREAM_FLUSH_INTERVAL));
+        assert!(!batch.reached_size_limit());
+
+        batch.push(&"b".repeat(STREAM_BATCH_MAX_BYTES), now);
+        assert!(batch.reached_size_limit());
+        assert!(EVENT_CAPACITY <= 32);
     }
 }

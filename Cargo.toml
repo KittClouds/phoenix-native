@@ -22,6 +22,7 @@ members = [
     "crates/phoenix-semantic-review",
     "crates/phoenix-story-producer",
     "crates/phoenix-app-core",
+    "crates/phoenix-agent-control",
     "crates/phoenix-scene-compiler",
     "crates/phoenix-scene-archive",
     "crates/phoenix-scene-contract",
@@ -34,6 +35,7 @@ members = [
     "apps/phoenix-memory-embed-proof",
     "apps/phoenix-release-lock",
     "apps/phoenix-shell-proof",
+    "apps/phoenixctl",
     "vendor/velotype",
 ]
 exclude = ["apps/phoenix-legacy-bridge"]
@@ -58,6 +60,7 @@ default-members = [
     "crates/phoenix-semantic-review",
     "crates/phoenix-story-producer",
     "crates/phoenix-app-core",
+    "crates/phoenix-agent-control",
     "crates/phoenix-scene-compiler",
     "crates/phoenix-scene-archive",
     "crates/phoenix-scene-contract",
@@ -67,6 +70,7 @@ default-members = [
     "apps/phoenix-release-lock",
     "apps/phoenix-memory-lock",
     "apps/phoenix-shell-proof",
+    "apps/phoenixctl",
     "vendor/velotype",
 ]
 
@@ -122,6 +126,8 @@ tokio = { version = "1", features = [
     "sync",
     "time",
     "net",
+    "io-util",
+    "macros",
 ] }
 keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
 uuid = { version = "1", features = ["v4"] }

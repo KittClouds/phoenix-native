@@ -65,12 +65,6 @@ pub(crate) fn train(
         &phase_6.split,
         PrimarySplitV3::Development,
     );
-    let blind_test = pairwise_evaluation(
-        &first.0,
-        &phase_4.ledger,
-        &phase_6.split,
-        PrimarySplitV3::BlindTest,
-    );
     let qualification_receipt = Phase7QualificationReceipt {
         deterministic_training: first == second,
         monotonic_non_negative_weights: first.0.weights.iter().all(|weight| *weight >= 0.0),
@@ -101,7 +95,7 @@ pub(crate) fn train(
         development_selected_configuration: true,
         configurations_evaluated,
         development,
-        blind_test,
+        blind_test: None,
     };
     let rollback_model_identity = decode_hex_32(&phase_3.v2_configuration_sha256)?;
     let artifact = LinearModelArtifactV3 {
@@ -136,7 +130,7 @@ pub(crate) fn train(
         frozen_normalization_verified: qualification_receipt.frozen_identity_normalization,
         loss_improved: qualification_receipt.loss_is_finite_and_improves,
         development_scores_are_finite: development.non_finite_scores == 0,
-        blind_scores_are_finite: blind_test.non_finite_scores == 0,
+        blind_test_is_sealed: qualification_receipt.blind_test.is_none(),
     };
     let phase_7_verified = gates.all_pass();
     if !phase_7_verified {
@@ -259,7 +253,7 @@ fn pairwise_evaluation(
     evaluation
 }
 
-fn decode_hex_32(value: &str) -> Result<[u8; 32]> {
+pub(super) fn decode_hex_32(value: &str) -> Result<[u8; 32]> {
     if value.len() != 64 {
         bail!("identity must contain 64 hexadecimal characters");
     }
@@ -290,7 +284,8 @@ pub(super) struct Phase7QualificationReceipt {
     development_selected_configuration: bool,
     configurations_evaluated: usize,
     development: PairwiseEvaluationV3,
-    blind_test: PairwiseEvaluationV3,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    blind_test: Option<PairwiseEvaluationV3>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -351,7 +346,7 @@ struct Phase7Gates {
     frozen_normalization_verified: bool,
     loss_improved: bool,
     development_scores_are_finite: bool,
-    blind_scores_are_finite: bool,
+    blind_test_is_sealed: bool,
 }
 
 impl Phase7Gates {
@@ -370,7 +365,7 @@ impl Phase7Gates {
             && self.frozen_normalization_verified
             && self.loss_improved
             && self.development_scores_are_finite
-            && self.blind_scores_are_finite
+            && self.blind_test_is_sealed
     }
 }
 
@@ -427,7 +422,7 @@ mod tests {
             frozen_normalization_verified: true,
             loss_improved: true,
             development_scores_are_finite: true,
-            blind_scores_are_finite: true,
+            blind_test_is_sealed: true,
         };
         assert!(gates.all_pass());
         gates.v2_composite_features_are_absent = false;

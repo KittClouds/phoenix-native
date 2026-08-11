@@ -5667,6 +5667,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "phoenix-agent-control"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel 2.5.0",
+ "blake3",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "uuid",
+ "windows 0.61.3",
+]
+
+[[package]]
 name = "phoenix-analysis-contract"
 version = "0.1.0"
 dependencies = [
@@ -5876,16 +5892,19 @@ dependencies = [
  "async-channel 2.5.0",
  "blake3",
  "hashbrown 0.15.5",
+ "keyring",
  "memmap2",
  "phoenix-app-core",
  "phoenix-lexical-qps",
  "phoenix-memory-contract",
  "phoenix-memory-coordinator",
  "postcard",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "tokio",
  "windows 0.61.3",
 ]
 
@@ -6049,6 +6068,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "keyring",
  "openrouter-rs",
+ "phoenix-agent-control",
  "phoenix-app-core",
  "phoenix-scene-archive",
  "phoenix-scene-contract",
@@ -6060,6 +6080,7 @@ dependencies = [
  "raw-window-handle",
  "serde",
  "serde_json",
+ "smallvec",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -6109,6 +6130,16 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "windows 0.61.3",
+]
+
+[[package]]
+name = "phoenixctl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "phoenix-agent-control",
+ "phoenix-workspace",
+ "serde_json",
 ]
 
 [[package]]

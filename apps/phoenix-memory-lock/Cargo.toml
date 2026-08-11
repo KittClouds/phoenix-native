@@ -11,14 +11,17 @@ async-channel.workspace = true
 blake3.workspace = true
 hashbrown.workspace = true
 memmap2.workspace = true
+keyring.workspace = true
 phoenix-lexical-qps = { path = "../../crates/phoenix-lexical-qps" }
 phoenix-app-core = { path = "../../crates/phoenix-app-core" }
 phoenix-memory-contract = { path = "../../crates/phoenix-memory-contract" }
 phoenix-memory-coordinator = { path = "../../crates/phoenix-memory-coordinator" }
 postcard.workspace = true
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 windows.workspace = true
 
 [dev-dependencies]
@@ -31,3 +34,7 @@ path = "src/bin/generate_ledger.rs"
 [[bin]]
 name = "phoenix-v3-independent-data"
 path = "src/bin/generate_independent.rs"
+
+[[bin]]
+name = "phoenix-v3-semantic-curator"
+path = "src/bin/curate_semantic_bundles.rs"

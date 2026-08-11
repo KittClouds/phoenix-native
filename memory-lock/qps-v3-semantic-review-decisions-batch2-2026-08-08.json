@@ -1,0 +1,29 @@
+{
+  "contract": "phoenix.qps.relevance-review-decisions/v1",
+  "schema_version": 1,
+  "reviewer_identity": "openai-codex-semantic-reviewer",
+  "reviewed_at_unix_seconds": 1786204801,
+  "attestation": "agent_curated_with_user_authorization",
+  "authorization_context": "User explicitly authorized Codex to act as the human semantic reviewer for QPS V3 because the application has no operational correction-collection surface.",
+  "decisions": [
+    {"judgment_identity":"626c3ddef34b351bc7e44726eafc7c755d10b16b0c74c49b3fe536def9212e6f","verdict":"positive_preferred","reason":"partial_match_saturation","source":"curated_regression_case","confidence":0.88},
+    {"judgment_identity":"81b163f2051236f700fcd39f97d4e21a9baf49285da54e2bd7a5bf2e878cd045","verdict":"positive_preferred","reason":"scattered_terms","source":"curated_regression_case","confidence":0.98},
+    {"judgment_identity":"63c3997cbb21c741e4d05a7a0e8a8fee5865ba4f3acae2713d2a718dd6fa5d5d","verdict":"positive_preferred","reason":"phrase_order_failure","source":"curated_regression_case","confidence":0.98},
+    {"judgment_identity":"878846fff920d7b3a025c52559b9e12369d4204169404edc180b6db859b9a739","verdict":"positive_preferred","reason":"identifier_collision","source":"curated_regression_case","confidence":0.97},
+    {"judgment_identity":"6f961c76c8a1d9b9600afdf6d24a6c487191ded2178f2df11be5bdf66bb668a0","verdict":"positive_preferred","reason":"weak_field_evidence","source":"curated_regression_case","confidence":0.84},
+    {"judgment_identity":"afb3107c4890f3e9c3c1ab13d1b7ca5933c48108a6dd9c5e254d255c3fbba286","verdict":"positive_preferred","reason":"common_term_dominance","source":"curated_regression_case","confidence":0.95},
+    {"judgment_identity":"7970cb9322725e3ee570149899b265d0b79d0429887e88275b0c7d74e2c0c2b7","verdict":"positive_preferred","reason":"length_prior_failure","source":"curated_regression_case","confidence":0.82},
+    {"judgment_identity":"9d9622716eff4c49136f9c4ae51791d108c402432b95c3eb28adb61af436bc5f","verdict":"positive_preferred","reason":"wrong_concept_proximity","source":"curated_regression_case","confidence":0.95},
+    {"judgment_identity":"564d94e81341fa8506b458d013ed7da453f249fc9b4790613159ec57dfde9c82","verdict":"positive_preferred","reason":"document_conversation_confusion","source":"curated_regression_case","confidence":0.99},
+    {"judgment_identity":"e621eeff08517affd51b9e93c2af3cbf005cbf64b903407c5dbd788609f5f4f5","verdict":"positive_preferred","reason":"long_query_failure","source":"curated_regression_case","confidence":0.95},
+    {"judgment_identity":"d8f3a8d52e8d497c570182612ea3b19038c40c2a04a2572525354259f6d28205","verdict":"positive_preferred","reason":"partial_match_saturation","source":"curated_regression_case","confidence":0.70},
+    {"judgment_identity":"f173fbfcc97ab33eeca9fe31ec9f2bd014220fc71f51ab14d7d0e0568089d32b","verdict":"positive_preferred","reason":"scattered_terms","source":"curated_regression_case","confidence":0.98},
+    {"judgment_identity":"10c59d776d98a6a1cca308fe63bb986bafdc523101c394243e8da090d325f63c","verdict":"positive_preferred","reason":"phrase_order_failure","source":"curated_regression_case","confidence":0.98},
+    {"judgment_identity":"f5f73d5a34989f85dc366276094dfb490033c9d7cfec04536334d74f052bae67","verdict":"positive_preferred","reason":"weak_field_evidence","source":"curated_regression_case","confidence":0.84},
+    {"judgment_identity":"ac1d13ec224abeca5d4b625b89d80ed25e3556e635ae465c7770d5c6a0ffc3c0","verdict":"positive_preferred","reason":"common_term_dominance","source":"curated_regression_case","confidence":0.96},
+    {"judgment_identity":"66feab036f976bbd7d2cc43e398661198bc3d1cdda5ff8fd200065a941064f94","verdict":"positive_preferred","reason":"length_prior_failure","source":"curated_regression_case","confidence":0.91},
+    {"judgment_identity":"abf5d71dc47c89b1b8de70f6a23624b211a0ff3af4571bd9bf9203e12b478b47","verdict":"positive_preferred","reason":"wrong_concept_proximity","source":"curated_regression_case","confidence":0.95},
+    {"judgment_identity":"66cff2366aa758d47e3c3b852160dc27d79c1acff6a49f271696af60fd5c1dc6","verdict":"positive_preferred","reason":"document_conversation_confusion","source":"curated_regression_case","confidence":0.99},
+    {"judgment_identity":"c31f5a541a2ec72e41bf1a86795d074ecfadc359b594dd88274d0c37cc7fd49a","verdict":"positive_preferred","reason":"long_query_failure","source":"curated_regression_case","confidence":0.95}
+  ]
+}

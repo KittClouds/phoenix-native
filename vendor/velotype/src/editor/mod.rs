@@ -51,9 +51,11 @@ mod workspace;
 
 use self::status_bar::StatusBarState;
 use self::workspace::WorkspaceState;
+#[allow(unused_imports)]
 pub use agent_commands::{
-    AgentAnchor, AgentBlockDraft, AgentCommandError, AgentDocumentOp, AgentInsertionReceipt,
-    AgentInvocationDisposition, AgentInvocationReceipt,
+    AgentAnchor, AgentBlockDraft, AgentBlockSnapshot, AgentCommandError, AgentDocumentOp,
+    AgentDocumentSnapshot, AgentInsertionReceipt, AgentInvocationDisposition,
+    AgentInvocationReceipt,
 };
 pub use block_commands::{
     BlockCommand, BlockCommandError, BlockCommandOutcome, BlockInsert, BlockInsertTarget,

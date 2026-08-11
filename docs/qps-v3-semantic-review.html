@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phoenix QPS V3 Semantic Review</title>
+<style>
+:root{color-scheme:dark;--bg:#0c1110;--panel:#131b19;--line:#294039;--ink:#e6f2ee;--muted:#91a69f;--mint:#5ce0b8;--red:#ff807f;--amber:#ffc66d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}button,input,select,textarea{font:inherit;color:inherit;background:#0d1412;border:1px solid var(--line);border-radius:7px;padding:.55rem}button:disabled{cursor:not-allowed;opacity:.35}.top{position:sticky;top:0;z-index:3;background:#0c1110ee;border-bottom:1px solid var(--line);padding:12px 18px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.grow{flex:1}.stat{color:var(--muted)}progress{width:100%;height:8px;accent-color:var(--mint)}main{max-width:1500px;margin:auto;padding:18px}.query,.doc,.help{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}.query h1{font-size:21px;margin:0 0 8px}.meta{color:var(--muted);font-size:13px}.answer{margin-top:10px;padding:10px;border-left:3px solid var(--amber);background:#181812}.docs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}.doc h2{margin:0 0 8px;font-size:17px}.doc.positive{border-top:3px solid var(--mint)}.doc.negative{border-top:3px solid var(--red)}.context{color:var(--amber);white-space:pre-wrap}.text{white-space:pre-wrap}.actions{position:sticky;bottom:0;background:#0c1110ee;border:1px solid var(--line);border-radius:10px;padding:12px}.actions button{min-width:150px;font-weight:700}.p{border-color:var(--mint)}.n{border-color:var(--red)}.a{border-color:var(--amber)}button.active{outline:3px solid currentColor}.hidden{display:none}.help{margin-top:14px;color:var(--muted)}textarea{width:100%;min-height:64px}@media(max-width:850px){.docs{grid-template-columns:1fr}.actions button{min-width:0;flex:1}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="row">
+    <strong>Phoenix QPS V3 Semantic Review</strong>
+    <input id="batchFile" type="file" accept="application/json,.json">
+    <button id="importWork">Import work</button><input id="workFile" class="hidden" type="file" accept="application/json,.json">
+    <span class="grow"></span><span id="stats" class="stat">Load a batch to begin</span>
+  </div>
+  <progress id="progress" max="1" value="0"></progress>
+  <div class="row">
+    <label>Reviewer <input id="reviewer" value="phoenix-human-curator"></label>
+    <label>Queue <select id="filter"><option value="undecided">To review</option><option value="all">All items</option><option value="positive_preferred">Completed: positive chosen</option><option value="negative_preferred">Completed: negative chosen</option><option value="abstain">Completed: abstained</option></select></label>
+    <label>Class <select id="reasonFilter"><option value="all">All classes</option></select></label>
+    <button id="resetFilters">Show review queue</button>
+    <button id="prev">← Previous</button><button id="next">Next →</button>
+    <span class="grow"></span><button id="reset">Clear browser copy</button><button id="backup">Export work backup</button><button id="export">Export review checkpoint</button>
+  </div>
+</header>
+<main>
+  <section id="empty" class="help">Open <code>semantic-review-batch-v2-expanded-new-1100.json</code>. Decisions save automatically in this browser. Keys: <b>1</b> positive, <b>2</b> negative, <b>3</b> abstain, <b>←/→</b> navigate.</section>
+  <section id="review" class="hidden">
+    <div class="query"><h1 id="query"></h1><div id="qmeta" class="meta"></div><div id="answer" class="answer"></div></div>
+    <div class="docs">
+      <article class="doc positive"><h2>Annotated positive</h2><div id="pmeta" class="meta"></div><h3 id="ptitle"></h3><div id="pcontext" class="context"></div><div id="ptext" class="text"></div></article>
+      <article class="doc negative"><h2>V2 same-tier challenger</h2><div id="nmeta" class="meta"></div><h3 id="ntitle"></h3><div id="ncontext" class="context"></div><div id="ntext" class="text"></div></article>
+    </div>
+    <div class="actions">
+      <div class="row"><button id="chooseP" class="p">1 · Positive better</button><button id="chooseN" class="n">2 · Negative better</button><button id="chooseA" class="a">3 · Abstain</button><label>Confidence <input id="confidence" type="range" min="50" max="100" value="90"><span id="confidenceValue">0.90</span></label></div>
+      <label>Private review note (saved in backup, not training) <textarea id="note"></textarea></label>
+    </div>
+  </section>
+</main>
+<script>
+const $=id=>document.getElementById(id);let batch=null,items=[],visible=[],cursor=0,state={};
+const key=()=>batch?`phoenix-qps-review:${batch.source_packet.sha256}:${batch.excluded_batch?.sha256||'none'}`:'';
+function loadState(){try{state=JSON.parse(localStorage.getItem(key())||'{}')}catch{state={}}}
+function save(){localStorage.setItem(key(),JSON.stringify(state));renderStats()}
+function decision(item){return state[item.judgment_identity]||{verdict:'',confidence:.9,note:''}}
+function clampCursor(){cursor=visible.length?Math.max(0,Math.min(cursor,visible.length-1)):0}
+function rebuild(){if(!batch)return;const f=$('filter').value,r=$('reasonFilter').value;visible=items.filter(x=>(r==='all'||x.suggested_reason===r)&&(f==='all'||(f==='undecided'?!decision(x).verdict:decision(x).verdict===f)));clampCursor();render()}
+function text(id,value){$(id).textContent=value||''}
+function render(){clampCursor();const item=visible[cursor];$('prev').disabled=!item||cursor===0;$('next').disabled=!item||cursor===visible.length-1;$('empty').classList.toggle('hidden',!!item);$('review').classList.toggle('hidden',!item);if(!item){text('empty',batch?'No items match the current Queue and Class filters. “Completed” queues only contain decisions you have already made. Choose “To review” or press “Show review queue” to continue.':'Open semantic-review-batch-v2-expanded-new-1100.json to begin. Decisions save automatically in this browser.');renderStats();return}const d=decision(item);text('query',item.query);text('qmeta',`${cursor+1}/${visible.length} · ${item.dataset} · ${item.suggested_reason} · V2 positions positive ${item.positive_v2_position}, negative ${item.negative_v2_position}`);$('answer').classList.toggle('hidden',!item.reference_answer);text('answer',`Reference answer: ${item.reference_answer}`);renderDoc('p',item.positive);renderDoc('n',item.negative);$('confidence').value=Math.round(d.confidence*100);text('confidenceValue',d.confidence.toFixed(2));$('note').value=d.note||'';for(const [id,v] of [['chooseP','positive_preferred'],['chooseN','negative_preferred'],['chooseA','abstain']])$(id).classList.toggle('active',d.verdict===v);renderStats()}
+function renderDoc(prefix,doc){text(prefix+'title',doc.title);text(prefix+'text',doc.text);text(prefix+'context',doc.reviewer_context);text(prefix+'meta',[doc.id,doc.source_time_label].filter(Boolean).join(' · '))}
+function choose(verdict){const item=visible[cursor];if(!item)return;state[item.judgment_identity]={verdict,confidence:Number($('confidence').value)/100,note:$('note').value};save();if($('filter').value==='undecided')rebuild();else{cursor=Math.min(cursor+1,visible.length-1);render()}}
+function renderStats(){if(!batch)return;let done=0,usable=0,abstain=0;for(const item of items){const verdict=decision(item).verdict;if(!verdict)continue;done++;if(verdict==='abstain')abstain++;else usable++}text('stats',`${done}/${items.length} reviewed · ${usable} exportable · ${abstain} abstain · ${visible.length} shown`);$('progress').max=items.length;$('progress').value=done}
+function move(delta){if(!visible.length)return;cursor+=delta;clampCursor();render()}
+function download(name,value){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)+'\n'],{type:'application/json'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function timestamp(){return new Date().toISOString().replace(/[:.]/g,'-')}
+function exportDecisions(){const reviewed=items.map(item=>({item,d:decision(item)})).filter(x=>x.d.verdict),decisions=reviewed.filter(x=>x.d.verdict!=='abstain').map(({item,d})=>({judgment_identity:item.judgment_identity,verdict:d.verdict,reason:item.suggested_reason,source:'curated_regression_case',confidence:d.confidence}));if(!decisions.length)return alert('No positive/negative decisions to export.');download(`qps-v3-review-checkpoint-${decisions.length}-${timestamp()}.json`,{contract:'phoenix.qps.relevance-review-decisions/v1',schema_version:1,batch_identity:key(),reviewed_items:reviewed.length,abstentions:reviewed.length-decisions.length,reviewer_identity:$('reviewer').value.trim()||'phoenix-human-curator',reviewed_at_unix_seconds:Math.floor(Date.now()/1000),attestation:'human_reviewed',authorization_context:null,decisions})}
+$('batchFile').onchange=async e=>{try{text('stats','Loading batch...');const loaded=JSON.parse(await e.target.files[0].text());if(loaded.contract!=='phoenix.qps.semantic-review-batch/v2'||!Array.isArray(loaded.items))throw new Error('Not a semantic review batch v2.');batch=loaded;items=batch.items;cursor=0;loadState();const reasons=[...new Set(items.map(x=>x.suggested_reason))].sort();$('reasonFilter').innerHTML='<option value="all">All classes</option>'+reasons.map(x=>`<option value="${x}">${x}</option>`).join('');rebuild()}catch(error){batch=null;items=[];visible=[];cursor=0;text('stats','Batch load failed');alert(error.message||'Could not load review batch.')}};
+$('importWork').onclick=()=>batch?$('workFile').click():alert('Load the review batch before importing its work backup.');$('workFile').onchange=async e=>{const work=JSON.parse(await e.target.files[0].text());if(work.contract!=='phoenix.qps.relevance-review-work/v1'||work.batch_identity!==key())return alert('This work backup does not belong to the loaded review batch.');state=work.state||{};save();rebuild()};
+$('reset').onclick=()=>{if(!batch)return alert('Load a review batch first.');if(confirm('Clear this browser’s local copy? This does not revoke checkpoints already applied to the append-only ledger. Export a work backup first if needed.')){localStorage.removeItem(key());state={};cursor=0;rebuild()}};
+$('backup').onclick=()=>{if(!batch)return;const reviewed=items.filter(item=>decision(item).verdict).length;download(`qps-v3-review-work-${reviewed}-${timestamp()}.json`,{contract:'phoenix.qps.relevance-review-work/v1',batch_identity:key(),source_packet_sha256:batch.source_packet.sha256,excluded_batch_sha256:batch.excluded_batch?.sha256||null,reviewer_identity:$('reviewer').value,state})};$('export').onclick=exportDecisions;
+$('filter').onchange=()=>{cursor=0;rebuild()};$('reasonFilter').onchange=()=>{cursor=0;rebuild()};$('resetFilters').onclick=()=>{$('filter').value='undecided';$('reasonFilter').value='all';cursor=0;rebuild()};$('prev').onclick=()=>move(-1);$('next').onclick=()=>move(1);$('chooseP').onclick=()=>choose('positive_preferred');$('chooseN').onclick=()=>choose('negative_preferred');$('chooseA').onclick=()=>choose('abstain');$('confidence').oninput=()=>text('confidenceValue',(Number($('confidence').value)/100).toFixed(2));$('note').onchange=()=>{const item=visible[cursor];if(item){const d=decision(item);state[item.judgment_identity]={...d,note:$('note').value};save()}};
+document.onkeydown=e=>{if(e.target.matches('input,textarea,select'))return;if(e.key==='1')choose('positive_preferred');if(e.key==='2')choose('negative_preferred');if(e.key==='3')choose('abstain');if(e.key==='ArrowLeft')$('prev').click();if(e.key==='ArrowRight')$('next').click()};
+</script>
+</body>
+</html>
