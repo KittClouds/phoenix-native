@@ -14,3 +14,13 @@ pulp.workspace = true
 serde.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
+
+# AGPL quarantine: bm25_turbo is a benchmark-only dev-dependency of this
+# publish=false crate. It must never migrate to [dependencies] or be shipped.
+[dev-dependencies]
+bm25_turbo.workspace = true
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "retrieval"
+harness = false

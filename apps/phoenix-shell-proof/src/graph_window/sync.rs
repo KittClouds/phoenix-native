@@ -52,6 +52,11 @@ impl EmbeddedGraphApp {
                     .context("install replacement decision-ledger review overlay")?;
             }
             self.loaded_generation = Some(scene.generation());
+            crate::pipeline_timing::mark(
+                "scene_projected_to_renderer",
+                scene.generation().0,
+                started.elapsed().as_micros(),
+            );
             self.loaded_manifold = snapshot.graph_view.manifold;
             self.loaded_graph_view = snapshot.graph_view;
             // The replacement archive carries baked visual colors. Force the

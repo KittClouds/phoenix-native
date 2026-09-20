@@ -171,6 +171,9 @@ impl NativeProducerRuntimeConfig {
         hasher.update(b"phoenix.analysis.resident-models/v1\0");
         hash_path_identity(&mut hasher, &self.producer_executable);
         hash_path_identity(&mut hasher, &self.ner_model_root);
+        // A sealed worker descriptor can change without changing its parent
+        // directory's metadata. Include its revision in residency/reuse keys.
+        hash_path_identity(&mut hasher, &self.ner_model_root.join("gliner25.json"));
         hash_path_identity(&mut hasher, &self.nli_model_root);
         *hasher.finalize().as_bytes()
     }
@@ -381,6 +384,15 @@ impl PhoenixKernel {
         generation: u64,
         config: &NativeProducerRuntimeConfig,
     ) -> Result<AnalysisPublicationReceipt, KernelError> {
+        self.analyze_active_document_with_disposition(generation, config)
+            .map(|(receipt, _)| receipt)
+    }
+
+    pub(super) fn analyze_active_document_with_disposition(
+        &self,
+        generation: u64,
+        config: &NativeProducerRuntimeConfig,
+    ) -> Result<(AnalysisPublicationReceipt, AtlasWorkDisposition), KernelError> {
         let config_hash = config.resident_hash();
         let (lease, source_registry_revision, reusable) = {
             let state = read_state(&self.shared)?;
@@ -398,7 +410,7 @@ impl PhoenixKernel {
             (lease, state.entity_registry.revision(), reusable)
         };
         if let Some(receipt) = reusable {
-            return Ok(receipt);
+            return Ok((receipt, AtlasWorkDisposition::ReusedResident));
         }
         let target_registry_revision = source_registry_revision
             .checked_add(1)
@@ -461,6 +473,7 @@ impl PhoenixKernel {
         let structural = open_structural_artifact(&structural_path)?;
         let coordinator = open_producer_coordinator(&preliminary_coordinator_path)?;
         self.publish_verified_analysis(verified, structural, coordinator, &output_path)
+            .map(|receipt| (receipt, AtlasWorkDisposition::Computed))
     }
 
     pub fn publish_verified_analysis(

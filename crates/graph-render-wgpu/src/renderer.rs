@@ -79,6 +79,7 @@ pub struct GraphRenderer {
     depth_view: wgpu::TextureView,
     scene: GpuScene,
     prepared_paths: PreparedPathLayer,
+    caps_inspection: (bool, u8, bool),
     labels: LabelLayer,
     picking: PickingPass,
     pointer: PointerState,
@@ -269,6 +270,7 @@ impl GraphRenderer {
             depth_view,
             scene,
             prepared_paths,
+            caps_inspection: (false, 0, false),
             labels,
             picking,
             pointer: PointerState::default(),
@@ -568,6 +570,17 @@ impl GraphRenderer {
     }
 
     fn fit_active_graph(&mut self) {
+        if self.active_view.manifold == Manifold::Caps && self.caps_inspection.0 {
+            let radius = match self.caps_inspection.1 {
+                1 => phoenix_scene_contract::CapsRole::Document.world_radius(),
+                2 => phoenix_scene_contract::CapsRole::Chapter.world_radius(),
+                3 => phoenix_scene_contract::CapsRole::Paragraph.world_radius(),
+                _ => phoenix_scene_contract::CapsRole::Sentence.world_radius(),
+            };
+            self.camera.fit_centered_radius(radius);
+            self.camera.orient(0.72, 0.34);
+            return;
+        }
         let view = self.active_view;
         let scene = &self.scene;
         let visible_nodes = scene
@@ -576,6 +589,9 @@ impl GraphRenderer {
             .filter_map(|(slot, node)| scene.node_visible_in_view(slot, view).then_some(node));
         match view.surface {
             GraphSurface::Entities => self.camera.fit_graph_around_bounds(visible_nodes),
+            GraphSurface::Atlas if view.manifold == Manifold::Hybrid => {
+                self.camera.fit_graph_around_bounds(visible_nodes)
+            }
             GraphSurface::Atlas => self.camera.fit_graph(visible_nodes),
         }
         if self.active_view.manifold == Manifold::Caps {
@@ -594,6 +610,7 @@ impl GraphRenderer {
     }
 
     pub fn handle_input(&mut self, input: GraphInput) -> Result<Option<GraphEvent>, RenderError> {
+        let inspecting = self.active_view.manifold == Manifold::Caps && self.caps_inspection.0;
         let event = match input {
             GraphInput::PointerMoved { pointer } => {
                 let (x, y) = (pointer.x, pointer.y);
@@ -612,7 +629,7 @@ impl GraphRenderer {
                 } else if self.pointer.middle_down || self.pointer.right_down {
                     self.camera.pan(delta_x, delta_y);
                     self.camera_changed()
-                } else if !self.pointer.left_down {
+                } else if !self.pointer.left_down && !inspecting {
                     self.picking.request(x, y, PickIntent::Hover);
                     self.redraw_requested = true;
                     None
@@ -645,7 +662,7 @@ impl GraphRenderer {
                 self.pointer.position = point;
                 if button == PointerButton::Left {
                     self.pointer.left_down = false;
-                    if !self.pointer.dragged {
+                    if !self.pointer.dragged && !inspecting {
                         self.picking.request(point.0, point.1, PickIntent::Select);
                         self.redraw_requested = true;
                     }
@@ -659,7 +676,11 @@ impl GraphRenderer {
                 None
             }
             GraphInput::Wheel { delta_y, .. } => {
-                let anchor = self.hovered_zoom_anchor();
+                let anchor = if inspecting {
+                    None
+                } else {
+                    self.hovered_zoom_anchor()
+                };
                 self.camera.zoom_at_anchor(
                     delta_y,
                     self.pointer.position.0,
@@ -674,6 +695,16 @@ impl GraphRenderer {
                 scale_factor,
             } => {
                 self.resize(width, height, scale_factor);
+                None
+            }
+            GraphInput::InspectCaps {
+                space_only,
+                depth,
+                cutaway,
+            } => {
+                self.caps_inspection = (space_only, depth.min(4), cutaway);
+                self.picking.invalidate();
+                self.redraw_requested = true;
                 None
             }
             GraphInput::FitGraph => {
@@ -845,6 +876,13 @@ impl GraphRenderer {
 
     pub fn render(&mut self) -> Result<FrameMetrics, RenderError> {
         let started = Instant::now();
+        let inspection = if self.active_view.manifold == Manifold::Caps {
+            self.caps_inspection
+        } else {
+            (false, 0, false)
+        };
+        let space_only = inspection.0;
+        self.prepared_paths.inspect(inspection, &self.queue);
         self.redraw_requested = false;
         let output = match self.surface.get_current_texture() {
             Ok(output) => output,
@@ -872,7 +910,11 @@ impl GraphRenderer {
             &self.camera_bind_group,
             &self.node_bind_group,
             &self.lens_bind_group,
-            self.scene.node_draw_slots(),
+            if space_only {
+                0
+            } else {
+                self.scene.node_draw_slots()
+            },
         );
         self.labels.prepare(
             &self.device,
@@ -922,7 +964,7 @@ impl GraphRenderer {
                 &self.edge_bind_group,
             );
             let edge_slots = self.scene.edge_draw_slots();
-            if edge_slots != 0 && !self.prepared_paths.has_paths() {
+            if !space_only && edge_slots != 0 && !self.prepared_paths.has_paths() {
                 pass.set_pipeline(&self.pipelines.edges);
                 pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 pass.set_bind_group(1, &self.node_bind_group, &[]);
@@ -931,7 +973,7 @@ impl GraphRenderer {
                 pass.draw(0..4, 0..edge_slots);
             }
             let node_slots = self.scene.node_draw_slots();
-            if node_slots != 0 {
+            if !space_only && node_slots != 0 {
                 pass.set_pipeline(&self.pipelines.nodes);
                 pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 pass.set_bind_group(1, &self.node_bind_group, &[]);
@@ -939,7 +981,9 @@ impl GraphRenderer {
                 pass.draw(0..4, 0..node_slots);
             }
         }
-        self.labels.render_onto(&mut encoder, &view)?;
+        if !space_only {
+            self.labels.render_onto(&mut encoder, &view)?;
+        }
         self.queue.submit(Some(encoder.finish()));
         self.picking.begin_map_after_submit();
         output.present();

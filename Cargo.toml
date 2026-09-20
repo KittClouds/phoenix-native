@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/phoenix-tts-native",
+    "crates/phoenix-tts-contract",
+    "crates/phoenix-reader-session",
+    "crates/phoenix-audio",
     "crates/graph-model",
     "crates/gpui-animated-gradient-text",
     "crates/graph-render-wgpu",
@@ -40,6 +44,10 @@ members = [
 ]
 exclude = ["apps/phoenix-legacy-bridge"]
 default-members = [
+    "crates/phoenix-tts-native",
+    "crates/phoenix-tts-contract",
+    "crates/phoenix-reader-session",
+    "crates/phoenix-audio",
     "crates/graph-model",
     "crates/gpui-animated-gradient-text",
     "crates/graph-render-wgpu",
@@ -86,6 +94,7 @@ anyhow = "1.0"
 async-channel = "=2.5.0"
 bytemuck = { version = "1.21", features = ["derive"] }
 blake3 = "1.8"
+bm25_turbo = "0.2.0"
 glam = "0.29"
 hashbrown = { version = "0.15", features = ["serde"] }
 compact_str = "0.9"

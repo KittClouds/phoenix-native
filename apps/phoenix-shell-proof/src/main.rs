@@ -1,3 +1,5 @@
+mod pipeline_timing;
+mod reader_assets;
 #[cfg(feature = "legacy-graph-adapter")]
 compile_error!(
     "PHOENIX_LEGACY_GRAPH_ADAPTER_FORBIDDEN: the native release has no legacy graph fallback"
@@ -20,9 +22,9 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing_subscriber::{filter::Directive, EnvFilter};
-use velotype::VelotypeAssets;
 
 fn main() {
+    pipeline_timing::initialize();
     configure_gpui_child_window_hosting();
     initialize_tracing();
     let arguments = std::env::args_os().collect::<Vec<_>>();
@@ -220,7 +222,7 @@ fn main() {
     }
     let app_kernel = Arc::clone(&kernel);
     Application::new()
-        .with_assets(VelotypeAssets)
+        .with_assets(reader_assets::ShellAssets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
             velotype::init_embedded(cx);

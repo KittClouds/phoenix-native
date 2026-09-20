@@ -190,6 +190,17 @@ impl Camera {
         self.fit_graph_around(nodes, Vec3::ZERO);
     }
 
+    /// Frame a centered presentation surface whose geometry is independent of
+    /// the node inventory (for example a peeled CAPS guide shell).
+    pub fn fit_centered_radius(&mut self, radius: f32) {
+        self.orbit_center = Vec3::ZERO;
+        self.target = Vec3::ZERO;
+        let vertical_half = self.fov_y * 0.5;
+        let horizontal_half = (vertical_half.tan() * self.aspect).atan();
+        let limiting_half_angle = vertical_half.min(horizontal_half);
+        self.distance = (radius.max(1.0) / limiting_half_angle.sin() * 1.1).clamp(0.05, 100_000.0);
+    }
+
     pub fn fit_graph_around_bounds<'a, I>(&mut self, nodes: I)
     where
         I: IntoIterator<Item = &'a NodeVisual>,

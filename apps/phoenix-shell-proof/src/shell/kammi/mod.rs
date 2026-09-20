@@ -9,7 +9,7 @@ use gpui::{AppContext as _, Entity, ScrollHandle, Task, Window};
 use gpui_component::input::InputState;
 use provider::{spawn_provider_runtime, KammiProviderRuntime};
 use session::{KammiSession, MessageState, PendingInsertion};
-use settings::{load_openrouter_key, KammiSettings};
+use settings::{load_openrouter_key, KammiSettings, ProviderBackend};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -72,6 +72,9 @@ pub struct KammiState {
     pub composer: Entity<InputState>,
     pub model_input: Entity<InputState>,
     pub api_key_input: Entity<InputState>,
+    pub llama_server_input: Entity<InputState>,
+    pub llama_model_input: Entity<InputState>,
+    pub llama_endpoint_input: Entity<InputState>,
     pub system_prompt_input: Entity<InputState>,
     pub session: KammiSession,
     pub history: VecDeque<KammiSession>,
@@ -105,6 +108,12 @@ impl KammiState {
                 .masked(true)
                 .placeholder("OpenRouter API key")
         });
+        let llama_server_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(r"C:\llama.cpp\llama-server.exe"));
+        let llama_model_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(r"D:\models\model.gguf"));
+        let llama_endpoint_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("http://127.0.0.1:8080/v1"));
         let system_prompt_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .auto_grow(4, 12)
@@ -121,6 +130,9 @@ impl KammiState {
             composer,
             model_input,
             api_key_input,
+            llama_server_input,
+            llama_model_input,
+            llama_endpoint_input,
             system_prompt_input,
             session: KammiSession::new(1),
             history: VecDeque::new(),
@@ -139,7 +151,7 @@ impl KammiState {
     pub fn provider_status(&self) -> ProviderStatus {
         if matches!(self.generation, GenerationState::Streaming { .. }) {
             return ProviderStatus::Generating {
-                model: self.settings.model.clone(),
+                model: self.settings.active_model_label(),
             };
         }
         if let GenerationState::Failed { message } = &self.generation {
@@ -147,9 +159,18 @@ impl KammiState {
                 message: message.clone(),
             };
         }
-        if self.has_api_key && !self.settings.model.trim().is_empty() {
+        let configured = match self.settings.backend {
+            ProviderBackend::OpenRouter => {
+                self.has_api_key && !self.settings.model.trim().is_empty()
+            }
+            ProviderBackend::LlamaCpp => {
+                !self.settings.llama_cpp.server_path.trim().is_empty()
+                    && !self.settings.llama_cpp.model_path.trim().is_empty()
+            }
+        };
+        if configured {
             ProviderStatus::Ready {
-                model: self.settings.model.clone(),
+                model: self.settings.active_model_label(),
             }
         } else {
             ProviderStatus::Unconfigured

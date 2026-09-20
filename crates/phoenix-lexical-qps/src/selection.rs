@@ -33,7 +33,7 @@ impl Ord for RankedCandidate {
 }
 
 #[inline]
-fn consider(
+pub(crate) fn consider(
     heap: &mut BinaryHeap<Reverse<RankedCandidate>>,
     limit: usize,
     candidate: RankedCandidate,
@@ -51,7 +51,7 @@ fn consider(
     }
 }
 
-fn finish(heap: &mut BinaryHeap<Reverse<RankedCandidate>>, output: &mut Vec<u32>) {
+pub(crate) fn finish(heap: &mut BinaryHeap<Reverse<RankedCandidate>>, output: &mut Vec<u32>) {
     output.clear();
     output.extend(heap.drain().map(|candidate| candidate.0.document));
 }

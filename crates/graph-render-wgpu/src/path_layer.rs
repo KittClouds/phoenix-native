@@ -41,6 +41,9 @@ pub(crate) struct PreparedPathLayer {
     bind_group: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
     guide_segments: usize,
+    display: Vec<PreparedSegmentGpu>,
+    display_count: usize,
+    inspection: Option<(bool, u8, bool)>,
 }
 
 impl PreparedPathLayer {
@@ -122,6 +125,9 @@ impl PreparedPathLayer {
             bind_group,
             pipeline,
             guide_segments: 0,
+            display: Vec::new(),
+            display_count: 0,
+            inspection: None,
         })
     }
 
@@ -133,6 +139,8 @@ impl PreparedPathLayer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<PreparedGeometryMetrics, RenderError> {
+        self.inspection = None;
+        self.display_count = 0;
         self.segments.clear();
         if let Some(guides) = guides {
             for stroke in guides.strokes {
@@ -191,12 +199,56 @@ impl PreparedPathLayer {
     }
 
     pub(crate) fn clear(&mut self) {
+        self.inspection = None;
+        self.display_count = 0;
         self.segments.clear();
         self.guide_segments = 0;
     }
 
     pub(crate) fn has_paths(&self) -> bool {
         self.segments.len() > self.guide_segments
+    }
+
+    /// Repack only when the inspection settings or publication change. Camera
+    /// motion does no CPU traversal, allocation, or geometry upload.
+    pub(crate) fn inspect(&mut self, settings: (bool, u8, bool), queue: &wgpu::Queue) {
+        if self.inspection == Some(settings) {
+            return;
+        }
+        self.inspection = Some(settings);
+        self.display.clear();
+        let (space_only, depth, cutaway) = settings;
+        if !space_only {
+            self.buffer.write(queue, 0, &self.segments);
+            self.display_count = self.segments.len();
+            return;
+        }
+        let outer = match depth {
+            1 => phoenix_scene_contract::CapsRole::Document.world_radius(),
+            2 => phoenix_scene_contract::CapsRole::Chapter.world_radius(),
+            3 => phoenix_scene_contract::CapsRole::Paragraph.world_radius(),
+            _ => phoenix_scene_contract::CapsRole::Sentence.world_radius(),
+        } + 0.1;
+        self.display.extend(
+            self.segments[..self.guide_segments]
+                .iter()
+                .filter_map(|segment| {
+                    let a = glam::Vec3::from_slice(&segment.start[..3]);
+                    let b = glam::Vec3::from_slice(&segment.end[..3]);
+                    if !inspection_visible(a, b, outer, cutaway) {
+                        return None;
+                    }
+                    // Drop the old decorative axis: it has no containment semantics.
+                    if segment.flags >> 8 == GUIDE_FLAG_CONCENTRATION_AXIS {
+                        return None;
+                    }
+                    let mut visible = *segment;
+                    visible.color[3] = (visible.color[3] * 1.65).min(0.88);
+                    Some(visible)
+                }),
+        );
+        self.display_count = self.display.len();
+        self.buffer.write(queue, 0, &self.display);
     }
 
     pub(crate) fn render<'pass>(
@@ -214,7 +266,7 @@ impl PreparedPathLayer {
         pass.set_bind_group(1, &self.bind_group, &[]);
         pass.set_bind_group(2, lens, &[]);
         pass.set_bind_group(3, edges, &[]);
-        pass.draw(0..4, 0..self.segments.len() as u32);
+        pass.draw(0..4, 0..self.display_count as u32);
     }
 }
 
@@ -329,5 +381,34 @@ mod tests {
         assert!(guide_width(GUIDE_FLAG_SHELL) < guide_width(GUIDE_FLAG_CAP_BOUNDARY));
         assert!(guide_width(GUIDE_FLAG_CAP_BOUNDARY) < guide_width(GUIDE_FLAG_CONCENTRATION_AXIS));
         assert!(guide_width(GUIDE_FLAG_CONCENTRATION_AXIS) < 1.0);
+    }
+}
+
+// Fixed world-space wedge exposes the inner shells and remains stable while orbiting.
+fn inspection_visible(a: glam::Vec3, b: glam::Vec3, outer: f32, cutaway: bool) -> bool {
+    a.length_squared().max(b.length_squared()) <= outer * outer
+        && !(cutaway && a.x > 0.0 && a.z > 0.0 && b.x > 0.0 && b.z > 0.0)
+}
+
+#[cfg(test)]
+mod inspection_tests {
+    use super::inspection_visible;
+    use glam::Vec3;
+    #[test]
+    fn peel_uses_both_endpoints_and_cutaway_is_world_fixed() {
+        assert!(!inspection_visible(Vec3::X, Vec3::X * 4.0, 2.0, false));
+        assert!(inspection_visible(Vec3::X, Vec3::Y, 2.0, true));
+        assert!(!inspection_visible(
+            Vec3::new(1.0, 0.0, 1.0),
+            Vec3::new(1.0, 1.0, 1.0),
+            2.0,
+            true
+        ));
+        assert!(inspection_visible(
+            Vec3::new(1.0, 0.0, 1.0),
+            Vec3::new(1.0, 1.0, 1.0),
+            2.0,
+            false
+        ));
     }
 }

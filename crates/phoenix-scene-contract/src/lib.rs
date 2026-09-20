@@ -5,6 +5,7 @@ mod entities;
 mod graph_palette;
 mod highlights;
 mod hopf;
+mod projection_layout;
 mod topology;
 mod view;
 mod visual;
@@ -37,6 +38,10 @@ pub use highlights::{
 pub use hopf::{
     GUIDE_FLAG_HOPF_BASE_LINK, GUIDE_FLAG_HOPF_BASE_SPHERE, GUIDE_FLAG_HOPF_FIBER,
     HOPF_VISUAL_CONTRACT,
+};
+pub use projection_layout::{
+    siegel_band, siegel_band_center, transit_layer_radius, transit_layer_y,
+    PROJECTION_LAYOUT_CONTRACT, SIEGEL_BAND_COUNT, TRANSIT_LAYER_COUNT,
 };
 pub use topology::{
     validate_topology_endpoints, TopologyInventoryCensus, TopologyInventoryError,
@@ -426,9 +431,9 @@ fn is_legacy_five_manifold_archive(archive: &PhoenixSceneArchiveV1) -> bool {
 
 const fn preferred_path_kind(manifold: Manifold) -> PageKind {
     match manifold {
-        Manifold::Hybrid | Manifold::Siegel => PageKind::BundledPaths,
+        Manifold::Siegel => PageKind::BundledPaths,
         Manifold::Torus | Manifold::Hopf | Manifold::Transit => PageKind::CurvedPaths,
-        Manifold::Caps => PageKind::StraightPaths,
+        Manifold::Hybrid | Manifold::Caps => PageKind::StraightPaths,
     }
 }
 

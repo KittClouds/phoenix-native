@@ -3,6 +3,7 @@ use super::{
     session::{KammiMessage, KammiRole, KammiSession, MessageState, PendingInsertion},
     settings::{
         clear_openrouter_key, contains_openrouter_key, store_openrouter_key, validate_model_id,
+        ProviderBackend,
     },
     GenerationState, KammiPanel, KammiTab, ProviderStatus, RightSidebarPage,
 };
@@ -21,6 +22,9 @@ const CARD_BG: u32 = 0x1c1f20;
 
 impl PhoenixShell {
     pub(crate) fn render_right_sidebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.reader.open && self.reader.sidebar {
+            return self.render_reader_sidebar(cx).into_any_element();
+        }
         match self.right_sidebar_page {
             RightSidebarPage::Inspector => self.render_inspector(cx).into_any_element(),
             RightSidebarPage::Analytics => self.render_analytics(cx).into_any_element(),
@@ -124,15 +128,16 @@ impl PhoenixShell {
         let status = self.kammi.provider_status();
         let (status_text, status_color) = match &status {
             ProviderStatus::Unconfigured => ("PROVIDER OFF", TEXT_MUTED),
-            ProviderStatus::Ready { .. } => ("OPENROUTER", ACCENT),
+            ProviderStatus::Ready { .. } => (self.kammi.settings.backend.label(), ACCENT),
             ProviderStatus::Generating { .. } => ("GENERATING ●", ACCENT),
             ProviderStatus::Error { .. } => ("ERROR", 0xee5555),
         };
 
-        let model_label = if self.kammi.settings.model.trim().is_empty() {
+        let active_model = self.kammi.settings.active_model_label();
+        let model_label = if active_model.trim().is_empty() {
             "no model set".to_string()
         } else {
-            self.kammi.settings.model.clone()
+            active_model
         };
 
         div()
@@ -943,7 +948,7 @@ impl PhoenixShell {
             return;
         }
 
-        if !self.kammi.has_api_key {
+        if self.kammi.settings.backend == ProviderBackend::OpenRouter && !self.kammi.has_api_key {
             self.kammi.panel = KammiPanel::Settings;
             self.kammi.error_banner =
                 Some("Please configure an OpenRouter API key first.".to_string());
@@ -951,10 +956,22 @@ impl PhoenixShell {
             return;
         }
 
-        if self.kammi.settings.model.trim().is_empty() {
+        if self.kammi.settings.backend == ProviderBackend::OpenRouter
+            && self.kammi.settings.model.trim().is_empty()
+        {
             self.kammi.panel = KammiPanel::Settings;
             self.kammi.error_banner =
                 Some("Please set a model ID in Settings (e.g. openai/gpt-4o).".to_string());
+            cx.notify();
+            return;
+        }
+        if self.kammi.settings.backend == ProviderBackend::LlamaCpp
+            && (self.kammi.settings.llama_cpp.server_path.trim().is_empty()
+                || self.kammi.settings.llama_cpp.model_path.trim().is_empty())
+        {
+            self.kammi.panel = KammiPanel::Settings;
+            self.kammi.error_banner =
+                Some("Configure both llama-server.exe and a GGUF model path first.".to_string());
             cx.notify();
             return;
         }
@@ -1002,7 +1019,7 @@ impl PhoenixShell {
             id: assistant_req_id,
             role: KammiRole::Assistant,
             content: String::new(),
-            model: Some(self.kammi.settings.model.clone()),
+            model: Some(self.kammi.settings.active_model_label()),
             state: MessageState::Streaming,
         });
 
@@ -1041,7 +1058,9 @@ impl PhoenixShell {
 
         let req = ProviderRequest {
             request_id: assistant_req_id,
+            backend: self.kammi.settings.backend,
             model: self.kammi.settings.model.clone(),
+            llama_cpp: self.kammi.settings.llama_cpp.clone(),
             messages: provider_msgs,
             reasoning: self.kammi.settings.reasoning,
         };
@@ -1066,7 +1085,7 @@ impl PhoenixShell {
                 }
                 Err(error) => {
                     self.kammi.error_banner =
-                        Some(format!("Could not stop the OpenRouter request: {error}"));
+                        Some(format!("Could not stop the provider request: {error}"));
                 }
             }
             cx.notify();
@@ -1115,7 +1134,7 @@ impl PhoenixShell {
         let model = msg
             .model
             .clone()
-            .unwrap_or_else(|| self.kammi.settings.model.clone());
+            .unwrap_or_else(|| self.kammi.settings.active_model_label());
 
         let result = if let Some(pending) = pending {
             self.editor.update(cx, |editor, cx| {

@@ -1,6 +1,8 @@
 mod caps;
 mod hopf;
 mod hybrid;
+mod semantic;
+pub use semantic::{siegel as compile_siegel_positions, transit as compile_transit_positions};
 
 pub use caps::{
     layout as compile_caps_positions, layout_with_guides as compile_caps_layout, CapsGuide,

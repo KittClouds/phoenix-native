@@ -25,6 +25,7 @@ pub(super) fn render(
         .child(
             div()
                 .flex()
+                .flex_col()
                 .items_start()
                 .justify_between()
                 .gap_4()
@@ -50,6 +51,7 @@ pub(super) fn render(
                 .child(
                     div()
                         .flex()
+                        .flex_wrap()
                         .items_center()
                         .gap_2()
                         .child(status_badge(control.build_state))
@@ -92,9 +94,9 @@ pub(super) fn render(
                             .child(receipt_metric("GLINER LOAD", receipt.ner_load_micros))
                             .child(receipt_metric("NLI LOAD", receipt.nli_load_micros))
                             .child(receipt_metric("WARM TOTAL", receipt.total_micros))
-                            .child(receipt_metric(
+                            .child(receipt_value(
                                 "PRODUCER PID",
-                                u64::from(receipt.producer_pid),
+                                receipt.producer_pid.to_string(),
                             )),
                     ),
             )
@@ -104,14 +106,14 @@ pub(super) fn render(
                 .mt_4()
                 .w_full()
                 .grid()
-                .grid_cols(4)
+                .grid_cols(2)
                 .gap_3()
                 .child(runtime_lane(
                     "DYNAMIC NER",
                     control
                         .analysis
                         .as_ref()
-                        .map(|summary| summary.dynamic_ner_model.to_string())
+                        .map(|summary| summary.dynamic_ner_model.rsplit('+').next().unwrap_or(&summary.dynamic_ner_model).split('@').next().unwrap_or(&summary.dynamic_ner_model).to_owned())
                         .unwrap_or_else(|| control.analysis_runtime.dynamic_ner.to_string()),
                     control.analysis_runtime.ready,
                 ))
@@ -146,6 +148,14 @@ pub(super) fn render(
                     .border_color(rgb(BORDER))
                     .bg(rgb(CARD_BG))
                     .child(kicker("LAST VERIFIED RECEIPT", READY))
+                    .child(div().mt_2().text_sm().text_color(rgb(TEXT_MUTED)).child(
+                        match receipt.reuse.analysis {
+                            phoenix_app_core::AtlasWorkDisposition::Computed => "Fresh analysis · startup excluded",
+                            phoenix_app_core::AtlasWorkDisposition::ReusedResident => "Analysis reused from memory · no new inference",
+                            phoenix_app_core::AtlasWorkDisposition::ReusedDurable => "Saved analysis reused · no new inference",
+                            phoenix_app_core::AtlasWorkDisposition::Unsupported => "Analysis unavailable",
+                        }
+                    ))
                     .child(
                         div()
                             .mt_2()
@@ -289,18 +299,16 @@ fn runtime_lane(label: &'static str, value: String, ready: bool) -> impl IntoEle
 }
 
 fn receipt_metric(label: &'static str, micros: u64) -> impl IntoElement {
+    receipt_value(label, format!("{:.1} ms", micros as f64 / 1_000.))
+}
+
+fn receipt_value(label: &'static str, value: String) -> impl IntoElement {
     div()
         .p_3()
         .rounded_md()
         .bg(rgb(CARD_RAISED))
         .child(kicker(label, READY))
-        .child(
-            div()
-                .mt_1()
-                .text_sm()
-                .text_color(rgb(TEXT))
-                .child(format!("{:.1} ms", micros as f64 / 1_000.)),
-        )
+        .child(div().mt_1().text_sm().text_color(rgb(TEXT)).child(value))
 }
 
 const fn stage_name(stage: phoenix_app_core::AtlasStage) -> &'static str {

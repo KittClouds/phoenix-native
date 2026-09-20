@@ -238,6 +238,11 @@ pub struct AtlasRunReceiptV1 {
 }
 
 impl AtlasRunReceiptV1 {
+    /// Read and validate an immutable receipt without opening or mutating a workspace.
+    pub fn open_verified(path: &Path) -> Result<([u8; 32], Self), AtlasRunReceiptError> {
+        open(path)
+    }
+
     pub fn validate(&self) -> Result<(), AtlasRunReceiptError> {
         if self.contract != ATLAS_RUN_RECEIPT_CONTRACT
             || self.run_id == 0
@@ -423,6 +428,7 @@ pub(super) struct CompletedRunInput<'a> {
     pub run_id: u64,
     pub previous_generation: Option<u64>,
     pub analysis: Option<AnalysisPublicationReceipt>,
+    pub analysis_disposition: AtlasWorkDisposition,
     pub analysis_total_micros: u64,
     pub graph: GraphRebuildReceipt,
     pub publisher_micros: u64,
@@ -443,6 +449,7 @@ pub(super) fn completed_receipt(
     let (nli_identity_candidates, generic_related_candidates) =
         input.nli.map(candidate_family_counts).unwrap_or_default();
     let analyzed = input.analysis.is_some();
+    let stage_time = |value| current_stage_time(input.analysis_disposition, value);
     let capability = |value| {
         if analyzed {
             AtlasCapabilityCount::produced(value)
@@ -455,6 +462,7 @@ pub(super) fn completed_receipt(
         input.total_micros,
         input.analysis_total_micros,
         stages,
+        input.analysis_disposition,
         compile.compile_micros,
         input.publisher_micros,
     );
@@ -538,27 +546,23 @@ pub(super) fn completed_receipt(
             total_micros: input.total_micros,
             analysis_total_micros: capability(input.analysis_total_micros),
             chunker_micros: stages
-                .map(|receipt| AtlasCapabilityCount::produced(receipt.chunker_micros))
+                .map(|receipt| stage_time(receipt.chunker_micros))
                 .unwrap_or_else(AtlasCapabilityCount::unsupported),
             dynamic_ner_micros: stages
-                .map(|receipt| AtlasCapabilityCount::produced(receipt.dynamic_ner_micros))
+                .map(|receipt| stage_time(receipt.dynamic_ner_micros))
                 .unwrap_or_else(AtlasCapabilityCount::unsupported),
             nli_load_micros: stages
-                .map(|receipt| AtlasCapabilityCount::produced(receipt.nli_load_micros))
+                .map(|receipt| stage_time(receipt.nli_load_micros))
                 .unwrap_or_else(AtlasCapabilityCount::unsupported),
             nli_adjudication_micros: stages
-                .map(|receipt| AtlasCapabilityCount::produced(receipt.nli_adjudication_micros))
+                .map(|receipt| stage_time(receipt.nli_adjudication_micros))
                 .unwrap_or_else(AtlasCapabilityCount::unsupported),
             compiler_micros: compile.compile_micros,
             publisher_micros: input.publisher_micros,
         },
         reuse: AtlasReuseSnapshot {
             source: AtlasWorkDisposition::ReusedResident,
-            analysis: if analyzed {
-                AtlasWorkDisposition::Computed
-            } else {
-                AtlasWorkDisposition::Unsupported
-            },
+            analysis: input.analysis_disposition,
             compiler: AtlasWorkDisposition::Computed,
             publisher: AtlasWorkDisposition::Computed,
         },
@@ -609,6 +613,7 @@ fn build_spans(
     total_micros: u64,
     analysis_total_micros: u64,
     stages: Option<phoenix_analysis_contract::AnalysisStageReceipt>,
+    disposition: AtlasWorkDisposition,
     compiler_micros: u64,
     publisher_micros: u64,
 ) -> Vec<AtlasSpanReceipt> {
@@ -622,34 +627,36 @@ fn build_spans(
             AtlasSpanKind::Analysis,
             analysis_total_micros,
         ));
-        spans.push(span(
-            run_id,
-            3,
-            Some(2),
-            AtlasSpanKind::Chunker,
-            stages.chunker_micros,
-        ));
-        spans.push(span(
-            run_id,
-            4,
-            Some(2),
-            AtlasSpanKind::DynamicNer,
-            stages.dynamic_ner_micros,
-        ));
-        spans.push(span(
-            run_id,
-            5,
-            Some(2),
-            AtlasSpanKind::NliLoad,
-            stages.nli_load_micros,
-        ));
-        spans.push(span(
-            run_id,
-            6,
-            Some(2),
-            AtlasSpanKind::NliAdjudication,
-            stages.nli_adjudication_micros,
-        ));
+        if disposition == AtlasWorkDisposition::Computed {
+            spans.push(span(
+                run_id,
+                3,
+                Some(2),
+                AtlasSpanKind::Chunker,
+                stages.chunker_micros,
+            ));
+            spans.push(span(
+                run_id,
+                4,
+                Some(2),
+                AtlasSpanKind::DynamicNer,
+                stages.dynamic_ner_micros,
+            ));
+            spans.push(span(
+                run_id,
+                5,
+                Some(2),
+                AtlasSpanKind::NliLoad,
+                stages.nli_load_micros,
+            ));
+            spans.push(span(
+                run_id,
+                6,
+                Some(2),
+                AtlasSpanKind::NliAdjudication,
+                stages.nli_adjudication_micros,
+            ));
+        }
     }
     spans.push(span(
         run_id,
@@ -666,6 +673,16 @@ fn build_spans(
         publisher_micros,
     ));
     spans
+}
+
+fn current_stage_time(disposition: AtlasWorkDisposition, micros: u64) -> AtlasCapabilityCount {
+    match disposition {
+        AtlasWorkDisposition::Computed => AtlasCapabilityCount::produced(micros),
+        AtlasWorkDisposition::ReusedResident | AtlasWorkDisposition::ReusedDurable => {
+            AtlasCapabilityCount::not_run()
+        }
+        AtlasWorkDisposition::Unsupported => AtlasCapabilityCount::unsupported(),
+    }
 }
 
 const fn span(
@@ -924,6 +941,61 @@ fn read_u64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod compatibility_tests {
     use super::*;
+
+    #[test]
+    fn reused_analysis_does_not_replay_original_model_timings() {
+        let original = phoenix_analysis_contract::AnalysisStageReceipt {
+            chunk_count: 398,
+            sentence_count: 2361,
+            mention_count: 1115,
+            entity_count: 86,
+            nli_candidate_count: 59,
+            nli_adjudication_count: 59,
+            chunker_micros: 87_026,
+            dynamic_ner_micros: 4_040_603,
+            nli_load_micros: 0,
+            nli_adjudication_micros: 1_717_412,
+            promotion_count: 0,
+        };
+        for reuse in [
+            AtlasWorkDisposition::ReusedResident,
+            AtlasWorkDisposition::ReusedDurable,
+        ] {
+            let spans = build_spans(1, 274_567, 2_093, Some(original), reuse, 9_450, 243_463);
+            assert_eq!(
+                spans.iter().map(|s| s.kind).collect::<Vec<_>>(),
+                [
+                    AtlasSpanKind::Pipeline,
+                    AtlasSpanKind::Analysis,
+                    AtlasSpanKind::Compiler,
+                    AtlasSpanKind::Publisher,
+                ]
+            );
+            assert_eq!(spans[1].elapsed_micros, 2_093);
+            assert_eq!(
+                current_stage_time(reuse, original.dynamic_ner_micros),
+                AtlasCapabilityCount::not_run()
+            );
+        }
+        let fresh = build_spans(
+            1,
+            6_116_178,
+            5_955_241,
+            Some(original),
+            AtlasWorkDisposition::Computed,
+            9_539,
+            90_459,
+        );
+        assert_eq!(fresh.len(), 8);
+        assert_eq!(
+            fresh
+                .iter()
+                .find(|s| s.kind == AtlasSpanKind::DynamicNer)
+                .unwrap()
+                .elapsed_micros,
+            4_040_603
+        );
+    }
 
     #[derive(Serialize)]
     struct LegacyAtlasSemanticCounts {

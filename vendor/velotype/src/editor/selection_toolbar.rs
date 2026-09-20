@@ -110,6 +110,17 @@ pub(super) struct SelectionToolbarState {
 }
 
 impl Editor {
+    /// Reading hosts can suppress caret-only formatting without disabling selected-text tools.
+    pub fn set_selection_toolbar_requires_selection(
+        &mut self,
+        required: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.selection_toolbar_requires_selection = required;
+        self.dismiss_selection_toolbar(cx);
+        cx.notify();
+    }
+
     fn clear_link_editor(&mut self, cx: &mut Context<Self>) -> bool {
         let had_input = self.selection_toolbar.link_input.take().is_some();
         let had_error = self.selection_toolbar.link_error.take().is_some();
@@ -236,7 +247,10 @@ impl Editor {
         if let Some(slices) = self.current_selection_slices(cx) {
             return Some((slices, true));
         }
-        if self.view_mode != ViewMode::Rendered || self.cross_block_selection.is_some() {
+        if self.selection_toolbar_requires_selection
+            || self.view_mode != ViewMode::Rendered
+            || self.cross_block_selection.is_some()
+        {
             return None;
         }
 

@@ -48,8 +48,8 @@ impl PhoenixShell {
             .border_color(rgb(BORDER))
             .bg(linear_gradient(
                 155.,
-                linear_color_stop(rgb(0x092820), 0.),
-                linear_color_stop(rgb(0x101211), 1.),
+                linear_color_stop(rgb(0x14231f), 0.),
+                linear_color_stop(rgb(0x111715), 1.),
             ))
             .child(atlas_header(&atlas, graph_view, panel, cx));
 
@@ -116,7 +116,7 @@ impl PhoenixShell {
                     )
                     .child(
                         Button::new("registry-add-entity")
-                            .label("+ ADD")
+                            .label("+ Add")
                             .small()
                             .ghost()
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -135,8 +135,8 @@ impl PhoenixShell {
                     .justify_between()
                     .text_xs()
                     .text_color(rgb(TEXT_MUTED))
-                    .child("IDENTITIES")
-                    .child(format!("{} SHOWN", visible.len())),
+                    .child("In this note")
+                    .child(format!("{} identities", visible.len())),
             )
             .child(
                 div()
@@ -195,7 +195,7 @@ fn atlas_header(
                         .text_sm()
                         .font_semibold()
                         .text_color(rgb(ACCENT))
-                        .child("ATLAS ENTITIES"),
+                        .child("Entities"),
                 )
                 .child(
                     div()
@@ -235,8 +235,8 @@ fn atlas_header(
                                     cx.notify();
                                 }))
                                 .child(match panel {
-                                    GraphSidebarPanel::Registry => "STYLE HUB",
-                                    GraphSidebarPanel::StyleHub => "REGISTRY",
+                                    GraphSidebarPanel::Registry => "Appearance",
+                                    GraphSidebarPanel::StyleHub => "Entities",
                                 }),
                         ),
                 ),
@@ -256,11 +256,11 @@ fn atlas_header(
                 .text_xs()
                 .text_color(rgb(TEXT_MUTED))
                 .child(authority_stat(
-                    "USER",
+                    "Tagged",
                     atlas.user_tagged_source_count.to_string(),
                 ))
-                .child(authority_stat("NER", atlas.ner_source_count.to_string()))
-                .child(authority_stat("REV", atlas.registry_revision.to_string())),
+                .child(authority_stat("Found", atlas.ner_source_count.to_string()))
+                .child(authority_stat("Rev", atlas.registry_revision.to_string())),
         )
 }
 
@@ -281,7 +281,7 @@ fn authority_stat(label: &'static str, value: String) -> impl IntoElement {
 }
 
 fn kind_summary(shell: &PhoenixShell, atlas: &AtlasRegistry) -> impl IntoElement {
-    let mut rows = div().mt_2().px_2().grid().grid_cols(3).gap_1();
+    let mut rows = div().mt_2().px_2().grid().grid_cols(2).gap_1();
     for kind in EntityKind::TOOLBAR {
         let count = atlas
             .entities
@@ -338,7 +338,7 @@ fn atlas_entity_row(
         .custom_kind
         .as_ref()
         .map(|kind| kind.to_string())
-        .unwrap_or_else(|| entity.kind.label().to_uppercase());
+        .unwrap_or_else(|| entity.kind.label().to_owned());
     let marker_color = if selected {
         ACCENT
     } else {
@@ -352,7 +352,7 @@ fn atlas_entity_row(
         .items_center()
         .gap_2()
         .border_b_1()
-        .border_color(rgb(0x26302d))
+        .border_color(rgb(0x1d2924))
         .cursor_pointer()
         .when(selected, |row| {
             row.bg(linear_gradient(
@@ -405,10 +405,10 @@ fn atlas_entity_row(
                         .text_color(rgb(TEXT_MUTED))
                         .child(kind)
                         .when(entity.sources.user_tagged, |row| {
-                            row.child(source_chip("USER", 0x174438, ACCENT))
+                            row.child(source_chip("Tagged", 0x174438, ACCENT))
                         })
                         .when(entity.sources.ner, |row| {
-                            row.child(source_chip("NER", 0x24334a, 0x78aaff))
+                            row.child(source_chip("Found", 0x24334a, 0x78aaff))
                         }),
                 ),
         )
@@ -453,15 +453,15 @@ fn source_chip(label: &'static str, background: u32, foreground: u32) -> impl In
 
 fn compact_kind_label(kind: EntityKind) -> &'static str {
     match kind {
-        EntityKind::Character => "CHAR",
-        EntityKind::Location => "PLACE",
+        EntityKind::Character => "Characters",
+        EntityKind::Location => "Places",
         EntityKind::Npc => "NPC",
-        EntityKind::Faction => "GROUP",
-        EntityKind::Network => "NETWORK",
-        EntityKind::Creature => "CREATURE",
-        EntityKind::Event => "EVENT",
-        EntityKind::Concept => "IDEA",
-        EntityKind::Custom => "CUSTOM",
+        EntityKind::Faction => "Groups",
+        EntityKind::Network => "Networks",
+        EntityKind::Creature => "Creatures",
+        EntityKind::Event => "Events",
+        EntityKind::Concept => "Ideas",
+        EntityKind::Custom => "Custom",
     }
 }
 
@@ -533,7 +533,7 @@ mod tests {
 
     #[test]
     fn compact_kind_labels_use_bounded_copy() {
-        assert_eq!(compact_kind_label(EntityKind::Character), "CHAR");
-        assert_eq!(compact_kind_label(EntityKind::Location), "PLACE");
+        assert_eq!(compact_kind_label(EntityKind::Character), "Characters");
+        assert_eq!(compact_kind_label(EntityKind::Location), "Places");
     }
 }

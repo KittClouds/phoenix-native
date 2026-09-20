@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 
 use crate::index::{
     DocumentMeta, FieldRange, PostingPosition, PostingRange, PostingRecord, QpsIndex,
-    StoredDocument, StoredField,
+    StoredDocument, StoredField, REDLINE_BLOCK_ROWS,
 };
 use crate::tokenize::tokenize;
 use crate::types::{
@@ -147,6 +147,12 @@ impl QpsBuilder {
         let mut posting_position_starts = Vec::with_capacity(unpacked.len());
         let mut posting_positions = Vec::new();
         let mut posting_ranges = vec![PostingRange::default(); self.terms.len()];
+        // REDLINE Phase 3: 64-row block metadata per term for MaxScore
+        // traversal. Blocks partition each term's posting rows in document
+        // order; block_end is the last row's document.
+        let mut posting_block_ranges = vec![PostingRange::default(); self.terms.len()];
+        let mut posting_block_max = Vec::new();
+        let mut posting_block_end = Vec::new();
         let term_rarities = document_frequency
             .iter()
             .map(|&frequency| {
@@ -160,6 +166,9 @@ impl QpsBuilder {
         while cursor < unpacked.len() {
             let term = unpacked[cursor].term;
             let posting_start = checked_u32(postings.len())?;
+            let term_block_start = checked_u32(posting_block_max.len())?;
+            let mut block_max = 0.0_f32;
+            let mut block_rows = 0_u32;
             while cursor < unpacked.len() && unpacked[cursor].term == term {
                 let document = unpacked[cursor].document;
                 let mut weighted_tf = 0.0_f32;
@@ -195,6 +204,14 @@ impl QpsBuilder {
                 let impact =
                     idf * (self.config.k1 + 1.0) * weighted_tf / (self.config.k1 + weighted_tf);
                 postings.push(PostingRecord { document, impact });
+                block_max = block_max.max(impact);
+                block_rows += 1;
+                if block_rows == REDLINE_BLOCK_ROWS {
+                    posting_block_max.push(block_max);
+                    posting_block_end.push(document);
+                    block_max = 0.0;
+                    block_rows = 0;
+                }
                 posting_field_impacts.extend(field_weighted_tf.iter().map(|field_tf| {
                     if weighted_tf > 0.0 {
                         impact * field_tf / weighted_tf
@@ -207,6 +224,15 @@ impl QpsBuilder {
             posting_ranges[term as usize] = PostingRange {
                 start: posting_start,
                 len: checked_u32(postings.len())?.saturating_sub(posting_start),
+            };
+            if block_rows > 0 {
+                let last = postings.last().map(|row| row.document).unwrap_or(u32::MAX);
+                posting_block_max.push(block_max);
+                posting_block_end.push(last);
+            }
+            posting_block_ranges[term as usize] = PostingRange {
+                start: term_block_start,
+                len: checked_u32(posting_block_max.len())?.saturating_sub(term_block_start),
             };
         }
 
@@ -223,6 +249,9 @@ impl QpsBuilder {
             term_rarities,
             posting_position_starts.into_boxed_slice(),
             posting_positions.into_boxed_slice(),
+            posting_block_ranges.into_boxed_slice(),
+            posting_block_max.into_boxed_slice(),
+            posting_block_end.into_boxed_slice(),
         ))
     }
 

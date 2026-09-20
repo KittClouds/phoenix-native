@@ -74,6 +74,7 @@ impl VisualContractDraftV3 {
         node_identity.update(b"phoenix-native-v3-node-identities");
         node_roles.update(b"phoenix-native-v3-node-roles");
         projection.update(b"phoenix-native-v3-projection");
+        projection.update(phoenix_scene_contract::PROJECTION_LAYOUT_CONTRACT.as_bytes());
         for (slot, identity) in publication.identities.iter().enumerate() {
             let style = publication
                 .styles

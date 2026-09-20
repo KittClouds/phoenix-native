@@ -226,6 +226,13 @@ fn kernel_memory_commands_share_one_typed_generation_and_scope(
     assert_eq!(snapshot.resident_memory.runtime.active_records, 0);
     assert_eq!(snapshot.resident_memory.runtime.working_nodes, 0);
     assert_eq!(snapshot.resident_memory.runtime.working_edges, 0);
+    assert_eq!(
+        snapshot.resident_memory.semantic_shadow.sidecar_status,
+        phoenix_memory_coordinator::SemanticSidecarStatus::Absent
+    );
+    assert_eq!(snapshot.resident_memory.semantic_shadow.submitted, 0);
+    assert_eq!(snapshot.resident_memory.semantic_shadow.completed, 0);
+    assert_eq!(snapshot.resident_memory.semantic_shadow.dropped, 0);
     let context_item = &snapshot
         .resident_memory
         .last_context
@@ -398,11 +405,11 @@ fn scene(generation: u64) -> Result<Arc<ResidentScene>, SceneContractError> {
             &[] as &[PositionRecord],
         )?;
         let path_kind = match manifold {
-            ArchiveManifold::Hybrid | ArchiveManifold::Siegel => PageKind::BundledPaths,
+            ArchiveManifold::Siegel => PageKind::BundledPaths,
             ArchiveManifold::Torus | ArchiveManifold::Hopf | ArchiveManifold::Transit => {
                 PageKind::CurvedPaths
             }
-            ArchiveManifold::Caps => PageKind::StraightPaths,
+            ArchiveManifold::Hybrid | ArchiveManifold::Caps => PageKind::StraightPaths,
         };
         builder.add_page(
             PageKey::manifold(path_kind, manifold),

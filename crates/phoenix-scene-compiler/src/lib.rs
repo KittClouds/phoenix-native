@@ -24,6 +24,7 @@ pub use layout::{
     compile_caps_layout, compile_caps_positions, compile_hopf_positions, compile_hybrid_positions,
     CapsGuide, CapsLayout, CapsNode, HopfNode, HybridNode,
 };
+pub use layout::{compile_siegel_positions, compile_transit_positions};
 pub use phoenix_scene_contract::NATIVE_SCENE_COMPILER_CONTRACT;
 pub use phoenix_scene_contract::NATIVE_SCENE_COMPILER_V2_CONTRACT;
 pub use phoenix_scene_contract::NATIVE_SCENE_COMPILER_V3_CONTRACT;

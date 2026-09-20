@@ -279,6 +279,28 @@ impl PhoenixShell {
                     )
                     .when(!self.left_open, |controls| {
                         controls.child(
+                            Button::new("footer-reader")
+                                .label("READER")
+                                .small()
+                                .ghost()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.open_reader(cx);
+                                })),
+                        )
+                    })
+                    .when(self.left_open, |controls| {
+                        controls.child(
+                            Button::new("footer-reader-open")
+                                .label("READER")
+                                .small()
+                                .ghost()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.open_reader(cx);
+                                })),
+                        )
+                    })
+                    .when(!self.left_open, |controls| {
+                        controls.child(
                             Button::new("footer-show-files")
                                 .label("FILES")
                                 .small()
@@ -320,7 +342,11 @@ impl PhoenixShell {
             .bg(rgb(FOOTER_BG))
             .child(
                 Button::new("footer-toggle-inspector")
-                    .label(self.right_sidebar_page.label())
+                    .label(if self.reader.open && self.reader.sidebar {
+                        "VOICE & CAST"
+                    } else {
+                        self.right_sidebar_page.label()
+                    })
                     .small()
                     .ghost()
                     .on_click(cx.listener(|this, _, _, cx| {

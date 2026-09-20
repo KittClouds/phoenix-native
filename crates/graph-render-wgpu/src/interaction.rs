@@ -51,6 +51,12 @@ pub enum GraphInput {
         height: u32,
         scale_factor: f32,
     },
+    /// CAPS guide inspection; topology and published artifacts remain unchanged.
+    InspectCaps {
+        space_only: bool,
+        depth: u8,
+        cutaway: bool,
+    },
     FitGraph,
     ResetCamera,
     ClearSelection,

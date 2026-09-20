@@ -126,6 +126,13 @@ pub struct SearchHit {
     pub phrase: f32,
     pub segment: f32,
     pub exact_field: f32,
+    /// Experimental Phase 8.6 primitive: field-local compactness of all
+    /// matched query groups. This is not part of the canonical V3 schema.
+    pub matched_group_locality: f32,
+    /// Experimental Phase 8.7 primitive: fraction of candidate-independent
+    /// query rarity mass represented by matched groups. This is not part of
+    /// the canonical V3 schema.
+    pub rarity_weighted_group_coverage: f32,
     /// Fixed-width evidence used by the optional learned ranker. Keeping it on
     /// the returned hit makes failures auditable without retaining postings.
     pub rank_features: RankFeatureVector,
@@ -134,6 +141,55 @@ pub struct SearchHit {
     pub rank_evidence_v3: RankEvidenceV3,
     /// Hard constitutional tier computed before any V3 learned score.
     pub relevance_tier: crate::RelevanceTier,
+}
+
+/// Offline-only, caller-owned capture of selected per-query-group lexical
+/// evidence. Values are stored hit-major in one flat buffer so evidence
+/// regeneration does not allocate one vector per candidate. This is not read
+/// by candidate generation, V2 scoring, constitutional tiers, or V3 serving.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GroupStrengthBatch {
+    group_count: usize,
+    hit_count: usize,
+    values: Vec<f32>,
+}
+
+impl GroupStrengthBatch {
+    pub fn with_capacity(hit_capacity: usize, group_capacity: usize) -> Self {
+        Self {
+            group_count: 0,
+            hit_count: 0,
+            values: Vec::with_capacity(hit_capacity.saturating_mul(group_capacity)),
+        }
+    }
+
+    pub fn group_count(&self) -> usize {
+        self.group_count
+    }
+
+    pub fn hit_count(&self) -> usize {
+        self.hit_count
+    }
+
+    pub fn strengths(&self, hit_index: usize) -> Option<&[f32]> {
+        if hit_index >= self.hit_count {
+            return None;
+        }
+        let start = hit_index * self.group_count;
+        Some(&self.values[start..start + self.group_count])
+    }
+
+    pub(crate) fn prepare(&mut self, hit_count: usize, group_count: usize) {
+        self.group_count = group_count;
+        self.hit_count = hit_count;
+        self.values.clear();
+        self.values
+            .resize(hit_count.saturating_mul(group_count), 0.0);
+    }
+
+    pub(crate) fn set(&mut self, hit_index: usize, group: usize, value: f32) {
+        self.values[hit_index * self.group_count + group] = value;
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -150,6 +206,35 @@ pub struct SearchReceipt {
     pub selection: CandidateSelection,
     pub allocations_grew: bool,
     pub stages: SearchStageNanos,
+    /// REDLINE Phase 3: rows the classic accumulator would read (sum of
+    /// involved posting-list lengths). Equals `posting_rows_visited` unless
+    /// block-max skipping ran.
+    pub posting_rows_available: u32,
+    /// Posting blocks jumped without reading (block-max path only).
+    pub blocks_skipped: u32,
+    /// Pivot documents dead on arrival by coverage impossibility.
+    pub coverage_impossible_deaths: u32,
+    /// Pivot documents dead on arrival by score impossibility.
+    pub score_bound_deaths: u32,
+    /// REDLINE Phase 3B: literal documents finalized by the fused merge.
+    /// Zero for the classic and block-max differential paths.
+    pub literal_documents_finalized: u32,
+    /// REDLINE Phase 3B: matched-group choices materialized for bounded
+    /// survivors. Choices are never retained for rejected documents.
+    pub literal_choice_records_materialized: u32,
+    /// Documents which never entered corpus-indexed accumulation scratch on
+    /// the fused path.
+    pub literal_scratch_documents_avoided: u32,
+    /// REDLINE Phase 4 transport-collapse metrics. These remain zero for
+    /// literal-only queries.
+    pub transport_raw_expansion_rows: u32,
+    pub transport_unique_group_documents: u32,
+    pub transport_nonliteral_winner_documents: u32,
+    pub transport_literal_winner_documents: u32,
+    pub transport_winning_expansion_rows: u32,
+    pub transport_rows_never_winner: u32,
+    pub transport_winner_rows_outside_pool: u32,
+    pub transport_touched_uncovered: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -159,6 +244,23 @@ pub struct SearchStageNanos {
     pub coherence: u64,
     pub ordering: u64,
     pub total: u64,
+}
+
+/// Read-only REDLINE Phase 3C attribution receipt. This diagnostic never
+/// participates in serving; it separates literal merge, selection, and null
+/// traversal costs before any Phase 4 transport work is attempted.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Phase3cDiagnostics {
+    pub posting_rows: u32,
+    pub documents_finalized: u32,
+    pub covered_candidates: u32,
+    pub candidate_limit: u32,
+    pub merge_flat_nanos: u64,
+    pub flat_select_nanos: u64,
+    pub classic_accum_nanos: u64,
+    pub classic_heap_nanos: u64,
+    pub merge_null_nanos: u64,
+    pub classic_null_nanos: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -183,6 +285,8 @@ pub enum QpsError {
     DuplicateExternalId(u64),
     #[error("document ID space is exhausted")]
     DocumentIdOverflow,
+    #[error("search hit document ID is not present in this index")]
+    InvalidDocument,
     #[error("packed index address space is exhausted")]
     IndexAddressOverflow,
     #[error("field ID space is exhausted")]
