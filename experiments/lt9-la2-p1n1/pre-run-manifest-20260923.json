@@ -85,12 +85,13 @@
   ],
   "source_sha256": {
     "docs/LT9_LA2_P1N1_TOPIC_SENSE_INVARIANCE_20260923.md": "985129555add2e79ecd1fc4432608e9add66e79421d6923f731ccfad5a8d26ae",
-    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n1.rs": "5c82982df4e0a69238efbd2076b51d253ba5f28cddbb715c6e58ca2abb50bf91",
-    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n1_assay.rs": "bf9e685f594138644d74173102a946737d3e28e9342660bf71a9b323c5df4dca",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n1.rs": "16179b292b47937d44cc9d200d5fd046c484b0efb40866deb7bce958cb618aee",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n1_assay.rs": "3785a62e7557b4cbf6e4bca8bd77ff5ad61320bf05c1193e573b78e5c4292058",
     "apps/phoenix-memory-lock/src/bin/lt9_la2p1m1_core.rs": "dc4220b075ac2df92c32bc37d853fc1f5deb2ed0ce8837cbe48d5a31f9f0d215",
     "experiments/lt9-la2-p1n1/Cargo.toml": "3fe8e3d2e232839a34e084c0f34f229341e786247ec20aac026b3d50d7afa724",
     "experiments/lt9-la2-p1n1/Cargo.lock": "0452887183338ec4042e267fc8964f28f824ccd91d171dc12495f5b2fc009204"
   },
+  "implementation_note": "Preflight executable initially overflowed the Windows stack while hashing the protocol, before corpus loading; no corpus data or assay receipt was produced. Hash block corrected to 64 KiB and 8 tests passed. No assay conditions changed.",
   "cohort_selection": "inherited P1M2R label-blind cohort; not prospective and not used to select or qualify a corpus",
   "source_outcome_boundary": {
     "p1m2r_outcome_receipt_read": false,

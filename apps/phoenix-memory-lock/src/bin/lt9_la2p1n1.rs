@@ -127,7 +127,6 @@ fn run(repo_root: &Path, screen_path: &Path, output_path: &Path) -> Result<()> {
         screen.corpora.len() == EXPECTED_ORDER.len(),
         "corpus count mismatch"
     );
-
     let binary_path = env::current_exe()?;
     let binary_sha256 = sha256_file(&binary_path)?;
     let source_sha256 = BTreeMap::from([
@@ -142,8 +141,14 @@ fn run(repo_root: &Path, screen_path: &Path, output_path: &Path) -> Result<()> {
                 Sha256::digest(include_bytes!("lt9_la2p1m1_core.rs"))
             ),
         ),
+        (
+            "lt9_la2p1n1_assay.rs".to_string(),
+            format!(
+                "{:x}",
+                Sha256::digest(include_bytes!("lt9_la2p1n1_assay.rs"))
+            ),
+        ),
     ]);
-
     let mut corpora = Vec::with_capacity(screen.corpora.len());
     let mut intervention_totals = BTreeMap::<String, VariantStats>::new();
     let mut paired_bank_sense = BankSenseStats::default();
@@ -176,7 +181,6 @@ fn run(repo_root: &Path, screen_path: &Path, output_path: &Path) -> Result<()> {
                 core::TiePolicy::HardAbstain,
             ));
         }
-
         let mut local_interventions = BTreeMap::new();
         let mut local_removal = BTreeMap::new();
         let mut local_bank_sense = BankSenseStats::default();
@@ -192,7 +196,6 @@ fn run(repo_root: &Path, screen_path: &Path, output_path: &Path) -> Result<()> {
                 &mut local_bank_sense,
             );
         }
-
         let census = streams
             .iter()
             .enumerate()
@@ -215,7 +218,6 @@ fn run(repo_root: &Path, screen_path: &Path, output_path: &Path) -> Result<()> {
             paired_bank_sense: local_bank_sense,
         });
     }
-
     let receipt = RunReceipt {
         schema: RESULT_SCHEMA,
         date: "2026-09-23",

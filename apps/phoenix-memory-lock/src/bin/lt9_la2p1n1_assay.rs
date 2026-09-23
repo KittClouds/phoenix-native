@@ -87,7 +87,8 @@ impl Placement {
 pub(super) fn sha256_file(path: &Path) -> Result<String> {
     let mut file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut hasher = Sha256::new();
-    let mut block = [0u8; 1024 * 1024];
+    // Keep streaming hashes well below the Windows main-thread stack limit.
+    let mut block = [0u8; 64 * 1024];
     loop {
         let read = file.read(&mut block)?;
         if read == 0 {
@@ -590,5 +591,17 @@ mod tests {
         add_marker(&mut features, 0, 0, 1, Placement::Before);
         add_marker(&mut features, 1, 0, 1, Placement::After);
         assert_eq!(route(features, false), None);
+    }
+
+    #[test]
+    fn streaming_hash_matches_across_multiple_blocks() {
+        let path =
+            std::env::temp_dir().join(format!("lt9-la2-p1n1-hash-test-{}.bin", std::process::id()));
+        let payload = vec![b'x'; 160_000];
+        std::fs::write(&path, &payload).unwrap();
+        let actual = sha256_file(&path).unwrap();
+        let expected = format!("{:x}", Sha256::digest(&payload));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(actual, expected);
     }
 }
