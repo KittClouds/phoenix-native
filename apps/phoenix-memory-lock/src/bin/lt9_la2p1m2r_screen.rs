@@ -32,6 +32,7 @@ const MIN_CONTESTED: usize = 240;
 const MIN_CORPORA_WITH_15: usize = 3;
 const MIN_RELATIONS: usize = 4;
 const MIN_CORPUS_SHARDS: usize = 8;
+const RESERVED_QUALIFICATION_ID: &str = "webis-touche2020";
 
 fn shard(document: u64, documents: u64) -> usize {
     ((document.saturating_mul(SHARDS as u64)) / documents).min((SHARDS - 1) as u64) as usize
@@ -163,6 +164,8 @@ struct Receipt {
     corpus_text_only: bool,
     validity_labels_opened: bool,
     qrels_or_queries_opened: bool,
+    reserved_qualification_id: &'static str,
+    reserved_qualification_labels_opened: bool,
     frozen_order: Vec<&'static str>,
     structural_preflight: Gate,
     corpora: Vec<CorpusReceipt>,
@@ -321,6 +324,8 @@ fn run(args: &[String]) -> Result<()> {
         corpus_text_only: true,
         validity_labels_opened: false,
         qrels_or_queries_opened: false,
+        reserved_qualification_id: RESERVED_QUALIFICATION_ID,
+        reserved_qualification_labels_opened: false,
         frozen_order: DISCOVERY_IDS.to_vec(),
         structural_preflight: evaluate_gate(&corpora),
         corpora,
