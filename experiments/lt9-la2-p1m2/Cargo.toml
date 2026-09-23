@@ -9,8 +9,17 @@ edition = "2021"
 name = "lt9_la2p1m2"
 path = "../../apps/phoenix-memory-lock/src/bin/lt9_la2p1m2.rs"
 
+[[bin]]
+name = "lt9_la2p1m2r_screen"
+path = "../../apps/phoenix-memory-lock/src/bin/lt9_la2p1m2r_screen.rs"
+
+[[bin]]
+name = "lt9_lotte_normalize"
+path = "../../apps/phoenix-memory-lock/src/bin/lt9_lotte_normalize.rs"
+
 [dependencies]
 anyhow = "1.0"
+hashbrown = "0.15"
 memchr = "2.7"
 memmap2 = "0.9"
 serde = { version = "1.0", features = ["derive"] }
