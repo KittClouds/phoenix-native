@@ -9,8 +9,8 @@ use gpui_component::popover::Popover;
 use gpui_component::{Disableable, Sizable};
 use phoenix_app_core::{GraphProvenanceReceipt, KernelCommand, KernelOutcome};
 use phoenix_scene_contract::{
-    GraphAction, GraphCanvas, GraphScope, GraphSurface, GraphViewState, Manifold, RelationFamily,
-    ReviewMask, SceneSource,
+    FamilyMask, GraphAction, GraphCanvas, GraphScope, GraphSurface, GraphViewState, Manifold,
+    RelationFamily, ReviewMask, SceneSource,
 };
 
 const CONTROL_BG: u32 = 0x111514;
@@ -39,6 +39,9 @@ impl PhoenixShell {
                 controls.child(self.render_primary_controls(view, cx))
             })
             .child(self.render_secondary_controls(view, cx))
+            .when(view.manifold == Manifold::Caps, |row| {
+                row.child(self.render_caps_space(cx))
+            })
     }
 
     fn render_primary_controls(
@@ -47,16 +50,26 @@ impl PhoenixShell {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let mut row = div()
-            .h(px(42.))
+            .min_h(px(52.))
             .w_full()
             .min_w_0()
             .flex()
+            .flex_wrap()
             .items_center()
-            .gap_1()
-            .px_2();
+            .gap_2()
+            .px_3()
+            .py_2()
+            .child(
+                div()
+                    .mr_3()
+                    .text_sm()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(rgb(TEXT))
+                    .child("Story atlas"),
+            );
         row = row
-            .child(review_toggle("ACCEPTED", ReviewMask::ACCEPTED, view, cx))
-            .child(review_toggle("PROPOSED", ReviewMask::PROPOSED, view, cx))
+            .child(review_toggle("Accepted", ReviewMask::ACCEPTED, view, cx))
+            .child(review_toggle("Proposed", ReviewMask::PROPOSED, view, cx))
             .child(self.relation_popover(view, cx))
             .child(self.scope_popover(view, cx));
         row.child(div().flex_1())
@@ -68,42 +81,74 @@ impl PhoenixShell {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let mut row = div()
-            .h(px(40.))
+            .min_h(px(48.))
             .w_full()
             .min_w_0()
             .flex()
+            .flex_wrap()
             .items_center()
-            .gap_1()
-            .px_2()
+            .justify_between()
+            .gap_2()
+            .px_3()
+            .py_2()
             .border_t_1()
             .border_color(rgb(BORDER));
-        row = row
-            .child(div().text_xs().text_color(rgb(0x59635f)).child("SPACE"))
-            .child(manifold_segment(view.manifold, cx));
-        row.child(div().flex_1())
-            .child(canvas_toggle(view.canvas, cx))
-            .child(self.provenance_popover(cx))
-            .child(action_button("graph-fit", "FIT", GraphAction::Fit, cx))
-            .child(action_button(
-                "graph-reset",
-                "RESET",
-                GraphAction::Reset,
-                cx,
-            ))
-            .child(
-                Button::new("native-scene-rebuild")
-                    .label(if self.graph_rebuild_pending {
-                        "BUILDING"
+        row = row.child(manifold_segment(view.manifold, cx));
+        row.child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap_1()
+                .child(
+                    Button::new("graph-document-detail")
+                        .label(if document_detail_visible(view) {
+                            "Full detail"
+                        } else {
+                            "Overview"
+                        })
+                        .tooltip(
+                            "Toggle paragraph and sentence detail. All graph data stays available.",
+                        )
+                        .small()
+                        .ghost()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.mutate_graph_view(toggle_document_detail, "DETAIL", cx);
+                        })),
+                )
+                .child(canvas_toggle(view.canvas, cx))
+                .child(self.provenance_popover(cx))
+                .child(action_button(
+                    "graph-fit",
+                    if view.manifold == Manifold::Hybrid {
+                        "Fit content"
                     } else {
-                        "REBUILD"
-                    })
-                    .small()
-                    .ghost()
-                    .disabled(self.graph_rebuild_pending)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.start_native_scene_rebuild(window, cx);
-                    })),
-            )
+                        "Fit view"
+                    },
+                    GraphAction::Fit,
+                    cx,
+                ))
+                .child(action_button(
+                    "graph-reset",
+                    "Reset",
+                    GraphAction::Reset,
+                    cx,
+                ))
+                .child(
+                    Button::new("native-scene-rebuild")
+                        .label(if self.graph_rebuild_pending {
+                            "Building…"
+                        } else {
+                            "Build graph"
+                        })
+                        .small()
+                        .primary()
+                        .disabled(self.graph_rebuild_pending)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.start_native_scene_rebuild(window, cx);
+                        })),
+                ),
+        )
     }
 
     fn relation_popover(&self, view: GraphViewState, cx: &mut Context<Self>) -> impl IntoElement {
@@ -117,7 +162,7 @@ impl PhoenixShell {
             .appearance(false)
             .trigger(
                 Button::new("graph-relations-trigger")
-                    .label(format!("REL / {selected}"))
+                    .label(format!("Relations · {selected}"))
                     .small()
                     .ghost(),
             )
@@ -362,6 +407,8 @@ pub(super) fn surface_segment(
 fn manifold_segment(active: Manifold, cx: &mut Context<PhoenixShell>) -> impl IntoElement {
     let mut segment = div()
         .flex()
+        .flex_wrap()
+        .min_w_0()
         .items_center()
         .p(px(2.))
         .rounded_lg()
@@ -572,6 +619,21 @@ const fn scope_label(scope: GraphScope) -> &'static str {
     }
 }
 
+fn document_detail_visible(view: GraphViewState) -> bool {
+    view.topology_families.intersects(FamilyMask(
+        FamilyMask::PARAGRAPHS.0 | FamilyMask::SENTENCES.0,
+    ))
+}
+
+fn toggle_document_detail(view: &mut GraphViewState) {
+    let show = !document_detail_visible(*view);
+    for detail in [FamilyMask::PARAGRAPHS, FamilyMask::SENTENCES] {
+        if view.topology_families.contains(detail) != show {
+            view.toggle_topology_family(detail);
+        }
+    }
+}
+
 const fn relation_label(family: RelationFamily) -> &'static str {
     match family {
         RelationFamily::CoOccurrence => "Co-occurrence",
@@ -605,6 +667,20 @@ const fn has_atlas_control_rail(surface: GraphSurface) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overview_only_changes_sentence_and_paragraph_visibility() {
+        let mut view = GraphViewState::default();
+        let original = view;
+        toggle_document_detail(&mut view);
+        assert!(!document_detail_visible(view));
+        assert!(view.is_valid());
+        assert_eq!(view.relations, original.relations);
+        assert_eq!(view.manifold, original.manifold);
+        toggle_document_detail(&mut view);
+        assert!(document_detail_visible(view));
+        assert_eq!(view.topology_families, original.topology_families);
+    }
 
     #[test]
     fn angular_submodes_do_not_exist_in_native_surface_labels() {

@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/phoenix-tts-native",
+    "crates/phoenix-tts-contract",
+    "crates/phoenix-reader-session",
+    "crates/phoenix-audio",
     "crates/graph-model",
     "crates/gpui-animated-gradient-text",
     "crates/graph-render-wgpu",
@@ -31,8 +35,6 @@ members = [
     "crates/phoenix-workspace",
     "apps/graph-demo",
     "apps/phoenix-analysis-proof",
-    "apps/phoenix-memory-lock",
-    "apps/phoenix-memory-embed-proof",
     "apps/phoenix-release-lock",
     "apps/phoenix-shell-proof",
     "apps/phoenixctl",
@@ -40,6 +42,10 @@ members = [
 ]
 exclude = ["apps/phoenix-legacy-bridge"]
 default-members = [
+    "crates/phoenix-tts-native",
+    "crates/phoenix-tts-contract",
+    "crates/phoenix-reader-session",
+    "crates/phoenix-audio",
     "crates/graph-model",
     "crates/gpui-animated-gradient-text",
     "crates/graph-render-wgpu",
@@ -68,7 +74,6 @@ default-members = [
     "crates/phoenix-scene-publisher",
     "crates/phoenix-workspace",
     "apps/phoenix-release-lock",
-    "apps/phoenix-memory-lock",
     "apps/phoenix-shell-proof",
     "apps/phoenixctl",
     "vendor/velotype",

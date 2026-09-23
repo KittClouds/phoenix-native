@@ -1,0 +1,23 @@
+{
+  "case": "shortrun-chapter1-paragraph77",
+  "status": "human_confirmed_content_failure",
+  "text": "“Drop your weapons!”\r\n\r\n",
+  "instruction": "A calm, clear English narrator.",
+  "seed": 42,
+  "max_frames": 1440000,
+  "cfg_scale": 1,
+  "session_policy": "fresh GenSession per request; no reference anchor",
+  "model_revision": "81b22bad9f05b99970e30c5ee5e4bbc52fedf2f8",
+  "source_revision": "a5436642d4c64304b398ceeda9b8fce4577bfdb1 plus native/completion.patch",
+  "source_byte_range": [12679, 12707],
+  "chapter_start_frame": 19309440,
+  "output_frames": 92160,
+  "sample_rate": 24000,
+  "engineering_completion": "normal EOS; exact frames; cache committed",
+  "user_adjudication": "Yes, extra speech afterward",
+  "expected_behavior": "Only the source words; no additional speech",
+  "evidence_root": "D:/phoenix-tts/breeze-native-20260906/shortrun-chapter1-quality-01",
+  "evidence_audio": "review-paragraph-077.wav",
+  "runtime_hash_authority": "run-authority.json and original cache commit",
+  "reproduction_limit": "One observed generation; repeat and seed sensitivity not yet measured. ASR hypothesis is not a certified transcript."
+}

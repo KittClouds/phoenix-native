@@ -72,6 +72,7 @@ impl Editor {
             spans,
             false,
             None,
+            false,
             cx,
         )
         .map(|_| ())
@@ -98,6 +99,7 @@ impl Editor {
             spans,
             true,
             None,
+            false,
             cx,
         )
     }
@@ -125,8 +127,43 @@ impl Editor {
             spans,
             true,
             Some(authoritative_source),
+            false,
             cx,
         )
+    }
+
+    /// Independent paint layer: never changes caret, selection, entity or analytics highlights.
+    pub fn project_narration_highlights(
+        &mut self,
+        epoch: u64,
+        expected_document_revision: u64,
+        source: &str,
+        spans: Vec<SemanticHighlight>,
+        cx: &mut Context<Self>,
+    ) -> Result<SemanticHighlightProjectionReceipt, SemanticHighlightError> {
+        let result = self.project_semantic_highlights_inner(
+            epoch,
+            expected_document_revision,
+            SemanticHighlightMode::Vivid,
+            spans,
+            true,
+            Some(source),
+            true,
+            cx,
+        );
+        if result.is_err() {
+            self.clear_narration_highlights(cx);
+        }
+        result
+    }
+    pub fn clear_narration_highlights(&mut self, cx: &mut Context<Self>) {
+        let changed = !self.narration_highlight_blocks.is_empty();
+        for block in self.narration_highlight_blocks.drain(..) {
+            block.update(cx, |block, _| block.narration_spans.clear());
+        }
+        if changed {
+            cx.notify();
+        }
     }
 
     fn project_semantic_highlights_inner(
@@ -137,6 +174,7 @@ impl Editor {
         mut spans: Vec<SemanticHighlight>,
         allow_unmapped: bool,
         authoritative_source: Option<&str>,
+        narration: bool,
         cx: &mut Context<Self>,
     ) -> Result<SemanticHighlightProjectionReceipt, SemanticHighlightError> {
         if expected_document_revision != self.document_revision {
@@ -254,16 +292,24 @@ impl Editor {
             }
         }
 
-        self.clear_semantic_highlights(cx);
-        self.semantic_highlight_blocks.reserve(projected.len());
-        for (block, block_spans) in projected {
-            block.update(cx, |block, _cx| {
-                block.set_semantic_highlights(revision, mode, block_spans);
-            });
-            self.semantic_highlight_blocks.push(block);
+        if narration {
+            self.clear_narration_highlights(cx);
+            for (block, spans) in projected {
+                block.update(cx, |block, _| block.narration_spans = spans);
+                self.narration_highlight_blocks.push(block);
+            }
+        } else {
+            self.clear_semantic_highlights(cx);
+            self.semantic_highlight_blocks.reserve(projected.len());
+            for (block, block_spans) in projected {
+                block.update(cx, |block, _cx| {
+                    block.set_semantic_highlights(revision, mode, block_spans)
+                });
+                self.semantic_highlight_blocks.push(block);
+            }
+            self.semantic_highlight_revision = revision;
+            self.semantic_highlight_mode = mode;
         }
-        self.semantic_highlight_revision = revision;
-        self.semantic_highlight_mode = mode;
         cx.notify();
         Ok(SemanticHighlightProjectionReceipt {
             requested,
@@ -433,6 +479,45 @@ mod tests {
             [0.1, 0.9, 0.5, 1.0],
             [0.2, 0.6, 1.0, 1.0],
         )
+    }
+
+    #[gpui::test]
+    fn narration_is_independent_and_stale_revision_clears_it(cx: &mut TestAppContext) {
+        let text = "Ryan entered New Rome.";
+        let entity = cx.new(|cx| Editor::embedded_from_markdown(cx, text.into()));
+        entity.update(cx, |editor, cx| {
+            let revision = editor.document_revision();
+            editor
+                .set_semantic_highlights(
+                    7,
+                    revision,
+                    SemanticHighlightMode::Vivid,
+                    vec![span(text, "Ryan")],
+                    cx,
+                )
+                .unwrap();
+            let receipt = editor
+                .project_narration_highlights(1, revision, text, vec![span(text, "New Rome")], cx)
+                .unwrap();
+            assert_eq!(receipt.applied, 1);
+            assert_eq!(editor.semantic_highlight_revision(), 7);
+            assert_eq!(editor.narration_highlight_blocks.len(), 1);
+            assert!(!editor.is_dirty());
+            editor.clear_narration_highlights(cx);
+            assert_eq!(editor.semantic_highlight_revision(), 7);
+            assert_eq!(editor.semantic_highlight_blocks.len(), 1);
+            editor
+                .project_narration_highlights(1, revision, text, vec![span(text, "New Rome")], cx)
+                .unwrap();
+            editor.mark_dirty(cx);
+            assert!(editor.narration_highlight_blocks.is_empty());
+            assert!(
+                editor
+                    .project_narration_highlights(1, revision, text, vec![span(text, "Ryan")], cx)
+                    .is_err()
+            );
+            assert_eq!(editor.host_document_text(cx), text);
+        });
     }
 
     #[gpui::test]

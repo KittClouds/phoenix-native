@@ -117,6 +117,7 @@ impl PhoenixKernel {
         let run_id = atlas_control::begin_graph_build(&self.shared)?;
         self.shared.producer_cancel.store(false, Ordering::Release);
         let mut analysis_receipt = None;
+        let mut analysis_disposition = AtlasWorkDisposition::Unsupported;
         let mut analysis_total_micros = 0_u64;
         let mut publisher_micros = 0_u64;
         let command_result = (|| {
@@ -143,8 +144,10 @@ impl PhoenixKernel {
                     restored_analysis_generation,
                 )?;
                 let started = Instant::now();
-                analysis_receipt =
-                    Some(self.analyze_active_document_with(analysis_generation, config)?);
+                let (receipt, disposition) =
+                    self.analyze_active_document_with_disposition(analysis_generation, config)?;
+                analysis_receipt = Some(receipt);
+                analysis_disposition = disposition;
                 analysis_total_micros = elapsed_micros(started);
             }
             let generation_id = publisher.next_generation()?;
@@ -250,6 +253,7 @@ impl PhoenixKernel {
                             run_id,
                             previous_generation,
                             analysis: analysis_receipt,
+                            analysis_disposition,
                             analysis_total_micros,
                             graph,
                             publisher_micros,

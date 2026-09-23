@@ -33,3 +33,7 @@ harness = false
 [[bench]]
 name = "hopf_layout"
 harness = false
+
+[[bench]]
+name = "semantic_layouts"
+harness = false

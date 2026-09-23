@@ -1,0 +1,44 @@
+diff --git a/include/breeze/generation.h b/include/breeze/generation.h
+index c93e95d..2da6e94 100644
+--- a/include/breeze/generation.h
++++ b/include/breeze/generation.h
+@@ -72,6 +72,8 @@ using AudioCallback = std::function<bool(const float * samples, int n)>;
+ 
+ // per stage wall clock milliseconds, optionally filled by generate
+ struct GenTimings {
++    // Phoenix qualification patch: completion is never inferred from transport EOF.
++    enum class Finish { Unknown, Eos, Limit, Cancelled } finish = Finish::Unknown;
+     double encode_ref = 0, prompt = 0, prefill = 0, backbone = 0, depth = 0, vocoder = 0;
+     double first_audio = 0, first_vocoder = 0;
+     int frames = 0, flushes = 0, first_frames = 0;
+diff --git a/src/generation.cpp b/src/generation.cpp
+index be8766d..7243fd8 100644
+--- a/src/generation.cpp
++++ b/src/generation.cpp
+@@ -154,6 +154,8 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest
+             tm.vocoder += vtime;
+             tm.flushes++;
+             const int skip = (start - ctx_start) * spf;
++            // Phoenix: never expose an undersized decoder buffer as valid PCM.
++            if (audio.size() < static_cast<size_t>(skip) + static_cast<size_t>(count) * spf) return false;
+             if (!tm.first_audio) {
+                 tm.first_vocoder = vtime;
+                 tm.first_frames = sub_T;
+@@ -195,6 +197,8 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest
+         cb0 = sample_token(comb, bp, rng, &hist, &suppress);
+     }
+     if (!stopped) stopped = !flush(true);
++    tm.finish = stopped ? GenTimings::Finish::Cancelled :
++        (cb0 == m.cfg.backbone_eos_token_id ? GenTimings::Finish::Eos : GenTimings::Finish::Limit);
+ 
+     st_c.free();
+     if (use_cfg) st_u.free();
+@@ -203,7 +207,7 @@ static bool generate_chunk(BreezeModel & m, MimiCodec & codec, const GenRequest
+     out.codes = std::move(frames);
+     out.n_frames = (int) out.codes.size() / nc;
+     out.text = text;
+-    return !stopped;
++    return tm.finish == GenTimings::Finish::Eos;
+ }
+ 
+ void GenSession::begin(BreezeModel & m, MimiCodec & codec, const GenRequest & req, GenTimings * tm) {

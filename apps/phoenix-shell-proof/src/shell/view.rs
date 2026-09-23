@@ -240,6 +240,7 @@ impl PhoenixShell {
                                         |button| button.ghost(),
                                     )
                                     .on_click(cx.listener(|this, _, _, cx| {
+                                        this.reader.sidebar = false;
                                         this.right_sidebar_page =
                                             super::kammi::RightSidebarPage::Kammi;
                                         this.analytics_highlight = None;
@@ -250,6 +251,24 @@ impl PhoenixShell {
                             ),
                     )
                     .child(
+                        Button::new("header-listen")
+                            .label(if self.reader.open {
+                                "Close Reader"
+                            } else {
+                                "Listen"
+                            })
+                            .small()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if this.reader.open {
+                                    this.close_reader(cx);
+                                } else {
+                                    this.open_reader(cx);
+                                    this.reader_primary(cx);
+                                }
+                            })),
+                    )
+                    .child(
                         div()
                             .ml_2()
                             .min_w_0()
@@ -257,7 +276,11 @@ impl PhoenixShell {
                             .truncate()
                             .text_xs()
                             .text_color(rgb(TEXT_MUTED))
-                            .child(lease_label),
+                            .child(if self.reader.open {
+                                "Reading · saved document".to_owned()
+                            } else {
+                                lease_label
+                            }),
                     ),
             )
             .child(
@@ -464,7 +487,17 @@ impl PhoenixShell {
 impl Render for PhoenixShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.schedule_proof(window, cx);
-        let center = if self.drawer_layout.is_full_page() {
+        let center = if self.reader.open {
+            div()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(self.render_editor_surface(cx))
+                .child(self.render_reader(cx))
+                .into_any_element()
+        } else if self.drawer_layout.is_full_page() {
             self.render_drawer_surface(true, window, cx)
                 .into_any_element()
         } else if self.drawer_layout.is_open() {
@@ -552,6 +585,7 @@ impl Render for PhoenixShell {
                 ),
         );
         if self.right_open {
+            self.reader.panel_width = width_budget.right_width;
             panels = panels.child(
                 resizable_panel()
                     .size(px(width_budget.right_width))

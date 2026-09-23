@@ -1,5 +1,7 @@
 use super::session::KammiRole;
-use super::settings::{load_openrouter_key, validate_model_id, ReasoningLevel};
+use super::settings::{
+    load_openrouter_key, validate_model_id, LlamaCppSettings, ProviderBackend, ReasoningLevel,
+};
 use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
 use openrouter_rs::{
@@ -11,6 +13,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
+
+mod llama_cpp;
+use llama_cpp::LlamaServerManager;
+
+pub fn validate_llama_cpp_settings(settings: &LlamaCppSettings) -> Result<()> {
+    llama_cpp::validate_settings(settings).map(|_| ())
+}
 
 const COMMAND_CAPACITY: usize = 16;
 const EVENT_CAPACITY: usize = 32;
@@ -71,7 +80,9 @@ pub enum ProviderCommand {
 #[derive(Clone, Debug)]
 pub struct ProviderRequest {
     pub request_id: u64,
+    pub backend: ProviderBackend,
     pub model: String,
+    pub llama_cpp: LlamaCppSettings,
     pub messages: Vec<ProviderMessage>,
     pub reasoning: ReasoningLevel,
 }
@@ -116,10 +127,10 @@ impl KammiProviderRuntime {
             .try_send(command)
             .map_err(|error| match error {
                 async_channel::TrySendError::Full(_) => {
-                    anyhow!("OpenRouter {label} queue is busy")
+                    anyhow!("Kammi provider {label} queue is busy")
                 }
                 async_channel::TrySendError::Closed(_) => {
-                    anyhow!("OpenRouter provider is unavailable")
+                    anyhow!("Kammi provider runtime is unavailable")
                 }
             })
     }
@@ -142,7 +153,7 @@ pub fn spawn_provider_runtime() -> Result<KammiProviderRuntime> {
     let thread_events = events_tx.clone();
 
     let thread = std::thread::Builder::new()
-        .name("phoenix-kammi-openrouter".into())
+        .name("phoenix-kammi-provider".into())
         .spawn(move || {
             let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -172,6 +183,7 @@ async fn provider_loop(
     events: async_channel::Sender<ProviderEvent>,
 ) {
     let mut active_task: Option<(u64, tokio::task::JoinHandle<()>, Arc<AtomicBool>)> = None;
+    let llama_server = Arc::new(tokio::sync::Mutex::new(LlamaServerManager::new()));
 
     while let Ok(cmd) = commands.recv().await {
         match cmd {
@@ -180,16 +192,23 @@ async fn provider_loop(
                 if let Some((old_id, handle, cancel_flag)) = active_task.take() {
                     cancel_flag.store(true, Ordering::SeqCst);
                     handle.abort();
+                    llama_server.lock().await.stop_if_loading();
                     let _ = events.try_send(ProviderEvent::Cancelled { request_id: old_id });
                 }
 
                 let cancel_flag = Arc::new(AtomicBool::new(false));
                 let cancel_flag_task = cancel_flag.clone();
                 let events_task = events.clone();
+                let llama_server_task = llama_server.clone();
 
                 let handle = tokio::spawn(async move {
-                    if let Err(err) =
-                        run_generation(request, events_task.clone(), cancel_flag_task).await
+                    if let Err(err) = run_generation(
+                        request,
+                        events_task.clone(),
+                        cancel_flag_task,
+                        llama_server_task,
+                    )
+                    .await
                     {
                         let err_msg = format!("{err:#}");
                         let _ = events_task
@@ -208,6 +227,7 @@ async fn provider_loop(
                     if active_id == request_id {
                         cancel_flag.store(true, Ordering::SeqCst);
                         handle.abort();
+                        llama_server.lock().await.stop_if_loading();
                         let _ = events.try_send(ProviderEvent::Cancelled { request_id });
                     } else {
                         active_task = Some((active_id, handle, cancel_flag));
@@ -220,6 +240,7 @@ async fn provider_loop(
     if let Some((_id, handle, cancel_flag)) = active_task.take() {
         cancel_flag.store(true, Ordering::SeqCst);
         handle.abort();
+        llama_server.lock().await.stop_if_loading();
     }
 }
 
@@ -227,18 +248,37 @@ async fn run_generation(
     request: ProviderRequest,
     events: async_channel::Sender<ProviderEvent>,
     cancel_flag: Arc<AtomicBool>,
+    llama_server: Arc<tokio::sync::Mutex<LlamaServerManager>>,
 ) -> Result<()> {
     let completion = build_completion_request(&request)?;
-    let model = validate_model_id(&request.model)?;
-
-    let api_key = load_openrouter_key()?.context("OpenRouter API key is not configured")?;
-
-    let client = OpenRouterClient::builder()
-        .api_key(api_key)
-        .x_title("Phoenix Native")
-        .app_categories(["writing"])
-        .build()
-        .context("build OpenRouter client")?;
+    let (client, model, provider_label) = match request.backend {
+        ProviderBackend::OpenRouter => {
+            let model = validate_model_id(&request.model)?;
+            let api_key = load_openrouter_key()?.context("OpenRouter API key is not configured")?;
+            let client = OpenRouterClient::builder()
+                .api_key(api_key)
+                .x_title("Phoenix Native")
+                .app_categories(["writing"])
+                .build()
+                .context("build OpenRouter client")?;
+            (client, model, "OpenRouter")
+        }
+        ProviderBackend::LlamaCpp => {
+            llama_server
+                .lock()
+                .await
+                .ensure_ready(&request.llama_cpp, &cancel_flag)
+                .await?;
+            let model = request.llama_cpp.model_label();
+            let client = OpenRouterClient::builder()
+                .base_url(request.llama_cpp.endpoint.trim_end_matches('/'))
+                .api_key("phoenix-local")
+                .x_title("Phoenix Native")
+                .build()
+                .context("build llama.cpp client")?;
+            (client, model, "llama.cpp")
+        }
+    };
 
     events
         .send(ProviderEvent::Started {
@@ -250,7 +290,7 @@ async fn run_generation(
         .chat()
         .stream(&completion)
         .await
-        .context("start OpenRouter stream")?;
+        .with_context(|| format!("start {provider_label} stream"))?;
 
     let mut pending = DeltaBatch::new();
     loop {
@@ -283,14 +323,16 @@ async fn run_generation(
             Ok(c) => c,
             Err(e) => {
                 let msg = e.to_string();
-                let friendly_err = if msg.contains("401") || msg.contains("Unauthorized") {
+                let friendly_err = if request.backend == ProviderBackend::OpenRouter
+                    && (msg.contains("401") || msg.contains("Unauthorized"))
+                {
                     "OpenRouter rejected the API key (401 Unauthorized).".to_string()
                 } else if msg.contains("404") || msg.contains("Not Found") {
                     format!("Model '{model}' was not found or is unavailable.")
                 } else if msg.contains("429") || msg.contains("Too Many Requests") {
                     "OpenRouter rate limit reached (429 Too Many Requests).".to_string()
                 } else {
-                    format!("OpenRouter stream failed: {msg}")
+                    format!("{provider_label} stream failed: {msg}")
                 };
                 anyhow::bail!("{friendly_err}");
             }
@@ -332,17 +374,20 @@ async fn flush_delta_batch(
 }
 
 fn build_completion_request(request: &ProviderRequest) -> Result<ChatCompletionRequest> {
-    let model = validate_model_id(&request.model)?;
+    let model = match request.backend {
+        ProviderBackend::OpenRouter => validate_model_id(&request.model)?,
+        ProviderBackend::LlamaCpp => request.llama_cpp.model_label(),
+    };
     anyhow::ensure!(
         request.messages.len() <= MAX_REQUEST_MESSAGES,
-        "OpenRouter request exceeds {MAX_REQUEST_MESSAGES} messages"
+        "provider request exceeds {MAX_REQUEST_MESSAGES} messages"
     );
     let request_bytes = request.messages.iter().try_fold(0usize, |total, message| {
         total.checked_add(message.content.len())
     });
     anyhow::ensure!(
         request_bytes.is_some_and(|bytes| bytes <= MAX_REQUEST_BYTES),
-        "OpenRouter request exceeds {MAX_REQUEST_BYTES} UTF-8 bytes"
+        "provider request exceeds {MAX_REQUEST_BYTES} UTF-8 bytes"
     );
 
     let messages = request.messages.iter().map(to_openrouter_message).collect();
@@ -351,8 +396,10 @@ fn build_completion_request(request: &ProviderRequest) -> Result<ChatCompletionR
         .model(model)
         .messages(messages)
         .max_tokens(MAX_OUTPUT_TOKENS);
-    if let Some(effort) = openrouter_effort(request.reasoning) {
-        builder.reasoning_effort(effort);
+    if request.backend == ProviderBackend::OpenRouter {
+        if let Some(effort) = openrouter_effort(request.reasoning) {
+            builder.reasoning_effort(effort);
+        }
     }
     builder.build().context("build OpenRouter chat request")
 }
@@ -386,7 +433,9 @@ mod tests {
     fn request(messages: Vec<ProviderMessage>) -> ProviderRequest {
         ProviderRequest {
             request_id: 1,
+            backend: ProviderBackend::OpenRouter,
             model: "openai/gpt-4o".to_string(),
+            llama_cpp: LlamaCppSettings::default(),
             messages,
             reasoning: ReasoningLevel::Auto,
         }
@@ -453,6 +502,7 @@ mod tests {
                 request(messages),
                 events,
                 Arc::new(AtomicBool::new(false)),
+                Arc::new(tokio::sync::Mutex::new(LlamaServerManager::new())),
             ))
             .expect_err("oversized request must fail");
 
@@ -463,7 +513,9 @@ mod tests {
     fn request_shape_preserves_system_prompt_and_reasoning_effort() {
         let request = ProviderRequest {
             request_id: 7,
+            backend: ProviderBackend::OpenRouter,
             model: "google/gemini-2.5-flash".to_string(),
+            llama_cpp: LlamaCppSettings::default(),
             messages: vec![
                 ProviderMessage {
                     role: KammiRole::System,
@@ -495,6 +547,24 @@ mod tests {
         let json = serde_json::to_value(completion).unwrap();
 
         assert!(json.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn llama_cpp_request_uses_local_model_alias_and_omits_openrouter_reasoning() {
+        let mut request = request(vec![ProviderMessage {
+            role: KammiRole::User,
+            content: "Hello locally".to_string(),
+        }]);
+        request.backend = ProviderBackend::LlamaCpp;
+        request.reasoning = ReasoningLevel::High;
+        request.llama_cpp.model_path = r"D:\models\Qwen3-8B-Q4_K_M.gguf".into();
+
+        let completion = build_completion_request(&request).unwrap();
+        let json = serde_json::to_value(completion).unwrap();
+
+        assert_eq!(json["model"], "Qwen3-8B-Q4_K_M");
+        assert!(json.get("reasoning").is_none());
+        assert_eq!(json["messages"][0]["content"], "Hello locally");
     }
 
     #[test]

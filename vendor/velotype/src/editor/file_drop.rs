@@ -87,6 +87,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.clear_semantic_highlights(cx);
+        self.clear_narration_highlights(cx);
         let normalized = markdown.replace("\r\n", "\n").replace('\r', "\n");
         let mut roots = Self::build_root_blocks_from_markdown(cx, &normalized);
         if roots.is_empty() {

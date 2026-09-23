@@ -2,6 +2,7 @@ mod agent_control;
 mod analytics;
 mod atlas_control;
 mod atlas_entities;
+mod caps_space;
 mod drawer;
 mod entity_tags;
 mod footer;
@@ -11,6 +12,7 @@ mod highlights;
 mod kammi;
 mod layout;
 mod palette_controls;
+mod reader;
 mod registry_editor;
 mod shell_state;
 mod style_hub;
@@ -73,7 +75,9 @@ pub struct PhoenixShell {
     kernel: Arc<PhoenixKernel>,
     editor: Entity<velotype::Editor>,
     editor_lease: Option<Arc<DocumentLease>>,
+    reader: reader::ReaderPanel,
     graph: Rc<RefCell<Option<GraphWindow>>>,
+    caps_inspection: (bool, u8, bool),
     graph_geometry: Rc<Cell<Option<ViewportGeometry>>>,
     scene_error: Option<ResidentSceneLoadError>,
     graph_init_error: Option<String>,
@@ -174,6 +178,18 @@ impl PhoenixShell {
             kammi.system_prompt_input.update(cx, |input, cx| {
                 input.set_value(system_prompt, window, cx);
             });
+            let llama_server = kammi.settings.llama_cpp.server_path.clone();
+            kammi.llama_server_input.update(cx, |input, cx| {
+                input.set_value(llama_server, window, cx);
+            });
+            let llama_model = kammi.settings.llama_cpp.model_path.clone();
+            kammi.llama_model_input.update(cx, |input, cx| {
+                input.set_value(llama_model, window, cx);
+            });
+            let llama_endpoint = kammi.settings.llama_cpp.endpoint.clone();
+            kammi.llama_endpoint_input.update(cx, |input, cx| {
+                input.set_value(llama_endpoint, window, cx);
+            });
             let mut sessions: std::collections::VecDeque<_> = store.sessions.into_iter().collect();
             for session in &mut sessions {
                 session.interrupt_orphaned_streams();
@@ -270,7 +286,9 @@ impl PhoenixShell {
             kernel,
             editor,
             editor_lease,
+            reader: reader::ReaderPanel::default(),
             graph: Rc::new(RefCell::new(None)),
+            caps_inspection: (false, 4, false),
             graph_geometry: Rc::new(Cell::new(None)),
             scene_error,
             graph_init_error: parent
@@ -371,11 +389,15 @@ impl PhoenixShell {
                 .unwrap_or(true)
         });
         cx.on_app_quit(|this, cx| {
+            let reader = this.take_reader_for_shutdown();
             this.save_shell_state();
             this.save_kammi_history();
             let graph = this.graph.borrow_mut().take();
             let background = cx.background_executor().clone();
             async move {
+                if let Some(reader) = reader {
+                    background.spawn(async move { reader.shutdown() }).await;
+                }
                 if let Some(mut graph) = graph {
                     if let Err(error) = background.spawn(async move { graph.shutdown() }).await {
                         lifecycle::mark_proof_failed();
@@ -471,7 +493,7 @@ impl PhoenixShell {
                     message: error.clone(),
                 };
                 self.kammi.error_banner = Some(error);
-                self.status = "KAMMI BLOCKED / OPENROUTER PROVIDER UNAVAILABLE".into();
+                self.status = "KAMMI BLOCKED / PROVIDER RUNTIME UNAVAILABLE".into();
             }
         }
         true
@@ -532,6 +554,10 @@ impl PhoenixShell {
                                 cx.notify();
                                 return;
                             }
+                        }
+                        let (space, depth, cutaway) = this.caps_inspection;
+                        if let Err(error) = graph.inspect_caps(space, depth, cutaway) {
+                            this.status = format!("CAPS / {error:#}").into();
                         }
                         *this.graph.borrow_mut() = Some(graph);
                         this.graph_init_error = None;
@@ -831,6 +857,7 @@ impl PhoenixShell {
         cx: &mut Context<Self>,
     ) {
         if matches!(event, velotype::EditorEvent::DocumentChanged { .. }) {
+            self.invalidate_reader_document(cx);
             let next_metrics = editor.read_with(cx, |editor, cx| {
                 footer::DocumentMetrics::from_text(&editor.host_document_text(cx))
             });
@@ -900,6 +927,7 @@ impl PhoenixShell {
         if unchanged {
             return;
         }
+        self.invalidate_reader_document(cx);
         let markdown = next
             .as_ref()
             .map(|lease| lease.content.to_string())

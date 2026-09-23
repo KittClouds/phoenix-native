@@ -1282,6 +1282,23 @@ impl Element for BlockTextElement {
             }
         }
 
+        if !self.is_placeholder && !input.is_source_raw_mode() {
+            for span in &input.narration_spans {
+                let (_, color) =
+                    semantic_tag_surfaces(span.primary, theme.colors.editor_background);
+                for segment in range_segment_bounds(
+                    &lines,
+                    text_bounds,
+                    line_height,
+                    input.display_text(),
+                    span.range.clone(),
+                    text_align,
+                ) {
+                    semantic_backgrounds.push(fill(segment, color));
+                }
+            }
+        }
+
         PrepaintState {
             lines,
             source_line_numbers,

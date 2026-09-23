@@ -274,6 +274,7 @@ impl PhoenixShell {
             return;
         }
         self.graph_rebuild_pending = true;
+        crate::pipeline_timing::mark("ui_run_requested", 0, 0);
         self.status = "PIPELINE / ANALYZING VERIFIED ACTIVE DOCUMENT".into();
         cx.notify();
         let kernel = Arc::clone(&self.kernel);
@@ -287,6 +288,11 @@ impl PhoenixShell {
                 match result {
                     Ok(command) => match command.outcome {
                         KernelOutcome::GraphRebuilt(receipt) => {
+                            crate::pipeline_timing::mark(
+                                "publication_delivered_to_ui",
+                                receipt.publication.generation_id,
+                                0,
+                            );
                             let caps = force_caps.then(|| {
                                 this.kernel
                                     .execute(KernelCommand::SetManifold(Manifold::Caps))
@@ -301,12 +307,20 @@ impl PhoenixShell {
                                 cx.notify();
                                 return;
                             }
-                            this.apply_kernel_highlights(cx);
+                            // Wake the independent graph renderer before editor
+                            // projection; a long note must not hold its first frame.
                             let sync = this
                                 .graph
                                 .borrow()
                                 .as_ref()
                                 .map(|graph| graph.sync_kernel_state());
+                            let highlight_started = std::time::Instant::now();
+                            this.apply_kernel_highlights(cx);
+                            crate::pipeline_timing::mark(
+                                "editor_highlights_projected",
+                                receipt.publication.generation_id,
+                                highlight_started.elapsed().as_micros(),
+                            );
                             match sync {
                                 Some(Ok(())) => {
                                     this.status = format!(

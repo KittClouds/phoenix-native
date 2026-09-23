@@ -1,16 +1,15 @@
 //! Clean-room Hybrid manifold kernel for Phoenix Native.
 //!
-//! The kernel compiles a graph generation into a bounded Poincare ball.  A
-//! node's semantic lane chooses a boundary prototype, while hierarchy depth
-//! controls radial commitment.  The renderer receives only packed positions;
-//! it never evaluates manifold math on the frame path.
+//! Hierarchy roles select radial shells; population-weighted branch regions
+//! occupy the sphere. This is a display chart, not a confidence embedding.
+//! All geometry is compiled once into packed position pages.
 
 use glam::Vec3;
 pub use phoenix_scene_contract::CapsRole;
-use std::f32::consts::PI;
+mod regions;
 use thiserror::Error;
 
-pub const HYBRID_LAYOUT_CONTRACT: &str = "phoenix.native.hybrid-busemann/v1";
+pub const HYBRID_LAYOUT_CONTRACT: &str = "phoenix.native.hybrid-population-regions/v2";
 pub const HYBRID_WORLD_RADIUS: f32 = 34.0;
 pub const HYBRID_BALL_BOUND: f32 = 0.965;
 const EPSILON: f32 = 1.0e-6;
@@ -87,37 +86,19 @@ pub enum HybridLayoutError {
     NonFinite { slot: usize },
 }
 
-/// Compile a complete node page in one role-ordered hierarchy pass.
-///
-/// Radius comes only from the native hierarchy role. Parent direction defines
-/// the center of each child cap, siblings receive stable golden-angle packing,
-/// and semantic lane contributes only a small tangent bias inside that cap.
-/// The renderer receives the final contiguous page and performs no hierarchy
-/// work on the frame path.
+/// Hierarchy-first equal-area spherical regions. Radius encodes containment
+/// role, never confidence; direction encodes the population-weighted branch.
+/// Busemann scores remain diagnostic only and do not drive this layout.
 pub fn layout(nodes: &[HybridNode]) -> Result<Vec<HybridPoint>, HybridLayoutError> {
     validate(nodes)?;
-    let mut directions = vec![Vec3::ZERO; nodes.len()];
-
-    for role in CapsRole::ALL {
-        for (slot, node) in nodes.iter().enumerate() {
-            if node.role != role {
-                continue;
-            }
-            directions[slot] = match node.parent_slot {
-                Some(parent) => {
-                    child_direction(node, nodes[parent as usize], directions[parent as usize])
-                }
-                None => root_direction(node),
-            };
-        }
-    }
-
+    let directions = regions::directions(nodes);
     nodes
         .iter()
+        .zip(directions)
         .enumerate()
-        .map(|(slot, node)| {
-            let radius = hierarchy_radius(node.role) + within_band_offset(node);
-            let unit_position = directions[slot] * radius;
+        .map(|(slot, (node, direction))| {
+            let radius = hierarchy_radius(node.role);
+            let unit_position = direction * radius;
             let world_position = unit_position * HYBRID_WORLD_RADIUS;
             if !world_position.is_finite() {
                 return Err(HybridLayoutError::NonFinite { slot });
@@ -132,7 +113,6 @@ pub fn layout(nodes: &[HybridNode]) -> Result<Vec<HybridPoint>, HybridLayoutErro
         })
         .collect()
 }
-
 /// Poincare unit-ball Busemann score.
 ///
 /// `B_p(x) = ln(||p - x||^2 / (1 - ||x||^2))`; lower values mean stronger
@@ -194,92 +174,6 @@ pub const fn hierarchy_radius(role: CapsRole) -> f32 {
     RADII[role as usize]
 }
 
-fn root_direction(node: &HybridNode) -> Vec3 {
-    let center = node.lane.prototype();
-    if node.sibling_count <= 1 {
-        return center;
-    }
-    packed_cap_direction(node, center, root_cap_aperture(node.sibling_count), 0)
-}
-
-fn child_direction(node: &HybridNode, parent: HybridNode, parent_direction: Vec3) -> Vec3 {
-    let center = parent_direction.normalize_or_zero();
-    let center = if center.length_squared() > 0.5 {
-        center
-    } else {
-        parent.lane.prototype()
-    };
-    packed_cap_direction(
-        node,
-        center,
-        child_cap_aperture(parent.role, node.sibling_count),
-        parent.stable_id,
-    )
-}
-
-fn packed_cap_direction(node: &HybridNode, center: Vec3, aperture: f32, parent_id: u64) -> Vec3 {
-    let count = node.sibling_count.max(1) as f32;
-    let ordinal = (node.sibling_rank as f32 + 0.5) / count;
-    let cos_theta = 1.0 - ordinal * (1.0 - aperture.cos());
-    let sin_theta = (1.0 - cos_theta * cos_theta).max(0.0).sqrt();
-    let (tangent_u, tangent_v) = tangent_basis(center);
-    let phase =
-        node.sibling_rank as f32 * 2.399_963_1 + stable_signed(parent_id ^ node.stable_id, 4) * PI;
-    let sibling_tangent = tangent_u * phase.cos() + tangent_v * phase.sin();
-    let lane = node.lane.prototype();
-    let lane_tangent = (lane - center * lane.dot(center)).normalize_or_zero();
-    let tangent = (sibling_tangent * 0.84 + lane_tangent * 0.16)
-        .try_normalize()
-        .unwrap_or(sibling_tangent);
-    (center * cos_theta + tangent * sin_theta).normalize()
-}
-
-fn tangent_basis(direction: Vec3) -> (Vec3, Vec3) {
-    let reference = if direction.y.abs() < 0.88 {
-        Vec3::Y
-    } else {
-        Vec3::X
-    };
-    let tangent_u = direction.cross(reference).normalize();
-    let tangent_v = tangent_u.cross(direction).normalize();
-    (tangent_u, tangent_v)
-}
-
-fn root_cap_aperture(sibling_count: u32) -> f32 {
-    population_aperture(sibling_count, 0.12, 0.42)
-}
-
-fn child_cap_aperture(parent_role: CapsRole, sibling_count: u32) -> f32 {
-    let maximum = if parent_role <= CapsRole::Episode {
-        0.52
-    } else {
-        0.24
-    };
-    population_aperture(sibling_count, 0.035, maximum)
-}
-
-fn population_aperture(sibling_count: u32, minimum: f32, maximum: f32) -> f32 {
-    let coverage = ((sibling_count.max(1) as f32).ln_1p() / 8.0).clamp(0.0, 1.0);
-    minimum + (maximum - minimum) * coverage
-}
-
-fn within_band_offset(node: &HybridNode) -> f32 {
-    let stable = stable_signed(node.stable_id, 2) * 0.010;
-    let degree = ((node.degree as f32 + 1.0).ln() * 0.0015).min(0.008);
-    (stable + degree).clamp(-0.012, 0.014)
-}
-
-fn stable_signed(stable_id: u64, lane: u64) -> f32 {
-    let mut value = stable_id ^ lane.wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    value ^= value >> 30;
-    value = value.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    value ^= value >> 27;
-    value = value.wrapping_mul(0x94D0_49BB_1331_11EB);
-    value ^= value >> 31;
-    let unit = (value >> 40) as f32 / ((1_u32 << 24) - 1) as f32;
-    unit * 2.0 - 1.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,22 +201,6 @@ mod tests {
         assert!(points[0].radius < points[1].radius);
         assert!(points[1].radius < points[2].radius);
         assert!(points.iter().all(|point| point.radius <= HYBRID_BALL_BOUND));
-    }
-
-    #[test]
-    fn semantic_roots_share_a_compact_front_hemisphere() {
-        let nodes =
-            HybridLane::ALL.map(|lane| node(lane as u64 + 10, lane, CapsRole::Entity, None));
-        let points = layout(&nodes).unwrap_or_else(|error| panic!("Hybrid layout: {error}"));
-        assert!(points.iter().all(|point| point.position[2] > 0.0));
-        for left in 0..points.len() {
-            for right in left + 1..points.len() {
-                assert_ne!(points[left].position, points[right].position);
-                let left = Vec3::from_array(points[left].unit_position).normalize();
-                let right = Vec3::from_array(points[right].unit_position).normalize();
-                assert!(left.dot(right) > 0.80);
-            }
-        }
     }
 
     #[test]

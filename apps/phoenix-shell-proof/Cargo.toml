@@ -26,6 +26,10 @@ phoenix-scene-contract = { path = "../../crates/phoenix-scene-contract" }
 phoenix-scene-product-index = { path = "../../crates/phoenix-scene-product-index" }
 phoenix-scene-publisher = { path = "../../crates/phoenix-scene-publisher" }
 phoenix-workspace = { path = "../../crates/phoenix-workspace" }
+phoenix-reader-session = { path = "../../crates/phoenix-reader-session" }
+phoenix-tts-native = { path = "../../crates/phoenix-tts-native" }
+phoenix-tts-contract = { path = "../../crates/phoenix-tts-contract" }
+phoenix-audio = { path = "../../crates/phoenix-audio" }
 phoenix-text-analytics = { path = "../../crates/phoenix-text-analytics" }
 hashbrown.workspace = true
 pollster.workspace = true

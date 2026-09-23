@@ -1,0 +1,19 @@
+[package]
+name = "phoenix-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+phoenix-tts-contract = { path = "../phoenix-tts-contract" }
+crossbeam-queue = "0.3"
+windows = { workspace = true, features = ["Win32_Media_Audio", "Win32_Media_Multimedia"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "ring"
+harness = false

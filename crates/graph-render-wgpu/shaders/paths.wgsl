@@ -158,11 +158,14 @@ fn vs_main(
     let side = select(1.0, -1.0, vertex_index == 1u || vertex_index == 3u);
     let center = select(source_screen, target_screen, at_target);
     let clip = select(source_clip, target_clip, at_target);
-    let segment_width = clamp(
+    var segment_width = clamp(
         segment.start.w * EDGE_WIDTH_SCALE,
         MIN_EDGE_WIDTH_PX,
         BASE_NODE_DIAMETER_PX * MAX_EDGE_TO_BASE_NODE_RATIO,
     );
+    if ((segment.flags & 1u) != 0u) {
+        segment_width = max(segment.start.w * 1.5, 1.0);
+    }
     let screen = center + normal * segment_width * 0.5 * side;
     let ndc = (screen / camera.viewport_size - 0.5) * 2.0;
     let is_visible = visible(segment);
@@ -194,7 +197,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     let derivative = max(fwidth(abs(input.side)), 0.0001);
     var color = input.color;
-    color.a = min(color.a, camera.edge_opacity);
+    if ((input.segment_flags & 1u) == 0u) {
+        color.a = min(color.a, camera.edge_opacity);
+    }
     if ((input.segment_flags & 1u) == 0u) {
         let runtime_flags = edges[input.edge_slot].kind_flags & 0xffffu;
         if ((runtime_flags & 32768u) != 0u) {

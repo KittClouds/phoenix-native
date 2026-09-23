@@ -152,6 +152,14 @@ impl GraphWindow {
             .send(GraphWindowCommand::SyncKernelState)
     }
 
+    pub fn inspect_caps(&self, space_only: bool, depth: u8, cutaway: bool) -> Result<()> {
+        self.proof_handle().send(GraphWindowCommand::InspectCaps {
+            space_only,
+            depth,
+            cutaway,
+        })
+    }
+
     pub fn fit_graph(&self) -> Result<()> {
         self.proof_handle().send(GraphWindowCommand::FitGraph)
     }
@@ -248,6 +256,7 @@ struct EmbeddedGraphApp {
     last_update: Instant,
     lifetime_registered: bool,
     loaded_generation: Option<GraphGeneration>,
+    presented_generation: Option<GraphGeneration>,
     loaded_manifold: Manifold,
     loaded_graph_view: GraphViewState,
     loaded_selection_revision: u64,
@@ -289,6 +298,7 @@ impl EmbeddedGraphApp {
             last_update: Instant::now(),
             lifetime_registered: false,
             loaded_generation: None,
+            presented_generation: None,
             loaded_manifold: Manifold::Hybrid,
             loaded_graph_view: GraphViewState::default(),
             loaded_selection_revision: 0,
@@ -595,6 +605,15 @@ impl EmbeddedGraphApp {
             };
             match command {
                 GraphWindowCommand::SyncKernelState => {}
+                GraphWindowCommand::InspectCaps {
+                    space_only,
+                    depth,
+                    cutaway,
+                } => self.send_input(GraphInput::InspectCaps {
+                    space_only,
+                    depth,
+                    cutaway,
+                }),
                 GraphWindowCommand::FitGraph => self.send_input(GraphInput::FitGraph),
                 GraphWindowCommand::ResetCamera => self.send_input(GraphInput::ResetCamera),
                 GraphWindowCommand::ResetSwitchTelemetry => {
@@ -893,6 +912,16 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
                     match renderer.render() {
                         Ok(metrics) if metrics.frame_number != 0 => {
                             lifecycle::frame_presented();
+                            if self.presented_generation != self.loaded_generation {
+                                if let Some(generation) = self.loaded_generation {
+                                    crate::pipeline_timing::mark(
+                                        "first_present_submitted",
+                                        generation.0,
+                                        metrics.cpu_encode_submit_us,
+                                    );
+                                    self.presented_generation = Some(generation);
+                                }
+                            }
                             if let Some(mut pending) = self.pending_switch.take() {
                                 pending.receipt.first_present_us =
                                     pending.started.elapsed().as_micros();

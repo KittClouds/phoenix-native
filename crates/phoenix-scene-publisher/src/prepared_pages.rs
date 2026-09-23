@@ -12,16 +12,19 @@ use phoenix_scene_contract::{
     GUIDE_FLAG_HOPF_FIBER, GUIDE_FLAG_SHELL,
 };
 use std::f32::consts::TAU;
+mod edge_routes;
+mod semantic;
+use edge_routes::bundle_ports;
+use semantic::semantic_guide_page;
 
 const DEFAULT_GUIDE_STROKES: usize = 7;
 const GUIDE_POINTS: usize = 65;
 const MAX_CAP_BOUNDARIES: usize = 96;
-const CAPS_REFERENCE_ROLES: [CapsRole; 5] = [
+const CAPS_REFERENCE_ROLES: [CapsRole; 4] = [
     CapsRole::Document,
-    CapsRole::Episode,
-    CapsRole::Fact,
-    CapsRole::Discourse,
-    CapsRole::Memory,
+    CapsRole::Chapter,
+    CapsRole::Paragraph,
+    CapsRole::Sentence,
 ];
 
 struct PreparedGuidePage {
@@ -151,13 +154,16 @@ fn guide_page(
     caps_guides: &[SceneCapsGuide],
 ) -> Result<PreparedGuidePage, ScenePublicationError> {
     if manifold == ArchiveManifold::Hybrid {
-        return hybrid_guide_page();
+        return hybrid_guide_page(positions);
     }
     if manifold == ArchiveManifold::Caps {
         return caps_guide_page(positions, styles, caps_guides);
     }
     if manifold == ArchiveManifold::Hopf {
         return hopf_guide_page(positions.len());
+    }
+    if matches!(manifold, ArchiveManifold::Siegel | ArchiveManifold::Transit) {
+        return semantic_guide_page(manifold);
     }
     let radius = positions
         .iter()
@@ -203,30 +209,54 @@ fn guide_page(
     })
 }
 
-fn hybrid_guide_page() -> Result<PreparedGuidePage, ScenePublicationError> {
-    const TAU_LEVELS: [f32; 4] = [-3.0, -2.0, -1.0, 0.0];
-    const RINGS_PER_HOROSPHERE: usize = 2;
-    let horosphere_strokes =
-        phoenix_hybrid_space::HybridLane::ALL.len() * TAU_LEVELS.len() * RINGS_PER_HOROSPHERE;
-    let mut strokes = Vec::with_capacity(3 + horosphere_strokes);
-    let mut points = Vec::with_capacity((3 + horosphere_strokes) * GUIDE_POINTS);
-
-    for plane in 0..3 {
-        append_hybrid_shell(&mut strokes, &mut points, plane)?;
-    }
-    for lane in phoenix_hybrid_space::HybridLane::ALL {
-        for tau in TAU_LEVELS {
-            let sphere = phoenix_hybrid_space::horosphere(lane, tau);
-            for plane in 0..RINGS_PER_HOROSPHERE {
-                append_horosphere_ring(&mut strokes, &mut points, sphere, plane)?;
+fn hybrid_guide_page(
+    positions: &[PositionRecord],
+) -> Result<PreparedGuidePage, ScenePublicationError> {
+    let mut occupied = [false; 12];
+    for point in positions {
+        let radius =
+            Vec3::from_array(point.position).length() / phoenix_hybrid_space::HYBRID_WORLD_RADIUS;
+        for role in CapsRole::ALL {
+            if (radius - phoenix_hybrid_space::hierarchy_radius(role)).abs() < 0.001 {
+                occupied[role as usize] = true;
             }
         }
     }
-
+    let mut strokes = Vec::with_capacity(27);
+    let mut points = Vec::with_capacity(27 * GUIDE_POINTS);
+    for plane in 0..3 {
+        append_hybrid_shell(&mut strokes, &mut points, plane)?;
+    }
+    for role in CapsRole::ALL {
+        if !occupied[role as usize] {
+            continue;
+        }
+        let radius = phoenix_hybrid_space::hierarchy_radius(role)
+            * phoenix_hybrid_space::HYBRID_WORLD_RADIUS;
+        for plane in 0..2 {
+            let first_point = checked_u32(points.len(), "Hybrid role shell offset")?;
+            for point in 0..GUIDE_POINTS {
+                let angle = point as f32 * TAU / (GUIDE_POINTS - 1) as f32;
+                let (sine, cosine) = angle.sin_cos();
+                let position = if plane == 0 {
+                    [cosine * radius, 0.0, sine * radius]
+                } else {
+                    [0.0, cosine * radius, sine * radius]
+                };
+                points.push(PositionRecord { position });
+            }
+            strokes.push(GuideStrokeRecord {
+                first_point,
+                point_count: GUIDE_POINTS as u32,
+                rgba8: pack_rgba8([0.30, 0.63, 0.61, 0.075]),
+                flags: GUIDE_FLAG_SHELL,
+            });
+        }
+    }
     let bytes = variable_page(
         &GuidePageHeader {
-            stroke_count: checked_u32(strokes.len(), "Hybrid guide stroke count")?,
-            point_count: checked_u32(points.len(), "Hybrid guide point count")?,
+            stroke_count: checked_u32(strokes.len(), "Hybrid shell count")?,
+            point_count: checked_u32(points.len(), "Hybrid shell points")?,
             reserved: [0; 2],
         },
         &strokes,
@@ -237,7 +267,6 @@ fn hybrid_guide_page() -> Result<PreparedGuidePage, ScenePublicationError> {
         stroke_count: strokes.len(),
     })
 }
-
 fn hopf_guide_page(node_count: usize) -> Result<PreparedGuidePage, ScenePublicationError> {
     const SPHERE_PLANES: usize = 3;
     const LATITUDE_RINGS: usize = 5;
@@ -291,7 +320,12 @@ fn append_hopf_sphere_plane(
         let position = match plane {
             0 => [cosine * radius, sine * radius, 0.0],
             1 => [cosine * radius, 0.0, sine * radius],
-            _ => [0.0, cosine * radius, sine * radius],
+            2 => [0.0, cosine * radius, sine * radius],
+            _ => {
+                let height = (plane as f32 - 5.5) / 3.5;
+                let ring = (1.0 - height * height).sqrt() * radius;
+                [cosine * ring, height * radius, sine * ring]
+            }
         };
         points.push(PositionRecord { position });
     }
@@ -400,7 +434,12 @@ fn append_hybrid_shell(
         let position = match plane {
             0 => [cosine * radius, sine * radius, 0.0],
             1 => [cosine * radius, 0.0, sine * radius],
-            _ => [0.0, cosine * radius, sine * radius],
+            2 => [0.0, cosine * radius, sine * radius],
+            _ => {
+                let height = (plane as f32 - 5.5) / 3.5;
+                let ring = (1.0 - height * height).sqrt() * radius;
+                [cosine * ring, height * radius, sine * ring]
+            }
         };
         points.push(PositionRecord { position });
     }
@@ -413,48 +452,6 @@ fn append_hybrid_shell(
     Ok(())
 }
 
-fn append_horosphere_ring(
-    strokes: &mut Vec<GuideStrokeRecord>,
-    points: &mut Vec<PositionRecord>,
-    sphere: phoenix_hybrid_space::Horosphere,
-    plane: usize,
-) -> Result<(), ScenePublicationError> {
-    let first_point = checked_u32(points.len(), "Busemann horosphere offset")?;
-    let center = Vec3::from_array(sphere.center);
-    let prototype = sphere.lane.prototype();
-    let (tangent_u, tangent_v) = tangent_basis(prototype);
-    let (axis_u, axis_v) = if plane == 0 {
-        (tangent_u, tangent_v)
-    } else {
-        (prototype, tangent_u)
-    };
-    for point in 0..GUIDE_POINTS {
-        let angle = point as f32 * TAU / (GUIDE_POINTS - 1) as f32;
-        let position = center + (axis_u * angle.cos() + axis_v * angle.sin()) * sphere.radius;
-        points.push(PositionRecord {
-            position: position.to_array(),
-        });
-    }
-    strokes.push(GuideStrokeRecord {
-        first_point,
-        point_count: GUIDE_POINTS as u32,
-        rgba8: hybrid_horosphere_color(sphere.lane, sphere.tau),
-        flags: GUIDE_FLAG_CAP_BOUNDARY,
-    });
-    Ok(())
-}
-
-fn hybrid_horosphere_color(lane: phoenix_hybrid_space::HybridLane, tau: f32) -> u32 {
-    let alpha = 0.040 + (tau.abs().min(3.0) * 0.008);
-    let rgb = match lane {
-        phoenix_hybrid_space::HybridLane::Structure => [0.98, 0.70, 0.08],
-        phoenix_hybrid_space::HybridLane::Facts => [0.96, 0.34, 0.62],
-        phoenix_hybrid_space::HybridLane::Discourse => [0.42, 0.82, 0.98],
-        phoenix_hybrid_space::HybridLane::Entities => [0.12, 0.86, 0.62],
-    };
-    pack_rgba8([rgb[0], rgb[1], rgb[2], alpha])
-}
-
 fn caps_guide_page(
     positions: &[PositionRecord],
     styles: &[phoenix_scene_archive::NodeStyleRecord],
@@ -465,7 +462,7 @@ fn caps_guide_page(
             "CAPS guide node pages",
         ));
     }
-    let shell_strokes = CAPS_REFERENCE_ROLES.len() * 3;
+    let shell_strokes = CAPS_REFERENCE_ROLES.len() * 9;
     let cap_count = if caps_guides.is_empty() {
         styles
             .iter()
@@ -479,7 +476,7 @@ fn caps_guide_page(
     let mut points = Vec::with_capacity((shell_strokes + cap_count) * GUIDE_POINTS + 2);
 
     for role in CAPS_REFERENCE_ROLES {
-        for plane in 0..3 {
+        for plane in 0..9 {
             append_caps_shell(&mut strokes, &mut points, role, plane)?;
         }
     }
@@ -507,7 +504,12 @@ fn caps_guide_page(
                 &mut strokes,
                 &mut points,
                 Vec3::from_array(guide.center),
-                guide.radius,
+                match guide.role {
+                    CapsRole::Document => CapsRole::Chapter.world_radius(),
+                    CapsRole::Chapter => CapsRole::Paragraph.world_radius(),
+                    CapsRole::Paragraph => CapsRole::Sentence.world_radius(),
+                    _ => guide.radius,
+                },
                 guide.aperture,
                 guide.role,
                 guide.weight,
@@ -558,7 +560,12 @@ fn append_caps_shell(
         let position = match plane {
             0 => [cosine * radius, sine * radius, 0.0],
             1 => [cosine * radius, 0.0, sine * radius],
-            _ => [0.0, cosine * radius, sine * radius],
+            2 => [0.0, cosine * radius, sine * radius],
+            _ => {
+                let height = (plane as f32 - 5.5) / 3.5;
+                let ring = (1.0 - height * height).sqrt() * radius;
+                [cosine * ring, height * radius, sine * ring]
+            }
         };
         points.push(PositionRecord { position });
     }
@@ -651,7 +658,11 @@ fn caps_shell_color(role: CapsRole, plane: usize) -> u32 {
         [0.18, 0.58, 0.92],
     ];
     let rgb = COLORS[role as usize];
-    let plane_alpha = [0.10, 0.075, 0.055][plane.min(2)];
+    let plane_alpha = if plane < 3 {
+        [0.52, 0.42, 0.34][plane]
+    } else {
+        0.16
+    };
     pack_rgba8([rgb[0], rgb[1], rgb[2], plane_alpha])
 }
 
@@ -671,7 +682,7 @@ fn caps_boundary_color(role: CapsRole, weight: u32) -> u32 {
         [0.18, 0.58, 0.92],
     ];
     let rgb = COLORS[role as usize];
-    let alpha = 0.12 + (weight.ilog2().min(12) as f32 * 0.012);
+    let alpha = 0.30 + (weight.ilog2().min(12) as f32 * 0.014);
     pack_rgba8([rgb[0], rgb[1], rgb[2], alpha])
 }
 
@@ -742,8 +753,7 @@ fn path_page(
         if style == 1 {
             points.push(curve_midpoint(source, target, edge_slot));
         } else if style == 2 {
-            points.push(bundle_port(source, source_slot));
-            points.push(bundle_port(target, target_slot));
+            points.extend(bundle_ports(source, target));
         }
         points.push(target);
         paths.push(PathRecord {
@@ -780,17 +790,6 @@ fn curve_midpoint(
             (source.position[0] + target.position[0]) * 0.5 - delta_y / length * bend,
             (source.position[1] + target.position[1]) * 0.5 + delta_x / length * bend,
             (source.position[2] + target.position[2]) * 0.5 + bend * 0.18,
-        ],
-    }
-}
-
-fn bundle_port(position: PositionRecord, slot: usize) -> PositionRecord {
-    let lane = ((slot * 29) % 17) as f32 / 16.0 - 0.5;
-    PositionRecord {
-        position: [
-            position.position[0] * 0.58,
-            position.position[1] * 0.58,
-            position.position[2] * 0.58 + lane * 5.0,
         ],
     }
 }
@@ -850,37 +849,27 @@ mod tests {
     use phoenix_scene_archive::NodeStyleRecord;
 
     #[test]
-    fn hybrid_guides_encode_shell_and_busemann_horospheres() {
-        let page = hybrid_guide_page().unwrap_or_else(|error| panic!("Hybrid guides: {error}"));
-        assert!(page.bytes.len() <= 256 * 1024);
+    fn hybrid_guides_show_only_occupied_hierarchy_shells() {
+        let radius = phoenix_hybrid_space::hierarchy_radius(CapsRole::Chapter)
+            * phoenix_hybrid_space::HYBRID_WORLD_RADIUS;
+        let page = hybrid_guide_page(&[PositionRecord {
+            position: [radius, 0.0, 0.0],
+        }])
+        .unwrap();
         let header = bytemuck::pod_read_unaligned::<GuidePageHeader>(
-            &page.bytes[..std::mem::size_of::<GuidePageHeader>()],
+            &page.bytes[..size_of::<GuidePageHeader>()],
         );
-        let expected_horospheres = phoenix_hybrid_space::HybridLane::ALL.len() * 4 * 2;
-        assert_eq!(header.stroke_count as usize, 3 + expected_horospheres);
-        let record_start = std::mem::size_of::<GuidePageHeader>();
-        let record_end =
-            record_start + header.stroke_count as usize * std::mem::size_of::<GuideStrokeRecord>();
-        let records = page.bytes[record_start..record_end]
-            .chunks_exact(std::mem::size_of::<GuideStrokeRecord>())
-            .map(bytemuck::pod_read_unaligned::<GuideStrokeRecord>)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            records
-                .iter()
-                .filter(|record| record.flags == GUIDE_FLAG_SHELL)
-                .count(),
-            3
-        );
-        assert_eq!(
-            records
-                .iter()
-                .filter(|record| record.flags == GUIDE_FLAG_CAP_BOUNDARY)
-                .count(),
-            expected_horospheres
-        );
+        assert_eq!(header.stroke_count, 5); // world + one occupied role, no confidence surfaces
+        assert_eq!(hybrid_guide_page(&[]).unwrap().stroke_count, 3);
+        let point_offset = size_of::<GuidePageHeader>() + 5 * size_of::<GuideStrokeRecord>();
+        for point in page.bytes[point_offset..]
+            .chunks_exact(size_of::<PositionRecord>())
+            .skip(3 * GUIDE_POINTS)
+        {
+            let point = bytemuck::pod_read_unaligned::<PositionRecord>(point);
+            assert!((Vec3::from_array(point.position).length() - radius).abs() < 0.0001);
+        }
     }
-
     #[test]
     fn hopf_guides_bind_exact_fibers_to_a_visible_base_sphere() {
         let page = hopf_guide_page(6_867).unwrap_or_else(|error| panic!("Hopf guides: {error}"));
@@ -960,7 +949,7 @@ mod tests {
         );
         assert_eq!(
             header.stroke_count as usize,
-            CAPS_REFERENCE_ROLES.len() * 3 + caps_guides.len() + 1
+            CAPS_REFERENCE_ROLES.len() * 9 + caps_guides.len() + 1
         );
         assert_eq!(page.stroke_count, header.stroke_count as usize);
         let record_start = std::mem::size_of::<GuidePageHeader>();
@@ -975,7 +964,7 @@ mod tests {
                 .iter()
                 .filter(|record| record.flags == GUIDE_FLAG_SHELL)
                 .count(),
-            CAPS_REFERENCE_ROLES.len() * 3
+            CAPS_REFERENCE_ROLES.len() * 9
         );
         assert_eq!(
             records

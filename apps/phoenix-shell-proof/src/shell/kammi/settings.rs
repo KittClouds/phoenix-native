@@ -10,6 +10,123 @@ const MAX_OPENROUTER_KEY_BYTES: usize = 512;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum ProviderBackend {
+    #[default]
+    OpenRouter,
+    LlamaCpp,
+}
+
+/// Runtime tuning for the local llama.cpp server.
+///
+/// `Auto` preserves llama.cpp's defaults. `SingleSlot` matches Phoenix's
+/// current request model: one supervised request at a time, with one KV slot
+/// and flash attention enabled. Keeping this explicit avoids changing the
+/// active local setup merely by upgrading Phoenix.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LlamaPerformanceProfile {
+    #[default]
+    SingleSlot,
+    Auto,
+}
+
+impl LlamaPerformanceProfile {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "AUTO",
+            Self::SingleSlot => "SINGLE SLOT",
+        }
+    }
+
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Auto => "Use llama.cpp runtime defaults.",
+            Self::SingleSlot => {
+                "One request at a time, one KV slot, and flash attention for lower latency."
+            }
+        }
+    }
+}
+
+impl ProviderBackend {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "OPENROUTER",
+            Self::LlamaCpp => "LLAMA.CPP",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct LlamaCppSettings {
+    #[serde(default)]
+    pub server_path: String,
+    #[serde(default)]
+    pub model_path: String,
+    #[serde(default = "default_llama_endpoint")]
+    pub endpoint: String,
+    #[serde(default = "default_llama_context_size")]
+    pub context_size: u32,
+    #[serde(default = "default_llama_gpu_layers")]
+    pub gpu_layers: u32,
+    #[serde(default)]
+    pub threads: u32,
+    #[serde(default)]
+    pub performance: LlamaPerformanceProfile,
+}
+
+impl Default for LlamaCppSettings {
+    fn default() -> Self {
+        Self {
+            server_path: String::new(),
+            model_path: String::new(),
+            endpoint: default_llama_endpoint(),
+            context_size: default_llama_context_size(),
+            gpu_layers: default_llama_gpu_layers(),
+            threads: 0,
+            performance: LlamaPerformanceProfile::default(),
+        }
+    }
+}
+
+impl LlamaCppSettings {
+    pub fn normalize(mut self) -> Self {
+        self.server_path = self.server_path.trim().to_owned();
+        self.model_path = self.model_path.trim().to_owned();
+        self.endpoint = self.endpoint.trim().trim_end_matches('/').to_owned();
+        if self.endpoint.is_empty() {
+            self.endpoint = default_llama_endpoint();
+        }
+        self.context_size = self.context_size.clamp(512, 1_048_576);
+        self.gpu_layers = self.gpu_layers.min(4_096);
+        self.threads = self.threads.min(1_024);
+        self
+    }
+
+    pub fn model_label(&self) -> String {
+        std::path::Path::new(&self.model_path)
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("local-gguf")
+            .to_owned()
+    }
+}
+
+fn default_llama_endpoint() -> String {
+    "http://127.0.0.1:8080/v1".to_owned()
+}
+
+const fn default_llama_context_size() -> u32 {
+    8_192
+}
+
+const fn default_llama_gpu_layers() -> u32 {
+    99
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ReasoningLevel {
     #[default]
     Auto,
@@ -64,6 +181,8 @@ impl ReasoningLevel {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct KammiSettings {
     #[serde(default)]
+    pub backend: ProviderBackend,
+    #[serde(default)]
     pub model: String,
     #[serde(default)]
     pub saved_models: Vec<String>,
@@ -71,15 +190,19 @@ pub struct KammiSettings {
     pub reasoning: ReasoningLevel,
     #[serde(default)]
     pub system_prompt: String,
+    #[serde(default)]
+    pub llama_cpp: LlamaCppSettings,
 }
 
 impl Default for KammiSettings {
     fn default() -> Self {
         Self {
+            backend: ProviderBackend::OpenRouter,
             model: String::new(),
             saved_models: Vec::new(),
             reasoning: ReasoningLevel::Auto,
             system_prompt: String::new(),
+            llama_cpp: LlamaCppSettings::default(),
         }
     }
 }
@@ -88,6 +211,7 @@ impl KammiSettings {
     pub fn normalize(mut self) -> Self {
         self.model = self.model.trim().to_owned();
         self.system_prompt = self.system_prompt.trim().to_owned();
+        self.llama_cpp = self.llama_cpp.normalize();
 
         let mut models = Vec::with_capacity(self.saved_models.len().min(MAX_SAVED_MODELS));
         if !self.model.is_empty() {
@@ -105,6 +229,13 @@ impl KammiSettings {
         }
         self.saved_models = models;
         self
+    }
+
+    pub fn active_model_label(&self) -> String {
+        match self.backend {
+            ProviderBackend::OpenRouter => self.model.clone(),
+            ProviderBackend::LlamaCpp => self.llama_cpp.model_label(),
+        }
     }
 
     pub fn select_or_add_model(&mut self, model: &str) -> Result<()> {
@@ -221,6 +352,12 @@ mod tests {
         assert_eq!(settings.model, "google/gemini-2.5-flash");
         assert_eq!(settings.saved_models, ["google/gemini-2.5-flash"]);
         assert_eq!(settings.reasoning, ReasoningLevel::Auto);
+        assert_eq!(settings.backend, ProviderBackend::OpenRouter);
+        assert_eq!(settings.llama_cpp.endpoint, "http://127.0.0.1:8080/v1");
+        assert_eq!(
+            settings.llama_cpp.performance,
+            LlamaPerformanceProfile::SingleSlot
+        );
         assert!(settings.system_prompt.is_empty());
     }
 
@@ -276,5 +413,15 @@ mod tests {
         assert!(!contains_openrouter_key(
             "describe the sk-or-key naming scheme"
         ));
+    }
+
+    #[test]
+    fn local_model_label_is_derived_without_retaining_the_full_path() {
+        let settings = LlamaCppSettings {
+            model_path: r"D:\private-models\Qwen3-8B-Q4_K_M.gguf".into(),
+            ..LlamaCppSettings::default()
+        };
+
+        assert_eq!(settings.model_label(), "Qwen3-8B-Q4_K_M");
     }
 }

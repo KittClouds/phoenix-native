@@ -4,6 +4,11 @@ use std::sync::mpsc::SyncSender;
 
 pub(super) enum GraphWindowCommand {
     SyncKernelState,
+    InspectCaps {
+        space_only: bool,
+        depth: u8,
+        cutaway: bool,
+    },
     FitGraph,
     ResetCamera,
     ResetSwitchTelemetry,

@@ -10,3 +10,7 @@ publish = false
 glam.workspace = true
 phoenix-scene-contract = { path = "../phoenix-scene-contract" }
 thiserror.workspace = true
+
+[[bench]]
+name = "population_regions"
+harness = false

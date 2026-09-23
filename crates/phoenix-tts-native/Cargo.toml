@@ -1,0 +1,31 @@
+[package]
+name = "phoenix-tts-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+phoenix-tts-contract = { path = "../phoenix-tts-contract" }
+phoenix-reader-session = { path = "../phoenix-reader-session" }
+blake3.workspace = true
+memmap2.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+serde.workspace = true
+phoenix-audio = { path = "../phoenix-audio" }
+phoenix-workspace = { path = "../phoenix-workspace" }
+tempfile = "3"
+serde_json.workspace = true
+
+[[bin]]
+name = "native-provider-fixture"
+path = "fixtures/worker.rs"
+
+[[bin]]
+name = "supertonic-provider-fixture"
+path = "fixtures/supertonic.rs"

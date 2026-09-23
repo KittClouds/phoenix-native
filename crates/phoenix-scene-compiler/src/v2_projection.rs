@@ -225,6 +225,10 @@ impl ProjectionBuilder {
             }
         }
         assign_sibling_ranks(&mut caps_nodes)?;
+        positions[phoenix_scene_archive::ArchiveManifold::Siegel as usize] =
+            layout::compile_siegel_positions(&caps_nodes)?;
+        positions[phoenix_scene_archive::ArchiveManifold::Transit as usize] =
+            layout::compile_transit_positions(&caps_nodes)?;
         let mut hybrid_nodes = Vec::with_capacity(node_count);
         for ((caps, product), degree) in caps_nodes.iter().zip(&products).zip(&degrees) {
             hybrid_nodes.push(layout::HybridNode {

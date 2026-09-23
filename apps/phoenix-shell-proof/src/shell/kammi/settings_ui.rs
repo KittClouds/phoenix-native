@@ -1,5 +1,9 @@
 use super::{
-    settings::{clear_openrouter_key, store_openrouter_key, ReasoningLevel, MAX_SAVED_MODELS},
+    provider::validate_llama_cpp_settings,
+    settings::{
+        clear_openrouter_key, store_openrouter_key, LlamaPerformanceProfile, ProviderBackend,
+        ReasoningLevel, MAX_SAVED_MODELS,
+    },
     KammiPanel,
 };
 use crate::shell::{PhoenixShell, BORDER, SURFACE, TEXT, TEXT_MUTED};
@@ -25,13 +29,16 @@ impl PhoenixShell {
                 "Add an OpenRouter key to enable chat",
             )
         };
-        let active_model = if self.kammi.settings.model.is_empty() {
+        let backend = self.kammi.settings.backend;
+        let active_model_label = self.kammi.settings.active_model_label();
+        let active_model = if active_model_label.is_empty() {
             "No model selected".to_string()
         } else {
-            self.kammi.settings.model.clone()
+            active_model_label
         };
         let saved_models = self.kammi.settings.saved_models.clone();
         let active_reasoning = self.kammi.settings.reasoning;
+        let local_performance = self.kammi.settings.llama_cpp.performance;
         let prompt_bytes = self.kammi.settings.system_prompt.len();
 
         div()
@@ -70,7 +77,7 @@ impl PhoenixShell {
                                     .text_xs()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(rgb(ACCENT))
-                                    .child("OPENROUTER"),
+                                    .child(backend.label()),
                             ),
                     )
                     .child(
@@ -96,6 +103,52 @@ impl PhoenixShell {
                             .bg(rgb(CARD_BG))
                             .child(
                                 div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(TEXT))
+                                    .child("INFERENCE PROVIDER"),
+                            )
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .text_xs()
+                                    .text_color(rgb(TEXT_MUTED))
+                                    .child("Choose remote OpenRouter or a process-isolated local llama.cpp GGUF runtime."),
+                            )
+                            .child(
+                                div()
+                                    .mt_3()
+                                    .flex()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("kammi-provider-openrouter")
+                                            .label("OPENROUTER")
+                                            .small()
+                                            .when(backend != ProviderBackend::OpenRouter, |button| button.ghost())
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.select_kammi_provider(ProviderBackend::OpenRouter, cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("kammi-provider-llama-cpp")
+                                            .label("LLAMA.CPP / GGUF")
+                                            .small()
+                                            .when(backend != ProviderBackend::LlamaCpp, |button| button.ghost())
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.select_kammi_provider(ProviderBackend::LlamaCpp, cx);
+                                            })),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .p_3()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(rgb(BORDER))
+                            .bg(rgb(CARD_BG))
+                            .child(
+                                div()
                                     .flex()
                                     .items_center()
                                     .gap_2()
@@ -110,7 +163,7 @@ impl PhoenixShell {
                                             .text_xs()
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(rgb(TEXT))
-                                            .child("CONNECTION"),
+                                            .child("OPENROUTER CONNECTION"),
                                     )
                                     .child(
                                         div()
@@ -163,6 +216,134 @@ impl PhoenixShell {
                             .p_3()
                             .rounded_lg()
                             .border_1()
+                            .border_color(rgb(if backend == ProviderBackend::LlamaCpp {
+                                0x255a4d
+                            } else {
+                                BORDER
+                            }))
+                            .bg(rgb(CARD_BG))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(TEXT))
+                                    .child("LOCAL LLAMA.CPP"),
+                            )
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .mb_2()
+                                    .text_xs()
+                                    .text_color(rgb(TEXT_MUTED))
+                                    .child("Phoenix launches llama-server out of process, keeps it warm, and streams its OpenAI-compatible response. Paths must be absolute."),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(TEXT_MUTED))
+                                    .child("LLAMA-SERVER EXECUTABLE"),
+                            )
+                            .child(Input::new(&self.kammi.llama_server_input).small())
+                            .child(
+                                div()
+                                    .mt_2()
+                                    .text_xs()
+                                    .text_color(rgb(TEXT_MUTED))
+                                    .child("GGUF MODEL"),
+                            )
+                            .child(Input::new(&self.kammi.llama_model_input).small())
+                            .child(
+                                div()
+                                    .mt_2()
+                                    .text_xs()
+                                    .text_color(rgb(TEXT_MUTED))
+                                    .child("LOCAL API ENDPOINT"),
+                            )
+                            .child(Input::new(&self.kammi.llama_endpoint_input).small())
+                            .child(
+                                div()
+                                    .mt_2()
+                                    .text_xs()
+                                    .text_color(rgb(TEXT_MUTED))
+                                    .child(format!(
+                                        "Context {} · GPU layers {} · threads {}",
+                                        self.kammi.settings.llama_cpp.context_size,
+                                        self.kammi.settings.llama_cpp.gpu_layers,
+                                        if self.kammi.settings.llama_cpp.threads == 0 {
+                                            "auto"
+                                        } else {
+                                            "configured"
+                                        }
+                                    )),
+                            )
+                            .child(
+                                div()
+                                    .mt_3()
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(TEXT))
+                                    .child("LOCAL PERFORMANCE PROFILE"),
+                            )
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .text_xs()
+                                    .text_color(rgb(TEXT_MUTED))
+                                    .child(local_performance.description()),
+                            )
+                            .child(
+                                div()
+                                    .mt_2()
+                                    .flex()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("kammi-llama-performance-auto")
+                                            .label("AUTO")
+                                            .small()
+                                            .when(
+                                                local_performance
+                                                    != LlamaPerformanceProfile::Auto,
+                                                |button| button.ghost(),
+                                            )
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.set_kammi_llama_performance(
+                                                    LlamaPerformanceProfile::Auto,
+                                                    cx,
+                                                );
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("kammi-llama-performance-single-slot")
+                                            .label("SINGLE SLOT / LOW LATENCY")
+                                            .small()
+                                            .when(
+                                                local_performance
+                                                    != LlamaPerformanceProfile::SingleSlot,
+                                                |button| button.ghost(),
+                                            )
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.set_kammi_llama_performance(
+                                                    LlamaPerformanceProfile::SingleSlot,
+                                                    cx,
+                                                );
+                                            })),
+                                    ),
+                            )
+                            .child(
+                                Button::new("kammi-save-llama-cpp")
+                                    .label("VALIDATE & USE GGUF")
+                                    .small()
+                                    .mt_2()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.save_kammi_llama_cpp(cx);
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .p_3()
+                            .rounded_lg()
+                            .border_1()
                             .border_color(rgb(BORDER))
                             .bg(rgb(CARD_BG))
                             .child(
@@ -170,7 +351,7 @@ impl PhoenixShell {
                                     .text_xs()
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(TEXT))
-                                    .child("MODEL LIBRARY"),
+                                    .child("OPENROUTER MODEL LIBRARY"),
                             )
                             .child(
                                 div()
@@ -340,7 +521,7 @@ impl PhoenixShell {
                                     .mb_2()
                                     .text_xs()
                                     .text_color(rgb(TEXT_MUTED))
-                                    .child("Persistent instructions are sent first on every new OpenRouter request."),
+                                    .child("Persistent instructions are sent first on every provider request."),
                             )
                             .child(Input::new(&self.kammi.system_prompt_input).small())
                             .child(
@@ -403,6 +584,75 @@ impl PhoenixShell {
         cx.notify();
     }
 
+    fn select_kammi_provider(&mut self, backend: ProviderBackend, cx: &mut Context<Self>) {
+        self.kammi.settings.backend = backend;
+        self.kammi.error_banner = None;
+        self.save_kammi_history();
+        self.status = format!("KAMMI / {} SELECTED", backend.label()).into();
+        cx.notify();
+    }
+
+    fn save_kammi_llama_cpp(&mut self, cx: &mut Context<Self>) {
+        let mut settings = self.kammi.settings.llama_cpp.clone();
+        settings.server_path = self
+            .kammi
+            .llama_server_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_owned();
+        settings.model_path = self
+            .kammi
+            .llama_model_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_owned();
+        settings.endpoint = self
+            .kammi
+            .llama_endpoint_input
+            .read(cx)
+            .value()
+            .trim()
+            .trim_end_matches('/')
+            .to_owned();
+        settings = settings.normalize();
+
+        match validate_llama_cpp_settings(&settings) {
+            Ok(()) => {
+                self.kammi.settings.llama_cpp = settings;
+                self.kammi.settings.backend = ProviderBackend::LlamaCpp;
+                self.kammi.error_banner = None;
+                self.save_kammi_history();
+                self.status = format!(
+                    "KAMMI / LOCAL GGUF {} ACTIVE",
+                    self.kammi.settings.llama_cpp.model_label()
+                )
+                .into();
+            }
+            Err(error) => {
+                self.kammi.error_banner = Some(format!("Invalid llama.cpp setup: {error:#}"));
+            }
+        }
+        cx.notify();
+    }
+
+    fn set_kammi_llama_performance(
+        &mut self,
+        performance: LlamaPerformanceProfile,
+        cx: &mut Context<Self>,
+    ) {
+        self.kammi.settings.llama_cpp.performance = performance;
+        self.kammi.error_banner = None;
+        self.save_kammi_history();
+        self.status = format!(
+            "KAMMI / LOCAL PERFORMANCE {} (APPLIES ON NEXT REQUEST)",
+            performance.label()
+        )
+        .into();
+        cx.notify();
+    }
+
     pub(super) fn clear_kammi_api_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match clear_openrouter_key() {
             Ok(()) => {
@@ -424,6 +674,7 @@ impl PhoenixShell {
         let model = self.kammi.model_input.read(cx).value().to_string();
         match self.kammi.settings.select_or_add_model(&model) {
             Ok(()) => {
+                self.kammi.settings.backend = ProviderBackend::OpenRouter;
                 self.kammi.error_banner = None;
                 self.kammi
                     .model_input
@@ -440,6 +691,7 @@ impl PhoenixShell {
 
     fn select_kammi_model(&mut self, model: &str, cx: &mut Context<Self>) {
         if self.kammi.settings.select_or_add_model(model).is_ok() {
+            self.kammi.settings.backend = ProviderBackend::OpenRouter;
             self.kammi.error_banner = None;
             self.save_kammi_history();
             self.status = format!("KAMMI / MODEL {} ACTIVE", self.kammi.settings.model).into();
