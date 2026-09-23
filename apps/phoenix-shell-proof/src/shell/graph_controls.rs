@@ -8,9 +8,10 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::popover::Popover;
 use gpui_component::{Disableable, Sizable};
 use phoenix_app_core::{GraphProvenanceReceipt, KernelCommand, KernelOutcome};
+use phoenix_scene_archive::{PageKey, PageKind};
 use phoenix_scene_contract::{
-    FamilyMask, GraphAction, GraphCanvas, GraphScope, GraphSurface, GraphViewState, Manifold,
-    RelationFamily, ReviewMask, SceneSource,
+    FamilyMask, GraphAction, GraphCanvas, GraphEdgePresentation, GraphProjection, GraphScope,
+    GraphSurface, GraphViewState, Manifold, RelationFamily, ReviewMask, SceneSource,
 };
 
 const CONTROL_BG: u32 = 0x111514;
@@ -132,6 +133,8 @@ impl PhoenixShell {
                             this.mutate_graph_view(toggle_document_detail, "DETAIL", cx);
                         })),
                 )
+                .child(projection_segment(view.projection, cx))
+                .child(self.edge_presentation_control(view, cx))
                 .child(canvas_toggle(view.canvas, cx))
                 .child(self.provenance_popover(cx))
                 .child(action_button(
@@ -165,6 +168,47 @@ impl PhoenixShell {
                         })),
                 ),
         )
+    }
+
+    fn edge_presentation_control(
+        &self,
+        view: GraphViewState,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let available = self
+            .kernel_snapshot()
+            .and_then(|snapshot| snapshot.resident_scene)
+            .map(|scene| {
+                [
+                    PageKind::StraightPaths,
+                    PageKind::CurvedPaths,
+                    PageKind::BundledPaths,
+                ]
+                .map(|kind| {
+                    scene
+                        .archive()
+                        .has_page(PageKey::manifold(kind, view.manifold.into()))
+                })
+            })
+            .unwrap_or([false; 3]);
+        Button::new("graph-edge-presentation-cycle")
+            .label(format!(
+                "Edges · {}",
+                edge_presentation_label(view.edge_presentation)
+            ))
+            .tooltip("Cycle available path styles: manifold, straight, curved, bundled, hidden.")
+            .small()
+            .ghost()
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.mutate_graph_view(
+                    |next| {
+                        next.edge_presentation =
+                            next_edge_presentation(next.edge_presentation, available);
+                    },
+                    "EDGES",
+                    cx,
+                );
+            }))
     }
 
     fn relation_popover(&self, view: GraphViewState, cx: &mut Context<Self>) -> impl IntoElement {
@@ -371,6 +415,80 @@ fn canvas_toggle(canvas: GraphCanvas, cx: &mut Context<PhoenixShell>) -> impl In
         .on_click(cx.listener(move |this, _, _, cx| {
             this.mutate_graph_view(|next| next.canvas = next.canvas.toggled(), "CANVAS", cx);
         }))
+}
+
+fn projection_segment(active: GraphProjection, cx: &mut Context<PhoenixShell>) -> impl IntoElement {
+    let mut segment = div()
+        .flex()
+        .items_center()
+        .p(px(2.))
+        .rounded_lg()
+        .border_1()
+        .border_color(rgb(BORDER))
+        .bg(rgb(0x0d100f));
+    for projection in [GraphProjection::Spatial, GraphProjection::Map] {
+        let selected = active == projection;
+        segment = segment.child(
+            div()
+                .id(("graph-projection", projection as usize))
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .cursor_pointer()
+                .text_xs()
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(rgb(if selected { ACCENT } else { TEXT_MUTED }))
+                .when(selected, |item| item.bg(rgb(CONTROL_ACTIVE)))
+                .hover(|item| item.bg(rgb(CONTROL_RAISED)).text_color(rgb(TEXT)))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.mutate_graph_view(|next| next.projection = projection, "PROJECTION", cx);
+                }))
+                .child(match projection {
+                    GraphProjection::Spatial => "3D",
+                    GraphProjection::Map => "MAP",
+                }),
+        );
+    }
+    segment
+}
+
+const fn edge_presentation_label(style: GraphEdgePresentation) -> &'static str {
+    match style {
+        GraphEdgePresentation::Manifold => "Manifold",
+        GraphEdgePresentation::Straight => "Straight",
+        GraphEdgePresentation::Curved => "Curved",
+        GraphEdgePresentation::Bundled => "Bundled",
+        GraphEdgePresentation::Hidden => "Hidden",
+    }
+}
+
+fn next_edge_presentation(
+    current: GraphEdgePresentation,
+    available: [bool; 3],
+) -> GraphEdgePresentation {
+    const STYLES: [GraphEdgePresentation; 5] = [
+        GraphEdgePresentation::Manifold,
+        GraphEdgePresentation::Straight,
+        GraphEdgePresentation::Curved,
+        GraphEdgePresentation::Bundled,
+        GraphEdgePresentation::Hidden,
+    ];
+    let start = STYLES
+        .iter()
+        .position(|style| *style == current)
+        .unwrap_or(0);
+    for step in 1..STYLES.len() {
+        let next = STYLES[(start + step) % STYLES.len()];
+        if match next {
+            GraphEdgePresentation::Straight => available[0],
+            GraphEdgePresentation::Curved => available[1],
+            GraphEdgePresentation::Bundled => available[2],
+            _ => true,
+        } {
+            return next;
+        }
+    }
+    current
 }
 
 pub(super) fn surface_segment(
@@ -683,6 +801,27 @@ const fn has_atlas_control_rail(surface: GraphSurface) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edge_control_cycles_only_published_styles_and_keeps_hidden_reachable() {
+        let all = [true; 3];
+        assert_eq!(
+            next_edge_presentation(GraphEdgePresentation::Manifold, all),
+            GraphEdgePresentation::Straight,
+        );
+        assert_eq!(
+            next_edge_presentation(GraphEdgePresentation::Bundled, all),
+            GraphEdgePresentation::Hidden,
+        );
+        assert_eq!(
+            next_edge_presentation(GraphEdgePresentation::Hidden, all),
+            GraphEdgePresentation::Manifold,
+        );
+        assert_eq!(
+            next_edge_presentation(GraphEdgePresentation::Manifold, [false, true, false]),
+            GraphEdgePresentation::Curved,
+        );
+    }
 
     #[test]
     fn overview_only_changes_sentence_and_paragraph_visibility() {

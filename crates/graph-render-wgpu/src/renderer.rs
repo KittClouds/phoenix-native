@@ -1,5 +1,5 @@
 use crate::buffers::CameraUniform;
-use crate::camera::Camera;
+use crate::camera::{Camera, CameraSnapshot};
 use crate::events::PendingEvents;
 use crate::gpu_scene::GpuScene;
 use crate::interaction::{physical_delta_to_logical, PointerState};
@@ -49,7 +49,8 @@ mod memory_policy_tests {
 use graph_model::{GraphDiff, GraphRevision, GraphSnapshot};
 use phoenix_scene_archive::{LabelPriorityRecord, ManifoldPageSet, PositionRecord};
 use phoenix_scene_contract::{
-    GraphCanvas, GraphReviewOverride, GraphSurface, GraphViewState, Manifold,
+    GraphCanvas, GraphEdgePresentation, GraphProjection, GraphReviewOverride, GraphSurface,
+    GraphViewState, Manifold,
 };
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
@@ -65,6 +66,8 @@ pub struct GraphRenderer {
     height: u32,
     scale_factor: f32,
     camera: Camera,
+    spatial_camera: Option<CameraSnapshot>,
+    map_camera: Option<CameraSnapshot>,
     camera_buffer: wgpu::Buffer,
     layouts: RenderLayouts,
     camera_bind_group: wgpu::BindGroup,
@@ -256,6 +259,8 @@ impl GraphRenderer {
             height,
             scale_factor: scale_factor.max(0.01),
             camera,
+            spatial_camera: None,
+            map_camera: None,
             camera_buffer,
             layouts,
             camera_bind_group,
@@ -375,6 +380,9 @@ impl GraphRenderer {
         }
         self.loaded_cohort_hash = cohort_hash;
         self.active_view = GraphViewState::default();
+        self.spatial_camera = None;
+        self.map_camera = None;
+        self.camera.set_projection(GraphProjection::Spatial);
         self.scene
             .set_interaction_visibility(self.active_view, &self.queue);
         self.picking.invalidate();
@@ -444,6 +452,7 @@ impl GraphRenderer {
         let visibility_changed = interaction_visibility_changed(self.active_view, view);
         let framing_changed = graph_view_change_requires_fit(self.active_view, view);
         let canvas_changed = self.active_view.canvas != view.canvas;
+        let projection_changed = self.active_view.projection != view.projection;
         let _index_hash = validate_view_authority(
             view,
             self.scene.revision(),
@@ -451,6 +460,15 @@ impl GraphRenderer {
             self.scene.bound_product_hash(),
         )?;
         let before = self.scene.allocation_stats();
+        if framing_changed {
+            self.spatial_camera = None;
+            self.map_camera = None;
+        } else if projection_changed {
+            match self.active_view.projection {
+                GraphProjection::Spatial => self.spatial_camera = Some(self.camera.snapshot()),
+                GraphProjection::Map => self.map_camera = Some(self.camera.snapshot()),
+            }
+        }
         self.active_view = view;
         let bytes_uploaded = if visibility_changed {
             let context_bytes = self.scene.set_interaction_visibility(view, &self.queue);
@@ -460,8 +478,21 @@ impl GraphRenderer {
             0
         };
         self.picking.invalidate();
-        if framing_changed {
-            self.fit_active_graph();
+        if projection_changed || framing_changed {
+            self.camera.set_projection(view.projection);
+            let restored = if framing_changed {
+                None
+            } else {
+                match view.projection {
+                    GraphProjection::Spatial => self.spatial_camera,
+                    GraphProjection::Map => self.map_camera,
+                }
+            };
+            if let Some(snapshot) = restored {
+                self.camera.restore(snapshot);
+            } else {
+                self.fit_active_graph();
+            }
             self.write_camera();
         } else if canvas_changed {
             self.write_camera();
@@ -571,7 +602,10 @@ impl GraphRenderer {
     }
 
     fn fit_active_graph(&mut self) {
-        if self.active_view.manifold == Manifold::Caps && self.caps_inspection.0 {
+        if self.active_view.projection == GraphProjection::Spatial
+            && self.active_view.manifold == Manifold::Caps
+            && self.caps_inspection.0
+        {
             let radius = match self.caps_inspection.1 {
                 1 => phoenix_scene_contract::CapsRole::Document.world_radius(),
                 2 => phoenix_scene_contract::CapsRole::Chapter.world_radius(),
@@ -588,6 +622,10 @@ impl GraphRenderer {
             .state()
             .nodes_with_slots()
             .filter_map(|(slot, node)| scene.node_visible_in_view(slot, view).then_some(node));
+        if view.projection == GraphProjection::Map {
+            self.camera.fit_map(visible_nodes);
+            return;
+        }
         match view.surface {
             GraphSurface::Entities => self.camera.fit_graph_around_bounds(visible_nodes),
             GraphSurface::Atlas if view.manifold == Manifold::Hybrid => {
@@ -713,7 +751,11 @@ impl GraphRenderer {
                 self.camera_changed()
             }
             GraphInput::ResetCamera => {
-                self.camera.reset();
+                if self.active_view.projection == GraphProjection::Map {
+                    self.fit_active_graph();
+                } else {
+                    self.camera.reset();
+                }
                 self.camera_changed()
             }
             GraphInput::ClearSelection => {
@@ -963,9 +1005,14 @@ impl GraphRenderer {
                 &self.camera_bind_group,
                 &self.lens_bind_group,
                 &self.edge_bind_group,
+                self.active_view.edge_presentation != GraphEdgePresentation::Hidden,
             );
             let edge_slots = self.scene.edge_draw_slots();
-            if !space_only && edge_slots != 0 && !self.prepared_paths.has_paths() {
+            if !space_only
+                && edge_slots != 0
+                && !self.prepared_paths.has_paths()
+                && self.active_view.edge_presentation != GraphEdgePresentation::Hidden
+            {
                 pass.set_pipeline(&self.pipelines.edges);
                 pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 pass.set_bind_group(1, &self.node_bind_group, &[]);
@@ -1113,7 +1160,9 @@ fn interaction_visibility_changed(current: GraphViewState, next: GraphViewState)
 #[cfg(test)]
 mod view_delta_tests {
     use super::*;
-    use phoenix_scene_contract::{FamilyMask, GraphCanvas, Manifold};
+    use phoenix_scene_contract::{
+        FamilyMask, GraphCanvas, GraphEdgePresentation, GraphProjection, Manifold,
+    };
 
     #[test]
     fn manifold_only_change_reuses_interaction_visibility() {
@@ -1147,6 +1196,20 @@ mod view_delta_tests {
 
         assert!(!graph_view_change_requires_fit(current, next));
         assert!(!interaction_visibility_changed(current, next));
+    }
+
+    #[test]
+    fn projection_and_edge_style_do_not_rebuild_interaction_visibility() {
+        let current = GraphViewState::default();
+        let next = GraphViewState {
+            projection: GraphProjection::Map,
+            edge_presentation: GraphEdgePresentation::Curved,
+            ..current
+        };
+        assert!(!interaction_visibility_changed(current, next));
+        assert!(!graph_view_change_requires_fit(current, next));
+        assert_eq!(current.authority, next.authority);
+        assert_eq!(current.topology_families, next.topology_families);
     }
 }
 mod geometry;

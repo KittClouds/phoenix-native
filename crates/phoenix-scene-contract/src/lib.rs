@@ -48,8 +48,9 @@ pub use topology::{
     TOPOLOGY_INVENTORY_CONTRACT,
 };
 pub use view::{
-    FamilyMask, GraphAction, GraphCanvas, GraphLens, GraphReviewOverride, GraphScope, GraphSurface,
-    GraphViewState, RelationFamily, RelationMask, ReviewMask, SceneAuthority, ScopeMask,
+    FamilyMask, GraphAction, GraphCanvas, GraphEdgePresentation, GraphLens, GraphProjection,
+    GraphReviewOverride, GraphScope, GraphSurface, GraphTopologyEmphasis, GraphViewState,
+    RelationFamily, RelationMask, ReviewMask, SceneAuthority, ScopeMask,
 };
 pub use visual::{visual_role, with_visual_role, VisualRole, VISUAL_ROLE_MASK, VISUAL_ROLE_SHIFT};
 pub use visual_v3::{
@@ -408,6 +409,29 @@ impl ResidentScene {
             hot_pages,
         })
     }
+
+    /// Opens only the requested presentation page. Node and edge identity,
+    /// manifold positions, and topology remain resident and unchanged.
+    pub fn paths_for_presentation(
+        &self,
+        manifold: Manifold,
+        presentation: GraphEdgePresentation,
+    ) -> Result<Option<PathPageView<'_>>, SceneContractError> {
+        let Some(kind) = path_kind_for_presentation(manifold, presentation) else {
+            return Ok(None);
+        };
+        let archive_manifold = manifold.into();
+        let key = PageKey::manifold(kind, archive_manifold);
+        if !self.archive.has_page(key) {
+            if presentation == GraphEdgePresentation::Manifold {
+                return Ok(None);
+            }
+            return Err(SceneContractError::Archive(ArchiveError::MissingPage(key)));
+        }
+        let paths = self.archive.paths(kind, archive_manifold)?;
+        validate_topology_projection(paths, self.inventory.edge_count)?;
+        Ok(Some(paths))
+    }
 }
 
 fn is_legacy_five_manifold_archive(archive: &PhoenixSceneArchiveV1) -> bool {
@@ -434,6 +458,44 @@ const fn preferred_path_kind(manifold: Manifold) -> PageKind {
         Manifold::Siegel => PageKind::BundledPaths,
         Manifold::Torus | Manifold::Hopf | Manifold::Transit => PageKind::CurvedPaths,
         Manifold::Hybrid | Manifold::Caps => PageKind::StraightPaths,
+    }
+}
+
+const fn path_kind_for_presentation(
+    manifold: Manifold,
+    presentation: GraphEdgePresentation,
+) -> Option<PageKind> {
+    match presentation {
+        GraphEdgePresentation::Manifold => Some(preferred_path_kind(manifold)),
+        GraphEdgePresentation::Straight => Some(PageKind::StraightPaths),
+        GraphEdgePresentation::Curved => Some(PageKind::CurvedPaths),
+        GraphEdgePresentation::Bundled => Some(PageKind::BundledPaths),
+        GraphEdgePresentation::Hidden => None,
+    }
+}
+
+#[cfg(test)]
+mod edge_presentation_tests {
+    use super::*;
+
+    #[test]
+    fn manifold_default_and_explicit_styles_keep_path_identity_separate() {
+        assert_eq!(
+            path_kind_for_presentation(Manifold::Siegel, GraphEdgePresentation::Manifold),
+            Some(PageKind::BundledPaths),
+        );
+        assert_eq!(
+            path_kind_for_presentation(Manifold::Siegel, GraphEdgePresentation::Straight),
+            Some(PageKind::StraightPaths),
+        );
+        assert_eq!(
+            path_kind_for_presentation(Manifold::Caps, GraphEdgePresentation::Curved),
+            Some(PageKind::CurvedPaths),
+        );
+        assert_eq!(
+            path_kind_for_presentation(Manifold::Hopf, GraphEdgePresentation::Hidden),
+            None,
+        );
     }
 }
 

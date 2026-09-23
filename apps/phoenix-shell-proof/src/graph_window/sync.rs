@@ -38,7 +38,13 @@ impl EmbeddedGraphApp {
                 )
                 .context("project new resident archive generation")?;
             renderer
-                .set_prepared_geometry(active.guides, active.prepared_paths)
+                .set_prepared_geometry(
+                    active.guides,
+                    scene.paths_for_presentation(
+                        snapshot.graph_view.manifold,
+                        snapshot.graph_view.edge_presentation,
+                    )?,
+                )
                 .context("install replacement prepared guide/path pages")?;
             if let Some(index) = snapshot.scene_product_index.as_ref() {
                 install_product_index(renderer, &scene, index)?;
@@ -85,7 +91,13 @@ impl EmbeddedGraphApp {
                     .switch_archive_positions(active.pages.positions)
                     .context("switch resident manifold positions")?;
                 renderer
-                    .set_prepared_geometry(active.guides, active.prepared_paths)
+                    .set_prepared_geometry(
+                        active.guides,
+                        scene.paths_for_presentation(
+                            snapshot.graph_view.manifold,
+                            snapshot.graph_view.edge_presentation,
+                        )?,
+                    )
                     .context("switch resident prepared guide/path pages")?;
                 let cpu_us = started.elapsed().as_micros();
                 let receipt = super::ManifoldSwitchReceipt {
@@ -109,6 +121,26 @@ impl EmbeddedGraphApp {
                 self.max_hot_page_bytes = self.max_hot_page_bytes.max(active.hot_pages.byte_len);
                 self.switch_cpu_samples.push(cpu_us);
                 self.pending_switch = Some(PendingManifoldSwitch { receipt, started });
+            } else if self.loaded_graph_view.edge_presentation
+                != snapshot.graph_view.edge_presentation
+            {
+                let manifold = snapshot.graph_view.manifold.into();
+                let guide_key = PageKey::manifold(PageKind::Guides, manifold);
+                let guides = scene
+                    .archive()
+                    .has_page(guide_key)
+                    .then(|| scene.archive().guides(manifold))
+                    .transpose()
+                    .context("open resident guides")?;
+                renderer
+                    .set_prepared_geometry(
+                        guides,
+                        scene.paths_for_presentation(
+                            snapshot.graph_view.manifold,
+                            snapshot.graph_view.edge_presentation,
+                        )?,
+                    )
+                    .context("switch edge presentation without rebuilding topology")?;
             }
             renderer
                 .set_graph_view(snapshot.graph_view)

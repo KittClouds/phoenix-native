@@ -31,6 +31,9 @@ fn reconcile_published_graph_view(
 ) -> GraphViewState {
     published.manifold = previous.manifold;
     published.canvas = previous.canvas;
+    published.projection = previous.projection;
+    published.edge_presentation = previous.edge_presentation;
+    published.topology_emphasis = previous.topology_emphasis;
     if previous_was_full {
         published.surface = previous.surface;
         published.families = previous.families;

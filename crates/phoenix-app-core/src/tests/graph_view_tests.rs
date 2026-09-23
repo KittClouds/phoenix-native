@@ -1,5 +1,5 @@
 use super::*;
-use phoenix_scene_contract::FamilyMask;
+use phoenix_scene_contract::{FamilyMask, GraphEdgePresentation, GraphProjection};
 
 #[test]
 fn graph_view_is_kernel_owned_and_preserves_resident_arrays(
@@ -30,6 +30,8 @@ fn graph_view_is_kernel_owned_and_preserves_resident_arrays(
     view.scope = GraphScope::Compare;
     view.reviews = ReviewMask::ACCEPTED;
     view.relations = RelationFamily::Causal.mask();
+    view.projection = GraphProjection::Map;
+    view.edge_presentation = GraphEdgePresentation::Curved;
     kernel.execute(KernelCommand::SetGraphView(Box::new(view)))?;
     let updated = kernel.snapshot()?;
     assert_eq!(updated.graph_view, view);

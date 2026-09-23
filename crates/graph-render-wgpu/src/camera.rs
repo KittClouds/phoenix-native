@@ -1,9 +1,11 @@
 use crate::buffers::CameraUniform;
 use glam::{Mat4, Vec3};
 use graph_model::NodeVisual;
+use phoenix_scene_contract::GraphProjection;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CameraSnapshot {
+    pub projection: GraphProjection,
     pub target: [f32; 3],
     pub yaw: f32,
     pub pitch: f32,
@@ -13,6 +15,7 @@ pub struct CameraSnapshot {
 }
 
 pub struct Camera {
+    projection: GraphProjection,
     orbit_center: Vec3,
     target: Vec3,
     yaw: f32,
@@ -32,6 +35,7 @@ impl Camera {
         let viewport_width = width.max(1.0);
         let viewport_height = height.max(1.0);
         Self {
+            projection: GraphProjection::Spatial,
             orbit_center: Vec3::ZERO,
             target: Vec3::ZERO,
             yaw: 0.0,
@@ -55,6 +59,7 @@ impl Camera {
     #[must_use]
     pub fn snapshot(&self) -> CameraSnapshot {
         CameraSnapshot {
+            projection: self.projection,
             target: self.target.to_array(),
             yaw: self.yaw,
             pitch: self.pitch,
@@ -62,6 +67,23 @@ impl Camera {
             fov_y: self.fov_y,
             aspect: self.aspect,
         }
+    }
+
+    pub fn set_projection(&mut self, projection: GraphProjection) {
+        self.projection = projection;
+        if projection == GraphProjection::Map {
+            self.yaw = 0.0;
+            self.pitch = 0.0;
+        }
+    }
+
+    pub fn restore(&mut self, snapshot: CameraSnapshot) {
+        self.projection = snapshot.projection;
+        self.target = Vec3::from_array(snapshot.target);
+        self.orbit_center = self.target;
+        self.yaw = snapshot.yaw;
+        self.pitch = snapshot.pitch;
+        self.distance = snapshot.distance;
     }
 
     #[must_use]
@@ -93,7 +115,24 @@ impl Camera {
 
     #[must_use]
     pub fn view_projection_matrix(&self) -> Mat4 {
-        Mat4::perspective_rh(self.fov_y, self.aspect, self.z_near, self.z_far) * self.view_matrix()
+        let projection = match self.projection {
+            GraphProjection::Spatial => {
+                Mat4::perspective_rh(self.fov_y, self.aspect, self.z_near, self.z_far)
+            }
+            GraphProjection::Map => {
+                let half_height = self.distance.max(0.05);
+                let half_width = half_height * self.aspect;
+                Mat4::orthographic_rh(
+                    -half_width,
+                    half_width,
+                    -half_height,
+                    half_height,
+                    self.z_near,
+                    200_000.0,
+                )
+            }
+        };
+        projection * self.view_matrix()
     }
 
     #[must_use]
@@ -103,8 +142,18 @@ impl Camera {
         CameraUniform {
             view_proj: self.view_projection_matrix().to_cols_array_2d(),
             eye_position: [eye.x, eye.y, eye.z, 1.0],
-            view_right: [right.x, right.y, right.z, 0.0],
-            view_up: [up.x, up.y, up.z, 0.0],
+            view_right: [
+                right.x,
+                right.y,
+                right.z,
+                2.0 * self.distance / self.viewport_height,
+            ],
+            view_up: [
+                up.x,
+                up.y,
+                up.z,
+                f32::from(self.projection == GraphProjection::Map),
+            ],
             viewport_size: [self.viewport_width, self.viewport_height],
             edge_opacity: 0.18,
             canvas_style: 0.0,
@@ -112,6 +161,10 @@ impl Camera {
     }
 
     pub fn orbit(&mut self, delta_x: f32, delta_y: f32) {
+        if self.projection == GraphProjection::Map {
+            self.pan(delta_x, delta_y);
+            return;
+        }
         // Match Angular's root.rotation contract exactly: horizontal motion
         // spins around the graph root's Y axis; vertical motion tilts.
         // Pan remains an independent camera-frame translation.
@@ -122,7 +175,11 @@ impl Camera {
     pub fn pan(&mut self, delta_x: f32, delta_y: f32) {
         // Match the V3 root-translation contract. Pan is independent from the
         // scene rotation and remains a framing offset around the fixed pivot.
-        let world_per_pixel = self.distance / 900.0;
+        let world_per_pixel = if self.projection == GraphProjection::Map {
+            2.0 * self.distance / self.viewport_height
+        } else {
+            self.distance / 900.0
+        };
         self.target.x -= delta_x * world_per_pixel;
         self.target.y += delta_y * world_per_pixel;
     }
@@ -167,7 +224,11 @@ impl Camera {
         self.orbit_center = Vec3::ZERO;
         self.target = Vec3::ZERO;
         self.yaw = 0.0;
-        self.pitch = 0.2;
+        self.pitch = if self.projection == GraphProjection::Map {
+            0.0
+        } else {
+            0.2
+        };
         self.distance = 100.0;
     }
 
@@ -188,6 +249,33 @@ impl Camera {
         I::IntoIter: Clone,
     {
         self.fit_graph_around(nodes, Vec3::ZERO);
+    }
+
+    pub fn fit_map<'a, I>(&mut self, nodes: I)
+    where
+        I: IntoIterator<Item = &'a NodeVisual>,
+    {
+        let (minimum, maximum, count) = nodes.into_iter().fold(
+            (
+                Vec3::splat(f32::INFINITY),
+                Vec3::splat(f32::NEG_INFINITY),
+                0usize,
+            ),
+            |(minimum, maximum, count), node| {
+                let position = Vec3::from_array(node.position);
+                (minimum.min(position), maximum.max(position), count + 1)
+            },
+        );
+        if count == 0 {
+            self.reset();
+            return;
+        }
+        self.orbit_center = (minimum + maximum) * 0.5;
+        self.target = self.orbit_center;
+        self.yaw = 0.0;
+        self.pitch = 0.0;
+        let span = maximum - minimum;
+        self.distance = (span.y * 0.5).max(span.x * 0.5 / self.aspect).max(1.0) * 1.12;
     }
 
     /// Frame a centered presentation surface whose geometry is independent of
@@ -284,7 +372,13 @@ impl Camera {
     }
 
     fn base_eye_position(&self) -> Vec3 {
-        self.target + Vec3::Z * self.distance
+        self.target
+            + Vec3::Z
+                * if self.projection == GraphProjection::Map {
+                    100_000.0
+                } else {
+                    self.distance
+                }
     }
 
     fn scene_transform(&self) -> Mat4 {
@@ -320,6 +414,7 @@ mod tests {
     use super::Camera;
     use glam::Vec3;
     use graph_model::{NodeId, NodeVisual};
+    use phoenix_scene_contract::GraphProjection;
 
     fn node(id: u64, position: [f32; 3]) -> NodeVisual {
         NodeVisual {
@@ -515,6 +610,36 @@ mod tests {
         let expected = anchor + (old_target - anchor) * ratio;
         assert!((camera.target - expected).length() < 0.0001);
         assert!(camera.target.x > old_target.x);
+    }
+
+    #[test]
+    fn map_fits_published_xy_positions_and_keeps_picking_scale_finite() {
+        let mut camera = Camera::new(1200.0, 800.0);
+        camera.set_projection(GraphProjection::Map);
+        let nodes = [node(1, [-40.0, -20.0, -80.0]), node(2, [40.0, 20.0, 80.0])];
+        camera.fit_map(&nodes);
+        let left = camera.project_to_viewport(nodes[0].position).unwrap();
+        let right = camera.project_to_viewport(nodes[1].position).unwrap();
+        assert!(left.0 < 600.0 && right.0 > 600.0);
+        assert!(left.1 > 400.0 && right.1 < 400.0);
+        assert!(camera.uniform().view_right[3].is_finite());
+        assert_eq!(camera.uniform().view_up[3], 1.0);
+        let before = camera.snapshot();
+        camera.orbit(40.0, 0.0);
+        assert_eq!(camera.snapshot().yaw, 0.0);
+        assert_ne!(camera.snapshot().target, before.target);
+    }
+
+    #[test]
+    fn projection_snapshot_restores_spatial_orientation() {
+        let mut camera = Camera::new(800.0, 600.0);
+        camera.orient(0.72, 0.34);
+        let spatial = camera.snapshot();
+        camera.set_projection(GraphProjection::Map);
+        camera.fit_map(&[node(1, [10.0, 20.0, 30.0])]);
+        assert_ne!(camera.snapshot(), spatial);
+        camera.restore(spatial);
+        assert_eq!(camera.snapshot(), spatial);
     }
 
     #[test]

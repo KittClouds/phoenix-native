@@ -218,7 +218,11 @@ fn vs_main(
         dot(camera.eye_position.xyz - node.position_radius.xyz, view_back),
         0.01,
     );
-    let world_per_pixel = view_depth * 0.8284271 / max(camera.viewport_size.y, 1.0);
+    let world_per_pixel = select(
+        view_depth * 0.8284271 / max(camera.viewport_size.y, 1.0),
+        camera.view_right.w,
+        camera.view_up.w > 0.5,
+    );
     let world_radius = diameter_pixels * 0.5 * world_per_pixel;
     let world = node.position_radius.xyz
         + (camera.view_right.xyz * uv.x + camera.view_up.xyz * uv.y) * world_radius;

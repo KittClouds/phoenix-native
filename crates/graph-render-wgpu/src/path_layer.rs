@@ -257,6 +257,7 @@ impl PreparedPathLayer {
         camera: &'pass wgpu::BindGroup,
         lens: &'pass wgpu::BindGroup,
         edges: &'pass wgpu::BindGroup,
+        show_paths: bool,
     ) {
         if self.segments.is_empty() {
             return;
@@ -266,7 +267,12 @@ impl PreparedPathLayer {
         pass.set_bind_group(1, &self.bind_group, &[]);
         pass.set_bind_group(2, lens, &[]);
         pass.set_bind_group(3, edges, &[]);
-        pass.draw(0..4, 0..self.display_count as u32);
+        let count = if show_paths {
+            self.display_count
+        } else {
+            self.display_count.min(self.guide_segments)
+        };
+        pass.draw(0..4, 0..count as u32);
     }
 }
 
