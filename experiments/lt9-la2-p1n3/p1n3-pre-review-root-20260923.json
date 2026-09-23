@@ -1,0 +1,23 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1n3-pre-review-root/v1",
+  "date": "2026-09-23",
+  "branch": "codex/phoenix-native-p1n3-natural-pairwise-20260923",
+  "protocol_sha256": "dd9efc08aaa71fd4c394595f523fa7d66b246b83ea2ba6056b238c8b8a7f0476",
+  "roster_sha256": "1efdeffa4dd304efff349acd2d27c28e6c845c3cf87314da7c6fc1002d1db1b0",
+  "source_sha256": {
+    ".gitattributes": "89b1c7b85a23c7770de64a2a6a6fd815ead846d2fb9b40aaf3f6a6de1db535fc",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n3.rs": "b433d7644fbbe10d9c9b01fa981c51b4c36dec2816569695fb945f3fc7d25f04",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n3_features.rs": "15ec936e0aaae9b6e024e8ea2cafefdd06c6b347dabc450d5df4d63b925f0f89",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n3_seal.rs": "814d146d836c235c02a17a321940b6fed09fbfae8a4be0b82d026deacb7ffcbc",
+    "docs/LT9_LA2_P1N3_NATURAL_PAIRWISE_COMPATIBILITY_20260923.md": "dd9efc08aaa71fd4c394595f523fa7d66b246b83ea2ba6056b238c8b8a7f0476",
+    "experiments/lt9-la2-p1n3/Cargo.lock": "64366edaae7f7b46f139eceee6e4a167bfff2b30aa7b0c1ad1ebd71339654dd6",
+    "experiments/lt9-la2-p1n3/Cargo.toml": "1ce32433dbb4049219eaee5601aeb20e08384d68a1ac65d15780d708693378a1",
+    "experiments/lt9-la2-p1n3/corpus-roster-20260923.json": "1efdeffa4dd304efff349acd2d27c28e6c845c3cf87314da7c6fc1002d1db1b0"
+  },
+  "binary_sha256": "8f2b6f4aec8e626dab8d8d66f07b827f6e6dbc8ba6c53d3489d1f419d53a16e2",
+  "packets_sha256": "2aef17f0c88794311c2fc713167bd41e38ab8ca9307fa46df0e42dcfe84b77aa",
+  "rubric_sha256": "bf676fb2f56df2f7bbedbfeb52f5f6223ba9446ef4e58d2a9314316263659d10",
+  "private_ledger_sha256": "f4a2022b8eddcbc39bc95eedffaffe3c8c42779ef20c4c098f13f518802601a0",
+  "receipt_sha256": "4d206173178451f6ceb98a1c026e1a781b9d5ab87951876e85abcce2743292d3",
+  "judgments_completed": false
+}

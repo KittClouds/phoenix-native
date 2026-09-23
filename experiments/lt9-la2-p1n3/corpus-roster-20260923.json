@@ -1,0 +1,18 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1n3-corpus-roster/v1",
+  "source": "fixed P1N1 label-blind corpus roster; text-only input",
+  "corpora": [
+    {"corpus_id":"cqadupstack","path":"D:\\phoenix-evals\\lt9-p1m1-20260923\\corpora\\cqadupstack\\corpus.jsonl","sha256":"5f879180578f90a5595c62ddc2a2058b51b64754a66086de0b1f5a3f975ccc0a"},
+    {"corpus_id":"arguana","path":"D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\corpus.jsonl","sha256":"0627982cec4ee896df6dc98604ef6b499c83fd87a19eaaeb3f23b88bbef6cbce"},
+    {"corpus_id":"nfcorpus","path":"D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\corpus.jsonl","sha256":"10cc83ef1826b1425e6a87090b5140b39b27755d5a27e48215a88611c899991f"},
+    {"corpus_id":"quora","path":"D:\\phoenix-evals\\beir\\screen-candidates\\quora\\corpus.jsonl","sha256":"e2586c8e2f09c994a03d8e77842072b0f67f6f48403768be745157579d74aae4"},
+    {"corpus_id":"scidocs","path":"D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\corpus.jsonl","sha256":"328bb38854179c83ee40d4f49fae2ef7209ede7163785193cbdcd5906b28eecc"},
+    {"corpus_id":"trec-covid","path":"D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\corpus.jsonl","sha256":"aded69896598665082316d00df487d22212cc5a8611db05db34eb40d04ed00d7"},
+    {"corpus_id":"scifact","path":"D:\\phoenix-evals\\beir\\scifact\\corpus.jsonl","sha256":"dec31c8182f3d744c7d2c09423756fd1d17cbef75808db13ba01cc0aab4d1ac6"},
+    {"corpus_id":"lotte-writing","path":"D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-writing.jsonl","sha256":"4a118917ad66e72e77790d2aa4a86df0bac04584ef62912201856153c434c132"},
+    {"corpus_id":"lotte-recreation","path":"D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-recreation.jsonl","sha256":"df1fc69514b370438cd3b86ed5054cc075cbe301d6086d3acab4e6fff749739b"},
+    {"corpus_id":"lotte-science","path":"D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-science.jsonl","sha256":"b325a7dd5d7b828a9ad6900bb3b1e5237a3c56d05f91af2df3a3be60633a1b79"},
+    {"corpus_id":"lotte-technology","path":"D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-technology.jsonl","sha256":"8d9ef797ce6b6efd36f44a8c3198e217a3e4fc667666ae179640d91811f93257"},
+    {"corpus_id":"lotte-lifestyle","path":"D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-lifestyle.jsonl","sha256":"7144f7b421ecb48a632577f9e55aed41e713cc9c25cf581b73899846cd6862c3"}
+  ]
+}

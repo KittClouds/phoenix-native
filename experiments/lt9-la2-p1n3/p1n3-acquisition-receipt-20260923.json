@@ -1,0 +1,269 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1n3-pre-review/v1",
+  "date": "2026-09-23",
+  "status": "blind_packets_ready_no_judgments",
+  "source_roster_sha256": "1efdeffa4dd304efff349acd2d27c28e6c845c3cf87314da7c6fc1002d1db1b0",
+  "source_hashes_verified": true,
+  "corpus_counts": [
+    {
+      "corpus_id": "cqadupstack",
+      "docs_scanned": 457199,
+      "relation_occurrences_seen": [
+        6,
+        71,
+        5
+      ],
+      "reservoir_contexts": [
+        6,
+        64,
+        5
+      ],
+      "candidate_pairs": [
+        15,
+        2016,
+        10
+      ]
+    },
+    {
+      "corpus_id": "arguana",
+      "docs_scanned": 8674,
+      "relation_occurrences_seen": [
+        2,
+        1,
+        8
+      ],
+      "reservoir_contexts": [
+        2,
+        1,
+        8
+      ],
+      "candidate_pairs": [
+        1,
+        0,
+        28
+      ]
+    },
+    {
+      "corpus_id": "nfcorpus",
+      "docs_scanned": 3633,
+      "relation_occurrences_seen": [
+        0,
+        0,
+        0
+      ],
+      "reservoir_contexts": [
+        0,
+        0,
+        0
+      ],
+      "candidate_pairs": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "corpus_id": "quora",
+      "docs_scanned": 522931,
+      "relation_occurrences_seen": [
+        0,
+        18,
+        12
+      ],
+      "reservoir_contexts": [
+        0,
+        18,
+        12
+      ],
+      "candidate_pairs": [
+        0,
+        153,
+        66
+      ]
+    },
+    {
+      "corpus_id": "scidocs",
+      "docs_scanned": 25657,
+      "relation_occurrences_seen": [
+        0,
+        24,
+        1
+      ],
+      "reservoir_contexts": [
+        0,
+        24,
+        1
+      ],
+      "candidate_pairs": [
+        0,
+        276,
+        0
+      ]
+    },
+    {
+      "corpus_id": "trec-covid",
+      "docs_scanned": 171332,
+      "relation_occurrences_seen": [
+        2,
+        6,
+        59
+      ],
+      "reservoir_contexts": [
+        2,
+        6,
+        59
+      ],
+      "candidate_pairs": [
+        1,
+        15,
+        1711
+      ]
+    },
+    {
+      "corpus_id": "scifact",
+      "docs_scanned": 5183,
+      "relation_occurrences_seen": [
+        0,
+        0,
+        3
+      ],
+      "reservoir_contexts": [
+        0,
+        0,
+        3
+      ],
+      "candidate_pairs": [
+        0,
+        0,
+        3
+      ]
+    },
+    {
+      "corpus_id": "lotte-writing",
+      "docs_scanned": 277072,
+      "relation_occurrences_seen": [
+        31,
+        201,
+        5
+      ],
+      "reservoir_contexts": [
+        31,
+        64,
+        5
+      ],
+      "candidate_pairs": [
+        465,
+        2016,
+        10
+      ]
+    },
+    {
+      "corpus_id": "lotte-recreation",
+      "docs_scanned": 263025,
+      "relation_occurrences_seen": [
+        24,
+        64,
+        9
+      ],
+      "reservoir_contexts": [
+        24,
+        64,
+        9
+      ],
+      "candidate_pairs": [
+        276,
+        2016,
+        36
+      ]
+    },
+    {
+      "corpus_id": "lotte-science",
+      "docs_scanned": 1694164,
+      "relation_occurrences_seen": [
+        32,
+        163,
+        14
+      ],
+      "reservoir_contexts": [
+        32,
+        64,
+        14
+      ],
+      "candidate_pairs": [
+        496,
+        2016,
+        91
+      ]
+    },
+    {
+      "corpus_id": "lotte-technology",
+      "docs_scanned": 1276222,
+      "relation_occurrences_seen": [
+        5,
+        76,
+        10
+      ],
+      "reservoir_contexts": [
+        5,
+        64,
+        10
+      ],
+      "candidate_pairs": [
+        10,
+        2015,
+        45
+      ]
+    },
+    {
+      "corpus_id": "lotte-lifestyle",
+      "docs_scanned": 268893,
+      "relation_occurrences_seen": [
+        34,
+        816,
+        40
+      ],
+      "reservoir_contexts": [
+        34,
+        64,
+        40
+      ],
+      "candidate_pairs": [
+        561,
+        2016,
+        780
+      ]
+    }
+  ],
+  "target_pairs_per_relation_band": 16,
+  "max_pairs_per_corpus_band": 4,
+  "selected_pairs_per_relation_band": [
+    [
+      16,
+      16
+    ],
+    [
+      16,
+      16
+    ],
+    [
+      16,
+      16
+    ]
+  ],
+  "review_packet_count": 96,
+  "unique_document_count": 192,
+  "fit_packets": 67,
+  "holdout_packets": 29,
+  "split_template_overlap": 0,
+  "candidate_tokens_in_any_feature": 0,
+  "judgment_values_assigned": 0,
+  "scope": {
+    "qrels_or_queries_read": false,
+    "previous_outcomes_read": false,
+    "expected_family_labels_used": false,
+    "retrieval_or_ranking_run": false,
+    "authority_updated": false,
+    "human_judgments_assigned_by_sampler": false,
+    "reviewer_receives_provenance_or_strata": false
+  }
+}
