@@ -1,0 +1,141 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1m2r-normalization/v1",
+  "date": "2026-09-23",
+  "scope": "LoTTE corpus-only normalization; dev then test; first passage ID wins; pooled, query, QAS, and judgment members excluded",
+  "archive_url": "https://downloads.cs.stanford.edu/nlp/data/colbert/colbertv2/lotte.tar.gz",
+  "archive_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+  "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+  "archive_bytes": 3576167599,
+  "expected_archive_bytes": 3576167599,
+  "validity_labels_opened": false,
+  "queries_or_qas_opened": false,
+  "extracted_members": [
+    "lotte/writing/dev/collection.tsv",
+    "lotte/writing/test/collection.tsv",
+    "lotte/recreation/dev/collection.tsv",
+    "lotte/recreation/test/collection.tsv",
+    "lotte/science/dev/collection.tsv",
+    "lotte/science/test/collection.tsv",
+    "lotte/technology/dev/collection.tsv",
+    "lotte/technology/test/collection.tsv",
+    "lotte/lifestyle/dev/collection.tsv",
+    "lotte/lifestyle/test/collection.tsv"
+  ],
+  "corpora": [
+    {
+      "corpus_id": "lotte-writing",
+      "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-writing.jsonl",
+      "sha256": "4a118917ad66e72e77790d2aa4a86df0bac04584ef62912201856153c434c132",
+      "bytes": 346456275,
+      "unique_documents": 277072,
+      "sources": [
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\writing\\dev\\collection.tsv",
+          "sha256": "c8163057e0b297b76b3b0bebb036a136bceefdb93a62643e11898cfaeb9c84d4",
+          "bytes": 336575355,
+          "input_rows": 277072,
+          "duplicate_ids_skipped": 0
+        },
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\writing\\test\\collection.tsv",
+          "sha256": "811ce045d828836e26c43484d8a88cb535f229e3168f9ff1ccb9a2b31eee52f5",
+          "bytes": 143608940,
+          "input_rows": 199994,
+          "duplicate_ids_skipped": 199994
+        }
+      ]
+    },
+    {
+      "corpus_id": "lotte-recreation",
+      "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-recreation.jsonl",
+      "sha256": "df1fc69514b370438cd3b86ed5054cc075cbe301d6086d3acab4e6fff749739b",
+      "bytes": 354059981,
+      "unique_documents": 263025,
+      "sources": [
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\recreation\\dev\\collection.tsv",
+          "sha256": "5a4543e30ff43b2dd30e23a3593c56e3eacb55f4f1f854e24d7be0667d496e17",
+          "bytes": 345015210,
+          "input_rows": 263025,
+          "duplicate_ids_skipped": 0
+        },
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\recreation\\test\\collection.tsv",
+          "sha256": "89395181a0b362edff24ef8da31d8dd9c505b945b1ff7bd88d95cef4ebd585b0",
+          "bytes": 131710327,
+          "input_rows": 166975,
+          "duplicate_ids_skipped": 166975
+        }
+      ]
+    },
+    {
+      "corpus_id": "lotte-science",
+      "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-science.jsonl",
+      "sha256": "b325a7dd5d7b828a9ad6900bb3b1e5237a3c56d05f91af2df3a3be60633a1b79",
+      "bytes": 1668809378,
+      "unique_documents": 1694164,
+      "sources": [
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\science\\dev\\collection.tsv",
+          "sha256": "a40c9c763fe8718ee7b931df7bd5b6135f36a69d00eb4723a796150e9b14c12c",
+          "bytes": 421005787,
+          "input_rows": 343642,
+          "duplicate_ids_skipped": 0
+        },
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\science\\test\\collection.tsv",
+          "sha256": "fbb64dcf375e7839d8fad2ddc9255e51c4b9271edad004a0bfd4091780d1d144",
+          "bytes": 1424863193,
+          "input_rows": 1694164,
+          "duplicate_ids_skipped": 343642
+        }
+      ]
+    },
+    {
+      "corpus_id": "lotte-technology",
+      "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-technology.jsonl",
+      "sha256": "8d9ef797ce6b6efd36f44a8c3198e217a3e4fc667666ae179640d91811f93257",
+      "bytes": 937440428,
+      "unique_documents": 1276222,
+      "sources": [
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\technology\\dev\\collection.tsv",
+          "sha256": "9185de362f1165b47a5fd5cb2d1985765c36fe70271bcdc05e376279067541b3",
+          "bytes": 893507088,
+          "input_rows": 1276222,
+          "duplicate_ids_skipped": 0
+        },
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\technology\\test\\collection.tsv",
+          "sha256": "1b62fb1d0bb708cb07b01533fc71c9ba81327ba08653e37f965e9f5e2a531c4c",
+          "bytes": 557032287,
+          "input_rows": 638509,
+          "duplicate_ids_skipped": 638509
+        }
+      ]
+    },
+    {
+      "corpus_id": "lotte-lifestyle",
+      "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-lifestyle.jsonl",
+      "sha256": "7144f7b421ecb48a632577f9e55aed41e713cc9c25cf581b73899846cd6862c3",
+      "bytes": 268568125,
+      "unique_documents": 268893,
+      "sources": [
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\lifestyle\\dev\\collection.tsv",
+          "sha256": "31c279010744a5529283702f018d570752530476d9efa212393595121822c73e",
+          "bytes": 259621674,
+          "input_rows": 268893,
+          "duplicate_ids_skipped": 0
+        },
+        {
+          "path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\extract\\lotte\\lifestyle\\test\\collection.tsv",
+          "sha256": "39d5775a8c80416db74fd90e8561d4c3dda8c7f2364be4ecb51c2791d5a12f61",
+          "bytes": 104086354,
+          "input_rows": 119461,
+          "duplicate_ids_skipped": 119461
+        }
+      ]
+    }
+  ]
+}

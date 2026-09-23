@@ -1,0 +1,728 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1m2r-screen/v1",
+  "date": "2026-09-23",
+  "scope": "prospective P1M2R structural preflight; frozen twelve-corpus cohort; expected-context labels and qrels remain unopened",
+  "corpus_text_only": true,
+  "validity_labels_opened": false,
+  "qrels_or_queries_opened": false,
+  "reserved_qualification_id": "webis-touche2020",
+  "reserved_qualification_labels_opened": false,
+  "frozen_order": [
+    "cqadupstack",
+    "arguana",
+    "nfcorpus",
+    "quora",
+    "scidocs",
+    "trec-covid",
+    "scifact",
+    "lotte-writing",
+    "lotte-recreation",
+    "lotte-science",
+    "lotte-technology",
+    "lotte-lifestyle"
+  ],
+  "structural_preflight": {
+    "minimum_contested_episodes": 240,
+    "minimum_corpora_with_15_contested": 3,
+    "minimum_candidate_relations": 4,
+    "minimum_corpus_shard_cells": 8,
+    "observed_unique_episodes": 3806,
+    "observed_contested_episodes": 254,
+    "observed_corpora_with_15_contested": 3,
+    "observed_candidate_relations": 8,
+    "observed_corpus_shard_cells": 28,
+    "passed": true
+  },
+  "corpora": [
+    {
+      "corpus_id": "cqadupstack",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\lt9-p1m1-20260923\\corpora\\cqadupstack\\corpus.jsonl",
+      "archive_path": "D:\\phoenix-evals\\lt9-p1m1-20260923\\downloads\\cqadupstack.zip",
+      "archive_sha256": "6072f7d345496387d24194c8af35c5fb6c2f0e5f9130c5b4a78b98bbfac88558",
+      "archive_bytes": 5343728040,
+      "corpus_sha256": "5f879180578f90a5595c62ddc2a2058b51b64754a66086de0b1f5a3f975ccc0a",
+      "corpus_bytes": 475836459,
+      "document_count": 457199,
+      "structural": {
+        "event_count": 220,
+        "directional_episode_count": 211,
+        "physical_document_pair_count": 93,
+        "unique_plurality_episode_count": 167,
+        "exclusive_unique_episode_count": 157,
+        "contested_unique_episode_count": 10,
+        "contested_physical_document_pair_count": 6,
+        "contested_by_shard": [
+          1,
+          8,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0
+        ],
+        "self_vote_changed_episode_count": 156,
+        "routed_by_relation": {
+          "car_to_vehicle": {
+            "unique": 74,
+            "exclusive": 70,
+            "contested": 4
+          },
+          "credit_to_loan": {
+            "unique": 5,
+            "exclusive": 5,
+            "contested": 0
+          },
+          "engine_to_motor": {
+            "unique": 7,
+            "exclusive": 5,
+            "contested": 2
+          },
+          "insurance_to_coverage": {
+            "unique": 4,
+            "exclusive": 4,
+            "contested": 0
+          },
+          "loan_to_debt": {
+            "unique": 1,
+            "exclusive": 1,
+            "contested": 0
+          },
+          "stock_to_bond": {
+            "unique": 2,
+            "exclusive": 2,
+            "contested": 0
+          },
+          "vehicle_to_car": {
+            "unique": 74,
+            "exclusive": 70,
+            "contested": 4
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "arguana",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\corpus.jsonl",
+      "archive_path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana.zip",
+      "archive_sha256": "cfdf79adce27a401b3cd3ea267903134dbfab2c6afeb95d7fe5724a00bf7557b",
+      "archive_bytes": 3773617,
+      "corpus_sha256": "0627982cec4ee896df6dc98604ef6b499c83fd87a19eaaeb3f23b88bbef6cbce",
+      "corpus_bytes": 9829628,
+      "document_count": 8674,
+      "structural": {
+        "event_count": 17,
+        "directional_episode_count": 10,
+        "physical_document_pair_count": 7,
+        "unique_plurality_episode_count": 7,
+        "exclusive_unique_episode_count": 7,
+        "contested_unique_episode_count": 0,
+        "contested_physical_document_pair_count": 0,
+        "contested_by_shard": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "self_vote_changed_episode_count": 7,
+        "routed_by_relation": {
+          "insurance_to_coverage": {
+            "unique": 7,
+            "exclusive": 7,
+            "contested": 0
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "nfcorpus",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\corpus.jsonl",
+      "archive_path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus.zip",
+      "archive_sha256": "efe5be03f8c5b86a5870102d0599d227c8c6e2484328e68c6522560385671b0b",
+      "archive_bytes": 2448432,
+      "corpus_sha256": "10cc83ef1826b1425e6a87090b5140b39b27755d5a27e48215a88611c899991f",
+      "corpus_bytes": 6219364,
+      "document_count": 3633,
+      "structural": {
+        "event_count": 0,
+        "directional_episode_count": 0,
+        "physical_document_pair_count": 0,
+        "unique_plurality_episode_count": 0,
+        "exclusive_unique_episode_count": 0,
+        "contested_unique_episode_count": 0,
+        "contested_physical_document_pair_count": 0,
+        "contested_by_shard": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "self_vote_changed_episode_count": 0,
+        "routed_by_relation": {}
+      }
+    },
+    {
+      "corpus_id": "quora",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\corpus.jsonl",
+      "archive_path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora.zip",
+      "archive_sha256": "56aacd9dcc4d9c093b63f175afdda0e21cbc8442ecf6c717d09de7b358d77531",
+      "archive_bytes": 15853968,
+      "corpus_sha256": "e2586c8e2f09c994a03d8e77842072b0f67f6f48403768be745157579d74aae4",
+      "corpus_bytes": 63335960,
+      "document_count": 522931,
+      "structural": {
+        "event_count": 95,
+        "directional_episode_count": 87,
+        "physical_document_pair_count": 70,
+        "unique_plurality_episode_count": 87,
+        "exclusive_unique_episode_count": 73,
+        "contested_unique_episode_count": 14,
+        "contested_physical_document_pair_count": 10,
+        "contested_by_shard": [
+          2,
+          2,
+          3,
+          1,
+          0,
+          5,
+          1,
+          0
+        ],
+        "self_vote_changed_episode_count": 87,
+        "routed_by_relation": {
+          "car_to_vehicle": {
+            "unique": 17,
+            "exclusive": 13,
+            "contested": 4
+          },
+          "credit_to_loan": {
+            "unique": 30,
+            "exclusive": 26,
+            "contested": 4
+          },
+          "engine_to_motor": {
+            "unique": 3,
+            "exclusive": 3,
+            "contested": 0
+          },
+          "insurance_to_coverage": {
+            "unique": 11,
+            "exclusive": 9,
+            "contested": 2
+          },
+          "loan_to_debt": {
+            "unique": 9,
+            "exclusive": 9,
+            "contested": 0
+          },
+          "vehicle_to_car": {
+            "unique": 17,
+            "exclusive": 13,
+            "contested": 4
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "scidocs",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\corpus.jsonl",
+      "archive_path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs.zip",
+      "archive_sha256": "96640201687767c9b1fcc5af7a80b90fb325b37fa25329c2586c25edcfa17ef1",
+      "archive_bytes": 142471588,
+      "corpus_sha256": "328bb38854179c83ee40d4f49fae2ef7209ede7163785193cbdcd5906b28eecc",
+      "corpus_bytes": 257334350,
+      "document_count": 25657,
+      "structural": {
+        "event_count": 56,
+        "directional_episode_count": 51,
+        "physical_document_pair_count": 27,
+        "unique_plurality_episode_count": 51,
+        "exclusive_unique_episode_count": 43,
+        "contested_unique_episode_count": 8,
+        "contested_physical_document_pair_count": 4,
+        "contested_by_shard": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          6,
+          2,
+          0
+        ],
+        "self_vote_changed_episode_count": 45,
+        "routed_by_relation": {
+          "car_to_vehicle": {
+            "unique": 24,
+            "exclusive": 20,
+            "contested": 4
+          },
+          "credit_to_loan": {
+            "unique": 3,
+            "exclusive": 3,
+            "contested": 0
+          },
+          "vehicle_to_car": {
+            "unique": 24,
+            "exclusive": 20,
+            "contested": 4
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "trec-covid",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\corpus.jsonl",
+      "archive_path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid.zip",
+      "archive_sha256": "120f42a7864d2214234537733c0d2c6684e42fdfafff2c5eacf98afca6656aa0",
+      "archive_bytes": 73876720,
+      "corpus_sha256": "aded69896598665082316d00df487d22212cc5a8611db05db34eb40d04ed00d7",
+      "corpus_bytes": 221370065,
+      "document_count": 171332,
+      "structural": {
+        "event_count": 83,
+        "directional_episode_count": 75,
+        "physical_document_pair_count": 66,
+        "unique_plurality_episode_count": 71,
+        "exclusive_unique_episode_count": 71,
+        "contested_unique_episode_count": 0,
+        "contested_physical_document_pair_count": 0,
+        "contested_by_shard": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "self_vote_changed_episode_count": 63,
+        "routed_by_relation": {
+          "car_to_vehicle": {
+            "unique": 5,
+            "exclusive": 5,
+            "contested": 0
+          },
+          "credit_to_loan": {
+            "unique": 2,
+            "exclusive": 2,
+            "contested": 0
+          },
+          "insurance_to_coverage": {
+            "unique": 59,
+            "exclusive": 59,
+            "contested": 0
+          },
+          "vehicle_to_car": {
+            "unique": 5,
+            "exclusive": 5,
+            "contested": 0
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "scifact",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\beir\\scifact\\corpus.jsonl",
+      "archive_path": "D:\\phoenix-evals\\beir\\scifact.zip",
+      "archive_sha256": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
+      "archive_bytes": 2816079,
+      "corpus_sha256": "dec31c8182f3d744c7d2c09423756fd1d17cbef75808db13ba01cc0aab4d1ac6",
+      "corpus_bytes": 8106566,
+      "document_count": 5183,
+      "structural": {
+        "event_count": 3,
+        "directional_episode_count": 2,
+        "physical_document_pair_count": 2,
+        "unique_plurality_episode_count": 2,
+        "exclusive_unique_episode_count": 2,
+        "contested_unique_episode_count": 0,
+        "contested_physical_document_pair_count": 0,
+        "contested_by_shard": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "self_vote_changed_episode_count": 2,
+        "routed_by_relation": {
+          "insurance_to_coverage": {
+            "unique": 2,
+            "exclusive": 2,
+            "contested": 0
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "lotte-writing",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-writing.jsonl",
+      "archive_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "archive_bytes": 3576167599,
+      "corpus_sha256": "4a118917ad66e72e77790d2aa4a86df0bac04584ef62912201856153c434c132",
+      "corpus_bytes": 346456275,
+      "document_count": 277072,
+      "structural": {
+        "event_count": 582,
+        "directional_episode_count": 571,
+        "physical_document_pair_count": 298,
+        "unique_plurality_episode_count": 498,
+        "exclusive_unique_episode_count": 458,
+        "contested_unique_episode_count": 40,
+        "contested_physical_document_pair_count": 24,
+        "contested_by_shard": [
+          7,
+          0,
+          1,
+          0,
+          4,
+          15,
+          13,
+          0
+        ],
+        "self_vote_changed_episode_count": 431,
+        "routed_by_relation": {
+          "bank_to_lender": {
+            "unique": 2,
+            "exclusive": 2,
+            "contested": 0
+          },
+          "bank_to_shore": {
+            "unique": 3,
+            "exclusive": 0,
+            "contested": 3
+          },
+          "bank_to_water": {
+            "unique": 4,
+            "exclusive": 0,
+            "contested": 4
+          },
+          "car_to_vehicle": {
+            "unique": 200,
+            "exclusive": 184,
+            "contested": 16
+          },
+          "credit_to_loan": {
+            "unique": 15,
+            "exclusive": 15,
+            "contested": 0
+          },
+          "engine_to_motor": {
+            "unique": 40,
+            "exclusive": 40,
+            "contested": 0
+          },
+          "insurance_to_coverage": {
+            "unique": 4,
+            "exclusive": 4,
+            "contested": 0
+          },
+          "loan_to_debt": {
+            "unique": 16,
+            "exclusive": 15,
+            "contested": 1
+          },
+          "stock_to_bond": {
+            "unique": 14,
+            "exclusive": 14,
+            "contested": 0
+          },
+          "vehicle_to_car": {
+            "unique": 200,
+            "exclusive": 184,
+            "contested": 16
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "lotte-recreation",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-recreation.jsonl",
+      "archive_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "archive_bytes": 3576167599,
+      "corpus_sha256": "df1fc69514b370438cd3b86ed5054cc075cbe301d6086d3acab4e6fff749739b",
+      "corpus_bytes": 354059981,
+      "document_count": 263025,
+      "structural": {
+        "event_count": 253,
+        "directional_episode_count": 243,
+        "physical_document_pair_count": 80,
+        "unique_plurality_episode_count": 143,
+        "exclusive_unique_episode_count": 139,
+        "contested_unique_episode_count": 4,
+        "contested_physical_document_pair_count": 2,
+        "contested_by_shard": [
+          4,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "self_vote_changed_episode_count": 134,
+        "routed_by_relation": {
+          "car_to_vehicle": {
+            "unique": 63,
+            "exclusive": 61,
+            "contested": 2
+          },
+          "credit_to_loan": {
+            "unique": 2,
+            "exclusive": 2,
+            "contested": 0
+          },
+          "engine_to_motor": {
+            "unique": 1,
+            "exclusive": 1,
+            "contested": 0
+          },
+          "insurance_to_coverage": {
+            "unique": 8,
+            "exclusive": 8,
+            "contested": 0
+          },
+          "loan_to_debt": {
+            "unique": 6,
+            "exclusive": 6,
+            "contested": 0
+          },
+          "vehicle_to_car": {
+            "unique": 63,
+            "exclusive": 61,
+            "contested": 2
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "lotte-science",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-science.jsonl",
+      "archive_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "archive_bytes": 3576167599,
+      "corpus_sha256": "b325a7dd5d7b828a9ad6900bb3b1e5237a3c56d05f91af2df3a3be60633a1b79",
+      "corpus_bytes": 1668809378,
+      "document_count": 1694164,
+      "structural": {
+        "event_count": 523,
+        "directional_episode_count": 512,
+        "physical_document_pair_count": 311,
+        "unique_plurality_episode_count": 473,
+        "exclusive_unique_episode_count": 447,
+        "contested_unique_episode_count": 26,
+        "contested_physical_document_pair_count": 18,
+        "contested_by_shard": [
+          0,
+          7,
+          0,
+          1,
+          0,
+          0,
+          0,
+          18
+        ],
+        "self_vote_changed_episode_count": 440,
+        "routed_by_relation": {
+          "bank_to_water": {
+            "unique": 5,
+            "exclusive": 0,
+            "contested": 5
+          },
+          "car_to_vehicle": {
+            "unique": 162,
+            "exclusive": 154,
+            "contested": 8
+          },
+          "credit_to_loan": {
+            "unique": 18,
+            "exclusive": 17,
+            "contested": 1
+          },
+          "engine_to_motor": {
+            "unique": 81,
+            "exclusive": 77,
+            "contested": 4
+          },
+          "insurance_to_coverage": {
+            "unique": 13,
+            "exclusive": 13,
+            "contested": 0
+          },
+          "loan_to_debt": {
+            "unique": 21,
+            "exclusive": 21,
+            "contested": 0
+          },
+          "stock_to_bond": {
+            "unique": 11,
+            "exclusive": 11,
+            "contested": 0
+          },
+          "vehicle_to_car": {
+            "unique": 162,
+            "exclusive": 154,
+            "contested": 8
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "lotte-technology",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-technology.jsonl",
+      "archive_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "archive_bytes": 3576167599,
+      "corpus_sha256": "8d9ef797ce6b6efd36f44a8c3198e217a3e4fc667666ae179640d91811f93257",
+      "corpus_bytes": 937440428,
+      "document_count": 1276222,
+      "structural": {
+        "event_count": 1231,
+        "directional_episode_count": 1223,
+        "physical_document_pair_count": 167,
+        "unique_plurality_episode_count": 242,
+        "exclusive_unique_episode_count": 228,
+        "contested_unique_episode_count": 14,
+        "contested_physical_document_pair_count": 12,
+        "contested_by_shard": [
+          0,
+          0,
+          2,
+          12,
+          0,
+          0,
+          0,
+          0
+        ],
+        "self_vote_changed_episode_count": 234,
+        "routed_by_relation": {
+          "car_to_vehicle": {
+            "unique": 75,
+            "exclusive": 73,
+            "contested": 2
+          },
+          "credit_to_loan": {
+            "unique": 1,
+            "exclusive": 1,
+            "contested": 0
+          },
+          "engine_to_motor": {
+            "unique": 80,
+            "exclusive": 72,
+            "contested": 8
+          },
+          "insurance_to_coverage": {
+            "unique": 9,
+            "exclusive": 7,
+            "contested": 2
+          },
+          "repair_to_fix": {
+            "unique": 2,
+            "exclusive": 2,
+            "contested": 0
+          },
+          "vehicle_to_car": {
+            "unique": 75,
+            "exclusive": 73,
+            "contested": 2
+          }
+        }
+      }
+    },
+    {
+      "corpus_id": "lotte-lifestyle",
+      "role": "P1M2R_DISCOVERY",
+      "corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-lifestyle.jsonl",
+      "archive_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "archive_bytes": 3576167599,
+      "corpus_sha256": "7144f7b421ecb48a632577f9e55aed41e713cc9c25cf581b73899846cd6862c3",
+      "corpus_bytes": 268568125,
+      "document_count": 268893,
+      "structural": {
+        "event_count": 2422,
+        "directional_episode_count": 2412,
+        "physical_document_pair_count": 1258,
+        "unique_plurality_episode_count": 2065,
+        "exclusive_unique_episode_count": 1927,
+        "contested_unique_episode_count": 138,
+        "contested_physical_document_pair_count": 83,
+        "contested_by_shard": [
+          0,
+          12,
+          3,
+          2,
+          2,
+          0,
+          10,
+          109
+        ],
+        "self_vote_changed_episode_count": 1962,
+        "routed_by_relation": {
+          "bank_to_water": {
+            "unique": 2,
+            "exclusive": 0,
+            "contested": 2
+          },
+          "car_to_vehicle": {
+            "unique": 807,
+            "exclusive": 752,
+            "contested": 55
+          },
+          "credit_to_loan": {
+            "unique": 2,
+            "exclusive": 1,
+            "contested": 1
+          },
+          "engine_to_motor": {
+            "unique": 402,
+            "exclusive": 388,
+            "contested": 14
+          },
+          "insurance_to_coverage": {
+            "unique": 39,
+            "exclusive": 28,
+            "contested": 11
+          },
+          "repair_to_fix": {
+            "unique": 6,
+            "exclusive": 6,
+            "contested": 0
+          },
+          "vehicle_to_car": {
+            "unique": 807,
+            "exclusive": 752,
+            "contested": 55
+          }
+        }
+      }
+    }
+  ]
+}
