@@ -2,6 +2,9 @@
 /apps/phoenix-memory-lock/src/bin/lt9_la2p1n3.rs text eol=lf
 /apps/phoenix-memory-lock/src/bin/lt9_la2p1n3_features.rs text eol=lf
 /apps/phoenix-memory-lock/src/bin/lt9_la2p1n3_seal.rs text eol=lf
+/apps/phoenix-memory-lock/src/bin/lt9_la2p1n4.rs text eol=lf
+/apps/phoenix-memory-lock/src/bin/lt9_la2p1n4_helpers.rs text eol=lf
 /docs/LT9_LA2_P1N3_ACQUISITION_20260923.md text eol=lf
 /docs/LT9_LA2_P1N3_NATURAL_PAIRWISE_COMPATIBILITY_20260923.md text eol=lf
 /experiments/lt9-la2-p1n3/** text eol=lf
+/experiments/lt9-la2-p1n4/** text eol=lf

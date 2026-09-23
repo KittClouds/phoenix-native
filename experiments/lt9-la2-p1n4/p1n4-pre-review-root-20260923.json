@@ -1,0 +1,26 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1n4-pre-review-root/v1",
+  "date": "2026-09-23",
+  "branch": "codex/phoenix-native-p1n4-targeted-compatibility-20260923",
+  "protocol_sha256": "6c04d5f037a95d5ea531fa16856f6c77a2e4023877a606e88276d1072b0a5dd9",
+  "roster_sha256": "1efdeffa4dd304efff349acd2d27c28e6c845c3cf87314da7c6fc1002d1db1b0",
+  "prior_ledger_sha256": "f4a2022b8eddcbc39bc95eedffaffe3c8c42779ef20c4c098f13f518802601a0",
+  "prior_root_sha256": "96ca4759bedbb78119b7e355d9bc8acbeaa58b245a99259135ffa63fb430dea4",
+  "source_sha256": {
+    ".gitattributes": "e92ea5e5de6598c20b4545b25b6dff5fdf9c01b4a2c309beeb959eca1ae6136e",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n3_features.rs": "15ec936e0aaae9b6e024e8ea2cafefdd06c6b347dabc450d5df4d63b925f0f89",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n4.rs": "b4de30ecb9d6efd66ec06c52261968e0065f4ee90d6ce2421005a69b76788ff2",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n4_helpers.rs": "e1b76951d2442fa17989983e70d3b9d6a1f037efdd191ff35945071c8cd82271",
+    "docs/LT9_LA2_P1N4_TARGETED_COMPATIBILITY_20260923.md": "6c04d5f037a95d5ea531fa16856f6c77a2e4023877a606e88276d1072b0a5dd9",
+    "experiments/lt9-la2-p1n3/corpus-roster-20260923.json": "1efdeffa4dd304efff349acd2d27c28e6c845c3cf87314da7c6fc1002d1db1b0",
+    "experiments/lt9-la2-p1n4/Cargo.lock": "9b807d4e5cf5d672ef997d6e27c9c534982144bd475d410847a7df4574d931a6",
+    "experiments/lt9-la2-p1n4/Cargo.toml": "47e8f0a756cb43cf5c889425658bc5fbb2eb4b78a7b0780622c423a83e4b4933"
+  },
+  "binary_sha256": "807580824ab744f2ced58e19bbf451a80d479af16e043253afe88ebdbff0a72f",
+  "packets_sha256": "bfe2141fadbf2ab4e3d9db0225dad290e7897cee7760e6516cd9b2a524eb74dd",
+  "rubric_sha256": "5d4bb80c220c964ce1a73e14c29e21ef6d25e21bb554a33d94b4361aeb46cf09",
+  "judgment_template_sha256": "9f063b3e7962d8d45292c7658bcfdcc360dda62518009c7e662c1598a04b61e1",
+  "private_ledger_sha256": "f51c5cc80c8c95e72757c92ab445523af44b78ed396296daf462d9d66255ebf5",
+  "receipt_sha256": "0b1c3cb819bf0fd5fa6d547d2ab8735b7798a6345f8bdfbb31f61d9e007fb434",
+  "judgments_completed": false
+}

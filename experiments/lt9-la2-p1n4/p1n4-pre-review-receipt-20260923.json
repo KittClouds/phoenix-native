@@ -1,0 +1,335 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1n4-targeted-acquisition/v1",
+  "date": "2026-09-23",
+  "status": "blind_packets_ready_no_judgments",
+  "source_roster_sha256": "1efdeffa4dd304efff349acd2d27c28e6c845c3cf87314da7c6fc1002d1db1b0",
+  "p1n3_document_exclusion_ledger_sha256": "f4a2022b8eddcbc39bc95eedffaffe3c8c42779ef20c4c098f13f518802601a0",
+  "p1n3_documents_excluded": 192,
+  "p1n3_context_templates_excluded": 192,
+  "source_hashes_verified": true,
+  "target_per_candidate_per_stratum": 8,
+  "max_per_corpus_candidate_stratum": 2,
+  "stratum_names": [
+    "ambiguity_low_evidence",
+    "high_overlap_structural_divergence",
+    "high_overlap_control",
+    "low_overlap",
+    "ordinary_middle"
+  ],
+  "selected_by_candidate_stratum": [
+    [
+      4,
+      8,
+      7,
+      7,
+      7
+    ],
+    [
+      8,
+      8,
+      8,
+      8,
+      8
+    ],
+    [
+      6,
+      7,
+      6,
+      6,
+      8
+    ]
+  ],
+  "shortfall_by_candidate_stratum": [
+    [
+      4,
+      0,
+      1,
+      1,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      1,
+      2,
+      2,
+      0
+    ]
+  ],
+  "review_packet_count": 106,
+  "unique_documents_in_packets": 212,
+  "fit_packets": 75,
+  "holdout_packets": 31,
+  "template_split_conflicts": 0,
+  "candidate_token_feature_leaks": 0,
+  "semantic_labels_assigned": 0,
+  "corpora": [
+    {
+      "corpus_id": "cqadupstack",
+      "documents_scanned": 457199,
+      "p1n3_documents_excluded": 12,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        4,
+        63,
+        3
+      ],
+      "reservoir_contexts": [
+        4,
+        63,
+        3
+      ],
+      "eligible_context_pairs": [
+        6,
+        1953,
+        3
+      ]
+    },
+    {
+      "corpus_id": "arguana",
+      "documents_scanned": 8674,
+      "p1n3_documents_excluded": 4,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        2,
+        1,
+        4
+      ],
+      "reservoir_contexts": [
+        2,
+        1,
+        4
+      ],
+      "eligible_context_pairs": [
+        1,
+        0,
+        6
+      ]
+    },
+    {
+      "corpus_id": "nfcorpus",
+      "documents_scanned": 3633,
+      "p1n3_documents_excluded": 0,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        0,
+        0,
+        0
+      ],
+      "reservoir_contexts": [
+        0,
+        0,
+        0
+      ],
+      "eligible_context_pairs": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "corpus_id": "quora",
+      "documents_scanned": 522931,
+      "p1n3_documents_excluded": 8,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        0,
+        16,
+        6
+      ],
+      "reservoir_contexts": [
+        0,
+        16,
+        6
+      ],
+      "eligible_context_pairs": [
+        0,
+        120,
+        15
+      ]
+    },
+    {
+      "corpus_id": "scidocs",
+      "documents_scanned": 25657,
+      "p1n3_documents_excluded": 2,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        0,
+        22,
+        1
+      ],
+      "reservoir_contexts": [
+        0,
+        22,
+        1
+      ],
+      "eligible_context_pairs": [
+        0,
+        231,
+        0
+      ]
+    },
+    {
+      "corpus_id": "trec-covid",
+      "documents_scanned": 171332,
+      "p1n3_documents_excluded": 16,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        2,
+        6,
+        43
+      ],
+      "reservoir_contexts": [
+        2,
+        6,
+        43
+      ],
+      "eligible_context_pairs": [
+        1,
+        15,
+        903
+      ]
+    },
+    {
+      "corpus_id": "scifact",
+      "documents_scanned": 5183,
+      "p1n3_documents_excluded": 0,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        0,
+        0,
+        3
+      ],
+      "reservoir_contexts": [
+        0,
+        0,
+        3
+      ],
+      "eligible_context_pairs": [
+        0,
+        0,
+        3
+      ]
+    },
+    {
+      "corpus_id": "lotte-writing",
+      "documents_scanned": 277072,
+      "p1n3_documents_excluded": 32,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        15,
+        185,
+        5
+      ],
+      "reservoir_contexts": [
+        15,
+        96,
+        5
+      ],
+      "eligible_context_pairs": [
+        105,
+        4560,
+        10
+      ]
+    },
+    {
+      "corpus_id": "lotte-recreation",
+      "documents_scanned": 263025,
+      "p1n3_documents_excluded": 24,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        10,
+        58,
+        5
+      ],
+      "reservoir_contexts": [
+        10,
+        58,
+        5
+      ],
+      "eligible_context_pairs": [
+        45,
+        1653,
+        10
+      ]
+    },
+    {
+      "corpus_id": "lotte-science",
+      "documents_scanned": 1694164,
+      "p1n3_documents_excluded": 38,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        16,
+        151,
+        4
+      ],
+      "reservoir_contexts": [
+        16,
+        96,
+        4
+      ],
+      "eligible_context_pairs": [
+        120,
+        4560,
+        6
+      ]
+    },
+    {
+      "corpus_id": "lotte-technology",
+      "documents_scanned": 1276222,
+      "p1n3_documents_excluded": 15,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        5,
+        67,
+        4
+      ],
+      "reservoir_contexts": [
+        5,
+        67,
+        4
+      ],
+      "eligible_context_pairs": [
+        10,
+        2211,
+        6
+      ]
+    },
+    {
+      "corpus_id": "lotte-lifestyle",
+      "documents_scanned": 268893,
+      "p1n3_documents_excluded": 42,
+      "p1n3_templates_excluded": 0,
+      "relation_occurrences_seen": [
+        18,
+        806,
+        24
+      ],
+      "reservoir_contexts": [
+        18,
+        96,
+        24
+      ],
+      "eligible_context_pairs": [
+        153,
+        4560,
+        276
+      ]
+    }
+  ],
+  "scope": {
+    "p1n3_packets_or_judgments_opened_by_sampler": false,
+    "p1n3_document_and_template_hashes_used_only_for_exclusion": true,
+    "qrels_queries_or_expected_sense_labels_read": false,
+    "retrieval_or_ranking_run": false,
+    "authority_updated": false,
+    "labels_assigned_by_sampler": false,
+    "reviewer_receives_provenance_features_or_strata": false
+  }
+}
