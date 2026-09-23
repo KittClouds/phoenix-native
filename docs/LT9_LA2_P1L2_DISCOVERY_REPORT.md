@@ -28,6 +28,11 @@ labels. It does not qualify or authorize a resolver change.
 The three `bank_to_shore` controls are much farther away in corpus order than
 the `bank_to_water` controls (median nomination-position gap 220,383 versus
 29,449 documents). Treat candidate-specific comparisons as descriptive.
+The 31 control episode keys are distinct, but the episode streams share
+endpoints: 17 document IDs occur in both the invalid and control sets, and
+adjacent invalid episodes share an endpoint in 8 `bank_to_water` links and 1
+`bank_to_shore` link. The 31 pairs therefore are not 31 independent
+observations; the counts below are descriptive, with no significance claim.
 
 ## What separates the groups
 
