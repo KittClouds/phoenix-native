@@ -1,0 +1,114 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1n1-prerun/v1",
+  "date": "2026-09-23",
+  "status": "frozen_before_P1N1_run",
+  "branch": "codex/phoenix-native-p1n1-topic-sense-20260923",
+  "question": "topic perturbation invariance and lexical relation-sense observability",
+  "protocol_sha256": "985129555add2e79ecd1fc4432608e9add66e79421d6923f731ccfad5a8d26ae",
+  "p1m2r_screen_sha256": "bc32d310b757e8919b45de9c058ebce59892de15da2c5f11527ee800d26b18a0",
+  "p1m2r_normalization_receipt_sha256": "b8f87432ea9aa12edc545f7f4a07b3b9389628f76eeceae690aed1da559ad80b",
+  "frozen_corpus_order": [
+    "cqadupstack",
+    "arguana",
+    "nfcorpus",
+    "quora",
+    "scidocs",
+    "trec-covid",
+    "scifact",
+    "lotte-writing",
+    "lotte-recreation",
+    "lotte-science",
+    "lotte-technology",
+    "lotte-lifestyle"
+  ],
+  "corpora": [
+    {
+      "corpus_id": "cqadupstack",
+      "normalized_corpus_path": "D:\\phoenix-evals\\lt9-p1m1-20260923\\corpora\\cqadupstack\\corpus.jsonl",
+      "normalized_corpus_sha256": "5f879180578f90a5595c62ddc2a2058b51b64754a66086de0b1f5a3f975ccc0a"
+    },
+    {
+      "corpus_id": "arguana",
+      "normalized_corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\corpus.jsonl",
+      "normalized_corpus_sha256": "0627982cec4ee896df6dc98604ef6b499c83fd87a19eaaeb3f23b88bbef6cbce"
+    },
+    {
+      "corpus_id": "nfcorpus",
+      "normalized_corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\corpus.jsonl",
+      "normalized_corpus_sha256": "10cc83ef1826b1425e6a87090b5140b39b27755d5a27e48215a88611c899991f"
+    },
+    {
+      "corpus_id": "quora",
+      "normalized_corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\corpus.jsonl",
+      "normalized_corpus_sha256": "e2586c8e2f09c994a03d8e77842072b0f67f6f48403768be745157579d74aae4"
+    },
+    {
+      "corpus_id": "scidocs",
+      "normalized_corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\corpus.jsonl",
+      "normalized_corpus_sha256": "328bb38854179c83ee40d4f49fae2ef7209ede7163785193cbdcd5906b28eecc"
+    },
+    {
+      "corpus_id": "trec-covid",
+      "normalized_corpus_path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\corpus.jsonl",
+      "normalized_corpus_sha256": "aded69896598665082316d00df487d22212cc5a8611db05db34eb40d04ed00d7"
+    },
+    {
+      "corpus_id": "scifact",
+      "normalized_corpus_path": "D:\\phoenix-evals\\beir\\scifact\\corpus.jsonl",
+      "normalized_corpus_sha256": "dec31c8182f3d744c7d2c09423756fd1d17cbef75808db13ba01cc0aab4d1ac6"
+    },
+    {
+      "corpus_id": "lotte-writing",
+      "normalized_corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-writing.jsonl",
+      "normalized_corpus_sha256": "4a118917ad66e72e77790d2aa4a86df0bac04584ef62912201856153c434c132"
+    },
+    {
+      "corpus_id": "lotte-recreation",
+      "normalized_corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-recreation.jsonl",
+      "normalized_corpus_sha256": "df1fc69514b370438cd3b86ed5054cc075cbe301d6086d3acab4e6fff749739b"
+    },
+    {
+      "corpus_id": "lotte-science",
+      "normalized_corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-science.jsonl",
+      "normalized_corpus_sha256": "b325a7dd5d7b828a9ad6900bb3b1e5237a3c56d05f91af2df3a3be60633a1b79"
+    },
+    {
+      "corpus_id": "lotte-technology",
+      "normalized_corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-technology.jsonl",
+      "normalized_corpus_sha256": "8d9ef797ce6b6efd36f44a8c3198e217a3e4fc667666ae179640d91811f93257"
+    },
+    {
+      "corpus_id": "lotte-lifestyle",
+      "normalized_corpus_path": "D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-lifestyle.jsonl",
+      "normalized_corpus_sha256": "7144f7b421ecb48a632577f9e55aed41e713cc9c25cf581b73899846cd6862c3"
+    }
+  ],
+  "source_sha256": {
+    "docs/LT9_LA2_P1N1_TOPIC_SENSE_INVARIANCE_20260923.md": "985129555add2e79ecd1fc4432608e9add66e79421d6923f731ccfad5a8d26ae",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n1.rs": "5c82982df4e0a69238efbd2076b51d253ba5f28cddbb715c6e58ca2abb50bf91",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1n1_assay.rs": "bf9e685f594138644d74173102a946737d3e28e9342660bf71a9b323c5df4dca",
+    "apps/phoenix-memory-lock/src/bin/lt9_la2p1m1_core.rs": "dc4220b075ac2df92c32bc37d853fc1f5deb2ed0ce8837cbe48d5a31f9f0d215",
+    "experiments/lt9-la2-p1n1/Cargo.toml": "3fe8e3d2e232839a34e084c0f34f229341e786247ec20aac026b3d50d7afa724",
+    "experiments/lt9-la2-p1n1/Cargo.lock": "0452887183338ec4042e267fc8964f28f824ccd91d171dc12495f5b2fc009204"
+  },
+  "cohort_selection": "inherited P1M2R label-blind cohort; not prospective and not used to select or qualify a corpus",
+  "source_outcome_boundary": {
+    "p1m2r_outcome_receipt_read": false,
+    "expected_context_outcomes_read": false,
+    "qrels_or_queries_opened": false,
+    "reserved_qualification_labels_opened": false
+  },
+  "analysis_boundary": {
+    "router_selected": false,
+    "natural_authority_updated": false,
+    "retrieval_or_ranking_run": false,
+    "prospective_corpus_selection": false
+  },
+  "build_and_replay": {
+    "test_manifest": "experiments/lt9-la2-p1n1/Cargo.toml",
+    "target_dir": "D:\\cargo-targets\\phoenix-p1n1-20260923",
+    "output_path": "D:\\phoenix-evals\\lt9-la2-p1n1-20260923\\p1n1-result.json",
+    "independent_rerun_required": true,
+    "pass_rule": "diagnostic only; no router qualification or promotion"
+  }
+}
