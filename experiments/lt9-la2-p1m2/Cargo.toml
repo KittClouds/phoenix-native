@@ -14,6 +14,10 @@ name = "lt9_la2p1m2r_screen"
 path = "../../apps/phoenix-memory-lock/src/bin/lt9_la2p1m2r_screen.rs"
 
 [[bin]]
+name = "lt9_la2p1m2r_replay"
+path = "../../apps/phoenix-memory-lock/src/bin/lt9_la2p1m2r_replay.rs"
+
+[[bin]]
 name = "lt9_lotte_normalize"
 path = "../../apps/phoenix-memory-lock/src/bin/lt9_lotte_normalize.rs"
 
