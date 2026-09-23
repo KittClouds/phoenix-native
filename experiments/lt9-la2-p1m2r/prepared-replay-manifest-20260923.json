@@ -1,0 +1,114 @@
+{
+  "corpora": [
+    {
+      "archive_bytes": 5343728040,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m1-20260923\\downloads\\cqadupstack.zip",
+      "archive_sha256": "6072f7d345496387d24194c8af35c5fb6c2f0e5f9130c5b4a78b98bbfac88558",
+      "corpus_id": "cqadupstack",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m1-20260923\\corpora\\cqadupstack\\corpus.jsonl",
+      "corpus_sha256": "5f879180578f90a5595c62ddc2a2058b51b64754a66086de0b1f5a3f975ccc0a"
+    },
+    {
+      "archive_bytes": 3773617,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\arguana.zip",
+      "archive_sha256": "cfdf79adce27a401b3cd3ea267903134dbfab2c6afeb95d7fe5724a00bf7557b",
+      "corpus_id": "arguana",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\corpus.jsonl",
+      "corpus_sha256": "0627982cec4ee896df6dc98604ef6b499c83fd87a19eaaeb3f23b88bbef6cbce"
+    },
+    {
+      "archive_bytes": 2448432,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus.zip",
+      "archive_sha256": "efe5be03f8c5b86a5870102d0599d227c8c6e2484328e68c6522560385671b0b",
+      "corpus_id": "nfcorpus",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\corpus.jsonl",
+      "corpus_sha256": "10cc83ef1826b1425e6a87090b5140b39b27755d5a27e48215a88611c899991f"
+    },
+    {
+      "archive_bytes": 15853968,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\quora.zip",
+      "archive_sha256": "56aacd9dcc4d9c093b63f175afdda0e21cbc8442ecf6c717d09de7b358d77531",
+      "corpus_id": "quora",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\quora\\corpus.jsonl",
+      "corpus_sha256": "e2586c8e2f09c994a03d8e77842072b0f67f6f48403768be745157579d74aae4"
+    },
+    {
+      "archive_bytes": 142471588,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\scidocs.zip",
+      "archive_sha256": "96640201687767c9b1fcc5af7a80b90fb325b37fa25329c2586c25edcfa17ef1",
+      "corpus_id": "scidocs",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\corpus.jsonl",
+      "corpus_sha256": "328bb38854179c83ee40d4f49fae2ef7209ede7163785193cbdcd5906b28eecc"
+    },
+    {
+      "archive_bytes": 73876720,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid.zip",
+      "archive_sha256": "120f42a7864d2214234537733c0d2c6684e42fdfafff2c5eacf98afca6656aa0",
+      "corpus_id": "trec-covid",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\corpus.jsonl",
+      "corpus_sha256": "aded69896598665082316d00df487d22212cc5a8611db05db34eb40d04ed00d7"
+    },
+    {
+      "archive_bytes": 2816079,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\beir\\scifact.zip",
+      "archive_sha256": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
+      "corpus_id": "scifact",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\beir\\scifact\\corpus.jsonl",
+      "corpus_sha256": "dec31c8182f3d744c7d2c09423756fd1d17cbef75808db13ba01cc0aab4d1ac6"
+    },
+    {
+      "archive_bytes": 3576167599,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "corpus_id": "lotte-writing",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-writing.jsonl",
+      "corpus_sha256": "4a118917ad66e72e77790d2aa4a86df0bac04584ef62912201856153c434c132"
+    },
+    {
+      "archive_bytes": 3576167599,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "corpus_id": "lotte-recreation",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-recreation.jsonl",
+      "corpus_sha256": "df1fc69514b370438cd3b86ed5054cc075cbe301d6086d3acab4e6fff749739b"
+    },
+    {
+      "archive_bytes": 3576167599,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "corpus_id": "lotte-science",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-science.jsonl",
+      "corpus_sha256": "b325a7dd5d7b828a9ad6900bb3b1e5237a3c56d05f91af2df3a3be60633a1b79"
+    },
+    {
+      "archive_bytes": 3576167599,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "corpus_id": "lotte-technology",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-technology.jsonl",
+      "corpus_sha256": "8d9ef797ce6b6efd36f44a8c3198e217a3e4fc667666ae179640d91811f93257"
+    },
+    {
+      "archive_bytes": 3576167599,
+      "archive_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\downloads\\lotte.tar.gz",
+      "archive_sha256": "37c0f39af23a6e3464f63395a4d04a22b91fe59c1aa64ea1773a8aff113c7ab5",
+      "corpus_id": "lotte-lifestyle",
+      "corpus_path": "\\\\?\\D:\\phoenix-evals\\lt9-p1m2r-20260923\\corpora\\lotte-lifestyle.jsonl",
+      "corpus_sha256": "7144f7b421ecb48a632577f9e55aed41e713cc9c25cf581b73899846cd6862c3"
+    }
+  ],
+  "date": "2026-09-23",
+  "executable_path": "C:\\Users\\shuga\\AppData\\Local\\Temp\\lt9-p1m2r-replay-20260923\\lt9_la2p1m2r_replay.exe",
+  "executable_sha256": "4b1103823775a2f73640f80a60321b6bdf84cecdfc3a85b0b31de764abf5ca42",
+  "outcome_replay_started": false,
+  "protocol_path": "\\\\?\\D:\\phoenix-native-cleanroom-cut4-20260920\\docs\\LT9_LA2_P1M2R_OUTCOME_ANATOMY_20260923.md",
+  "protocol_sha256": "cc9e9c0c205ef44a6603eb9f0c3a645258837d3e7c34cacf058200740686a2d0",
+  "qrels_or_queries_opened": false,
+  "reserved_qualification_labels_opened": false,
+  "schema": "phoenix.lexical.lt9-la2-p1m2r-prepared-replay/v1",
+  "screen_path": "\\\\?\\D:\\phoenix-native-cleanroom-cut4-20260920\\experiments\\lt9-la2-p1m2r\\screen-label-blind-20260923.json",
+  "screen_sha256": "bc32d310b757e8919b45de9c058ebce59892de15da2c5f11527ee800d26b18a0",
+  "source_path": "\\\\?\\D:\\phoenix-native-cleanroom-cut4-20260920\\apps\\phoenix-memory-lock\\src\\bin\\lt9_la2p1m2r_replay.rs",
+  "source_sha256": "355c42314c689eee7bc4f59f2f480d98a5b4f156dd46b9d65491bc34d4b2d99d",
+  "validity_labels_opened": false
+}
