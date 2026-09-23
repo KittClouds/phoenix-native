@@ -33,6 +33,8 @@ pub(super) struct ShellStateV1 {
     drawer_full_page: bool,
     drawer_height: f32,
     atlas_width: f32,
+    #[serde(default)]
+    atlas_collapsed: bool,
     pub(super) drawer_tab: DrawerTab,
     pub(super) graph_sidebar_panel: GraphSidebarPanel,
     graph_view: GraphViewState,
@@ -56,6 +58,7 @@ impl ShellStateV1 {
             drawer_full_page,
             drawer_height,
             atlas_width,
+            atlas_collapsed: shell.drawer_layout.atlas_collapsed(),
             drawer_tab: shell.drawer_tab,
             graph_sidebar_panel: shell.graph_sidebar_panel,
             graph_view,
@@ -108,12 +111,14 @@ impl ShellStateV1 {
     }
 
     pub(super) fn drawer_layout(&self) -> DrawerLayout {
-        DrawerLayout::restore(
+        let mut layout = DrawerLayout::restore(
             self.drawer_open,
             self.drawer_full_page,
             self.drawer_height,
             self.atlas_width,
-        )
+        );
+        layout.set_atlas_collapsed(self.atlas_collapsed);
+        layout
     }
 
     pub(super) fn left_sidebar_width(&self) -> f32 {
@@ -241,6 +246,7 @@ mod tests {
             drawer_full_page: false,
             drawer_height: 420.0,
             atlas_width: 336.0,
+            atlas_collapsed: false,
             drawer_tab: DrawerTab::Graph,
             graph_sidebar_panel: GraphSidebarPanel::Registry,
             graph_view,
@@ -270,14 +276,28 @@ mod tests {
         ));
         fs::create_dir_all(&root)?;
         let workspace = root.join("workspace-v1.json");
-        let expected = state();
+        let mut expected = state();
+        expected.atlas_collapsed = true;
         expected.save(&workspace)?;
         let actual = ShellStateV1::load(&workspace)?.context("state missing")?;
         assert_eq!(actual.drawer_tab, DrawerTab::Graph);
         assert_eq!(actual.graph_view.surface, GraphSurface::Atlas);
         assert_eq!(actual.graph_view.manifold, Manifold::Hopf);
         assert_eq!(actual.graph_view.canvas, GraphCanvas::Grid);
+        assert!(actual.drawer_layout().atlas_collapsed());
         fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn older_shell_state_defaults_atlas_sidebar_to_open() -> Result<()> {
+        let mut saved = serde_json::to_value(state())?;
+        saved
+            .as_object_mut()
+            .context("shell state is not an object")?
+            .remove("atlas_collapsed");
+        let restored: ShellStateV1 = serde_json::from_value(saved)?;
+        assert!(!restored.drawer_layout().atlas_collapsed());
         Ok(())
     }
 

@@ -93,7 +93,23 @@ impl PhoenixShell {
             .py_2()
             .border_t_1()
             .border_color(rgb(BORDER));
-        row = row.child(manifold_segment(view.manifold, cx));
+        row = row
+            .child(
+                Button::new("graph-toggle-atlas-sidebar")
+                    .label(if self.drawer_layout.atlas_collapsed() {
+                        "Show Atlas"
+                    } else {
+                        "Hide Atlas"
+                    })
+                    .tooltip("Close or reopen the Atlas sidebar without changing its width.")
+                    .small()
+                    .ghost()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.drawer_layout.toggle_atlas();
+                        cx.notify();
+                    })),
+            )
+            .child(manifold_segment(view.manifold, cx));
         row.child(
             div()
                 .flex()

@@ -69,6 +69,7 @@ pub(super) struct DrawerLayout {
     full_page: bool,
     height: f32,
     atlas_width: f32,
+    atlas_collapsed: bool,
 }
 
 impl DrawerLayout {
@@ -78,6 +79,7 @@ impl DrawerLayout {
             full_page: false,
             height: DRAWER_INITIAL_HEIGHT,
             atlas_width: ATLAS_INITIAL_WIDTH,
+            atlas_collapsed: false,
         }
     }
 
@@ -95,6 +97,10 @@ impl DrawerLayout {
 
     pub(super) const fn atlas_width(self) -> f32 {
         self.atlas_width
+    }
+
+    pub(super) const fn atlas_collapsed(self) -> bool {
+        self.atlas_collapsed
     }
 
     pub(super) const fn snapshot(self) -> (bool, bool, f32, f32) {
@@ -117,6 +123,14 @@ impl DrawerLayout {
 
     pub(super) fn set_atlas_width(&mut self, width: f32) {
         self.atlas_width = width.clamp(ATLAS_MIN_WIDTH, ATLAS_MAX_WIDTH);
+    }
+
+    pub(super) fn toggle_atlas(&mut self) {
+        self.atlas_collapsed = !self.atlas_collapsed;
+    }
+
+    pub(super) fn set_atlas_collapsed(&mut self, collapsed: bool) {
+        self.atlas_collapsed = collapsed;
     }
 
     fn toggle(&mut self) {
@@ -414,43 +428,48 @@ impl PhoenixShell {
     }
 
     fn render_graph_drawer(&self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let atlas_width = self.drawer_layout.atlas_width();
-        let shell_budget = super::layout::shell_width_budget(
-            f32::from(window.viewport_size().width),
-            self.left_open,
-            self.right_open,
-            self.left_sidebar_width,
-            self.right_sidebar_width,
-        );
-        let split_budget = super::layout::split_width_budget(
-            shell_budget.center_width,
-            atlas_width,
-            ATLAS_MIN_WIDTH,
-            ATLAS_MAX_WIDTH,
-            GRAPH_MIN_WIDTH,
-        );
-        let shell = cx.entity().clone();
-        let split_id = atlas_split_id(self.left_open, self.right_open);
-        let split = h_resizable(split_id)
-            .child(
-                resizable_panel()
-                    .size(px(split_budget.sidebar_width))
-                    .size_range(px(split_budget.sidebar_min)..px(ATLAS_MAX_WIDTH))
-                    .child(self.render_atlas_sidebar(cx)),
-            )
-            .child(
-                resizable_panel()
-                    .size_range(px(split_budget.content_min)..gpui::Pixels::MAX)
-                    .child(self.render_graph_panel()),
-            )
-            .on_resize(move |state, _, cx| {
-                let width = state.read(cx).sizes().first().map(|width| width.as_f32());
-                if let Some(width) = width {
-                    shell.update(cx, |shell, _| {
-                        shell.drawer_layout.set_atlas_width(width);
-                    });
-                }
-            });
+        let graph_body = if self.drawer_layout.atlas_collapsed() {
+            self.render_graph_panel()
+        } else {
+            let atlas_width = self.drawer_layout.atlas_width();
+            let shell_budget = super::layout::shell_width_budget(
+                f32::from(window.viewport_size().width),
+                self.left_open,
+                self.right_open,
+                self.left_sidebar_width,
+                self.right_sidebar_width,
+            );
+            let split_budget = super::layout::split_width_budget(
+                shell_budget.center_width,
+                atlas_width,
+                ATLAS_MIN_WIDTH,
+                ATLAS_MAX_WIDTH,
+                GRAPH_MIN_WIDTH,
+            );
+            let shell = cx.entity().clone();
+            let split_id = atlas_split_id(self.left_open, self.right_open);
+            let split = h_resizable(split_id)
+                .child(
+                    resizable_panel()
+                        .size(px(split_budget.sidebar_width))
+                        .size_range(px(split_budget.sidebar_min)..px(ATLAS_MAX_WIDTH))
+                        .child(self.render_atlas_sidebar(cx)),
+                )
+                .child(
+                    resizable_panel()
+                        .size_range(px(split_budget.content_min)..gpui::Pixels::MAX)
+                        .child(self.render_graph_panel()),
+                )
+                .on_resize(move |state, _, cx| {
+                    let width = state.read(cx).sizes().first().map(|width| width.as_f32());
+                    if let Some(width) = width {
+                        shell.update(cx, |shell, _| {
+                            shell.drawer_layout.set_atlas_width(width);
+                        });
+                    }
+                });
+            split.into_any_element()
+        };
 
         div()
             .size_full()
@@ -467,7 +486,7 @@ impl PhoenixShell {
                     .min_h_0()
                     .min_w_0()
                     .flex()
-                    .child(split),
+                    .child(graph_body),
             )
             .into_any_element()
     }
@@ -602,6 +621,18 @@ mod tests {
         assert!(layout.is_open());
         assert_eq!(layout.height(), 512.);
         assert_eq!(layout.atlas_width(), 372.);
+    }
+
+    #[test]
+    fn atlas_sidebar_closes_without_losing_its_resized_width() {
+        let mut layout = DrawerLayout::new(true);
+        layout.set_atlas_width(412.);
+        layout.toggle_atlas();
+        assert!(layout.atlas_collapsed());
+        assert_eq!(layout.atlas_width(), 412.);
+        layout.toggle_atlas();
+        assert!(!layout.atlas_collapsed());
+        assert_eq!(layout.atlas_width(), 412.);
     }
 
     #[test]
