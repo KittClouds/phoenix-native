@@ -21,7 +21,7 @@ struct PreparedSegmentGpu {
     color: [f32; 4],
     edge_slot: u32,
     flags: u32,
-    _padding: [u32; 2],
+    progress: [f32; 2],
 }
 
 const _: () = assert!(size_of::<PreparedSegmentGpu>() == 64);
@@ -320,24 +320,32 @@ fn append_segments(
         });
     }
     output.reserve(added);
-    output.extend(points.windows(2).map(|pair| PreparedSegmentGpu {
-        start: [
-            pair[0].position[0],
-            pair[0].position[1],
-            pair[0].position[2],
-            width,
-        ],
-        end: [
-            pair[1].position[0],
-            pair[1].position[1],
-            pair[1].position[2],
-            width,
-        ],
-        color,
-        edge_slot,
-        flags,
-        _padding: [0; 2],
-    }));
+    output.extend(
+        points
+            .windows(2)
+            .enumerate()
+            .map(|(index, pair)| PreparedSegmentGpu {
+                start: [
+                    pair[0].position[0],
+                    pair[0].position[1],
+                    pair[0].position[2],
+                    width,
+                ],
+                end: [
+                    pair[1].position[0],
+                    pair[1].position[1],
+                    pair[1].position[2],
+                    width,
+                ],
+                color,
+                edge_slot,
+                flags,
+                progress: [
+                    index as f32 / added as f32,
+                    (index + 1) as f32 / added as f32,
+                ],
+            }),
+    );
     Ok(())
 }
 
@@ -366,6 +374,27 @@ const fn guide_width(flags: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_progress_is_continuous_from_source_to_target() {
+        let points = [
+            PositionRecord {
+                position: [0.0, 0.0, 0.0],
+            },
+            PositionRecord {
+                position: [1.0, 1.0, 0.0],
+            },
+            PositionRecord {
+                position: [2.0, 0.0, 0.0],
+            },
+        ];
+        let mut segments = Vec::new();
+        append_segments(&mut segments, &points, [1.0; 4], 1.0, 7, 0).unwrap();
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].progress, [0.0, 0.5]);
+        assert_eq!(segments[1].progress, [0.5, 1.0]);
+        assert!(segments.iter().all(|segment| segment.edge_slot == 7));
+    }
 
     #[test]
     fn packed_color_decodes_rgba_order_into_rich_linear_space() {

@@ -1,6 +1,7 @@
 use crate::buffers::CameraUniform;
 use crate::gpu_scene::GpuScene;
 use crate::labels::{LabelFocus, LabelLayer};
+use crate::path_layer::PreparedPathLayer;
 use crate::picking::PickingPass;
 use crate::pipelines::{bind_group, create_layouts, create_pipelines};
 use crate::Camera;
@@ -39,6 +40,14 @@ fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
     let layouts = create_layouts(&device);
     let (pipelines, picking_shader) =
         create_pipelines(&device, &layouts, wgpu::TextureFormat::Bgra8UnormSrgb);
+    let _paths = PreparedPathLayer::new(
+        &device,
+        &layouts.camera,
+        &layouts.lens,
+        &layouts.edges,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+    )
+    .unwrap_or_else(|error| panic!("prepared path pipeline: {error}"));
     encode_background_pass(&device, &queue, &layouts.camera, &pipelines.background);
     let _picking = PickingPass::new(
         &device,

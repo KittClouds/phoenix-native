@@ -73,6 +73,7 @@ struct VertexOutput {
     @location(1) side: f32,
     @location(2) @interpolate(flat) visible: u32,
     @location(3) @interpolate(flat) flags: u32,
+    @location(4) progress: f32,
 };
 
 // Line width is relative to the smallest ordinary node, never to either endpoint.
@@ -179,10 +180,15 @@ fn vs_main(
         vec4<f32>(ndc * clip.w, clip.z, clip.w),
         is_visible,
     );
-    output.color = edge.color;
+    let progress = select(0.0, 1.0, at_target);
+    output.color = vec4<f32>(
+        mix(nodes[edge.source_slot].color.rgb, nodes[edge.target_slot].color.rgb, progress),
+        edge.color.a,
+    );
     output.side = side;
     output.visible = select(0u, 1u, is_visible);
     output.flags = edge.kind_flags & 0xffffu;
+    output.progress = progress;
     return output;
 }
 
@@ -196,15 +202,16 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var color = input.color;
     color.a = min(color.a, camera.edge_opacity);
     if ((input.flags & 32768u) != 0u) {
-        color = mix(color, vec4<f32>(1.0, 0.147, 0.022, 0.95), 0.82);
+        color.a = max(color.a, 0.86);
     } else if ((input.flags & 16384u) != 0u) {
-        color = mix(color, vec4<f32>(0.040, 0.672, 0.420, 0.72), 0.54);
+        color.a = max(color.a, 0.42);
     }
     if (lens.focus_active != 0u
         && (input.flags & 32768u) == 0u
         && (input.flags & 16384u) == 0u) {
         color.a *= lens.dimmed_edge_opacity;
     }
+    color.a *= mix(0.68, 1.0, input.progress);
     color.a *= 1.0 - smoothstep(1.0 - derivative, 1.0, edge_distance);
     return color;
 }

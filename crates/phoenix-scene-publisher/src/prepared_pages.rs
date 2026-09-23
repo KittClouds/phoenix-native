@@ -14,12 +14,13 @@ use phoenix_scene_contract::{
 use std::f32::consts::TAU;
 mod edge_routes;
 mod semantic;
-use edge_routes::bundle_ports;
+use edge_routes::{bundled_point, curved_point, CURVE_SEGMENTS};
 use semantic::semantic_guide_page;
 
 const DEFAULT_GUIDE_STROKES: usize = 7;
 const GUIDE_POINTS: usize = 65;
 const MAX_CAP_BOUNDARIES: usize = 96;
+const MAX_CURVED_PATH_SEGMENTS: usize = 400_000;
 const CAPS_REFERENCE_ROLES: [CapsRole; 4] = [
     CapsRole::Document,
     CapsRole::Chapter,
@@ -728,7 +729,12 @@ fn path_page(
     slots: &HashMap<u64, usize>,
     style: u32,
 ) -> Result<Vec<u8>, ScenePublicationError> {
-    let points_per_path = 2 + style as usize;
+    let segments_per_path = if style == 0 {
+        1
+    } else {
+        CURVE_SEGMENTS.min((MAX_CURVED_PATH_SEGMENTS / publication.topology.len().max(1)).max(1))
+    };
+    let points_per_path = segments_per_path + 1;
     let mut paths = Vec::with_capacity(publication.topology.len());
     let mut points = Vec::with_capacity(publication.topology.len() * points_per_path);
     for (edge_slot, edge) in publication.topology.iter().enumerate() {
@@ -750,10 +756,13 @@ fn path_page(
         let target = positions[target_slot];
         let first_point = checked_u32(points.len(), "path point offset")?;
         points.push(source);
-        if style == 1 {
-            points.push(curve_midpoint(source, target, edge_slot));
-        } else if style == 2 {
-            points.extend(bundle_ports(source, target));
+        for step in 1..points_per_path - 1 {
+            let progress = step as f32 / segments_per_path as f32;
+            points.push(match style {
+                1 => curved_point(source, target, edge_slot, progress),
+                2 => bundled_point(source, target, progress),
+                _ => unreachable!("only straight, curved, and bundled path styles are published"),
+            });
         }
         points.push(target);
         paths.push(PathRecord {
@@ -774,24 +783,6 @@ fn path_page(
         &paths,
         &points,
     )
-}
-
-fn curve_midpoint(
-    source: PositionRecord,
-    target: PositionRecord,
-    edge_slot: usize,
-) -> PositionRecord {
-    let delta_x = target.position[0] - source.position[0];
-    let delta_y = target.position[1] - source.position[1];
-    let length = delta_x.hypot(delta_y).max(1.0);
-    let bend = (((edge_slot * 37) % 19) as f32 / 18.0 - 0.5) * length * 0.22;
-    PositionRecord {
-        position: [
-            (source.position[0] + target.position[0]) * 0.5 - delta_y / length * bend,
-            (source.position[1] + target.position[1]) * 0.5 + delta_x / length * bend,
-            (source.position[2] + target.position[2]) * 0.5 + bend * 0.18,
-        ],
-    }
 }
 
 fn variable_page<H: bytemuck::Pod, R: bytemuck::Pod>(

@@ -30,12 +30,7 @@ pub fn create_layouts(device: &wgpu::Device) -> RenderLayouts {
             wgpu::BufferBindingType::Storage { read_only: true },
             wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
         ),
-        edges: buffer_layout::<EdgeGpu>(
-            device,
-            "graph edge layout",
-            wgpu::BufferBindingType::Storage { read_only: true },
-            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-        ),
+        edges: edge_layout(device),
         lens: lens_layout(device),
     }
 }
@@ -162,6 +157,38 @@ pub fn bind_group(
             binding: 0,
             resource: buffer.as_entire_binding(),
         }],
+    })
+}
+
+pub fn edge_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    edges: &wgpu::Buffer,
+    nodes: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("graph edge and endpoint binding"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: edges.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: nodes.as_entire_binding(),
+            },
+        ],
+    })
+}
+
+fn edge_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("graph edge and endpoint layout"),
+        entries: &[
+            lens_entry::<EdgeGpu>(0, wgpu::BufferBindingType::Storage { read_only: true }),
+            lens_entry::<NodeGpu>(1, wgpu::BufferBindingType::Storage { read_only: true }),
+        ],
     })
 }
 

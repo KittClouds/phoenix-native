@@ -154,6 +154,29 @@ fn atomic_manifest_reopens_the_exact_pair() -> Result<(), Box<dyn std::error::Er
 }
 
 #[test]
+fn every_manifold_publishes_endpoint_bound_smooth_edge_paths(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = test_root("all-edge-routes");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root)?;
+    let store = ScenePublicationStore::for_workspace(&root.join("workspace.json"))?;
+    let published = store.publish(publication(1, ScenePublicationKind::Full))?;
+    for manifold in phoenix_scene_archive::ArchiveManifold::ALL {
+        let active = published.scene.activate_manifold(manifold.into())?;
+        let paths = active.prepared_paths.ok_or("preferred edge path missing")?;
+        assert_eq!(paths.paths.len(), 1);
+        let path = paths.paths[0];
+        let start = path.first_point as usize;
+        let end = start + path.point_count as usize - 1;
+        assert_eq!(paths.points[start], active.pages.positions[0]);
+        assert_eq!(paths.points[end], active.pages.positions[1]);
+        assert_eq!(path.point_count, if paths.style == 0 { 2 } else { 13 });
+    }
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
 fn registry_publication_cannot_demote_a_full_generation() -> Result<(), Box<dyn std::error::Error>>
 {
     let root = test_root("precedence");

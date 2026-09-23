@@ -14,7 +14,16 @@ struct PreparedSegmentGpu {
     color: vec4<f32>,
     edge_slot: u32,
     flags: u32,
-    _padding: vec2<u32>,
+    progress: vec2<f32>,
+};
+
+struct NodeGpu {
+    position_radius: vec4<f32>,
+    color: vec4<f32>,
+    id_low: u32,
+    id_high: u32,
+    kind_flags: u32,
+    _padding: u32,
 };
 
 struct EdgeProductGpu {
@@ -66,6 +75,7 @@ struct GraphLensUniform {
 @group(2) @binding(1) var<storage, read> node_products: array<NodeProductGpu>;
 @group(2) @binding(2) var<storage, read> edge_products: array<EdgeProductGpu>;
 @group(3) @binding(0) var<storage, read> edges: array<EdgeGpu>;
+@group(3) @binding(1) var<storage, read> nodes: array<NodeGpu>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -74,6 +84,7 @@ struct VertexOutput {
     @location(2) @interpolate(flat) visible: u32,
     @location(3) @interpolate(flat) edge_slot: u32,
     @location(4) @interpolate(flat) segment_flags: u32,
+    @location(5) progress: f32,
 };
 
 // Prepared paths and direct edges share the same bounded screen-space width.
@@ -176,17 +187,24 @@ fn vs_main(
         vec4<f32>(ndc * clip.w, clip.z, clip.w),
         is_visible,
     );
-    // Guides own decorative colors. Every topology path reads the live edge
-    // buffer so all manifolds share one palette and stable edge-slot contract.
+    // Guides own decorative colors. Topology paths blend the live endpoint
+    // colors using progress along the entire source-to-target route.
     var projected_color = segment.color;
+    var progress = 0.5;
     if ((segment.flags & 1u) == 0u) {
-        projected_color = edges[segment.edge_slot].color;
+        let edge = edges[segment.edge_slot];
+        progress = select(segment.progress.x, segment.progress.y, at_target);
+        projected_color = vec4<f32>(
+            mix(nodes[edge.source_slot].color.rgb, nodes[edge.target_slot].color.rgb, progress),
+            edge.color.a,
+        );
     }
     output.color = projected_color;
     output.side = side;
     output.visible = select(0u, 1u, is_visible);
     output.edge_slot = segment.edge_slot;
     output.segment_flags = segment.flags;
+    output.progress = progress;
     return output;
 }
 
@@ -203,15 +221,16 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if ((input.segment_flags & 1u) == 0u) {
         let runtime_flags = edges[input.edge_slot].kind_flags & 0xffffu;
         if ((runtime_flags & 32768u) != 0u) {
-            color = mix(color, vec4<f32>(1.0, 0.147, 0.022, 0.96), 0.84);
+            color.a = max(color.a, 0.86);
         } else if ((runtime_flags & 16384u) != 0u) {
-            color = mix(color, vec4<f32>(0.040, 0.672, 0.420, 0.76), 0.56);
+            color.a = max(color.a, 0.42);
         }
         if (lens.focus_active != 0u
             && (runtime_flags & 32768u) == 0u
             && (runtime_flags & 16384u) == 0u) {
             color.a *= lens.dimmed_edge_opacity;
         }
+        color.a *= mix(0.68, 1.0, input.progress);
     }
     color.a *= 1.0 - smoothstep(1.0 - derivative, 1.0, abs(input.side));
     return color;

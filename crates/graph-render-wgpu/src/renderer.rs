@@ -7,7 +7,8 @@ use crate::labels::{LabelFocus, LabelLayer};
 use crate::path_layer::PreparedPathLayer;
 use crate::picking::{PickIntent, PickingPass};
 use crate::pipelines::{
-    bind_group, create_layouts, create_pipelines, lens_bind_group, RenderLayouts, RenderPipelines,
+    bind_group, create_layouts, create_pipelines, edge_bind_group, lens_bind_group, RenderLayouts,
+    RenderPipelines,
 };
 use crate::renderer_support::create_depth_texture;
 pub(crate) use crate::renderer_support::{preferred_present_mode, validate_view_authority};
@@ -194,11 +195,11 @@ impl GraphRenderer {
             &layouts.nodes,
             &scene.node_buffer.buffer,
         );
-        let edge_bind_group = bind_group(
+        let edge_bind_group = edge_bind_group(
             &device,
-            "graph edge binding",
             &layouts.edges,
             &scene.edge_buffer.buffer,
+            &scene.node_buffer.buffer,
         );
         let lens_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("graph lens uniform"),
@@ -1056,11 +1057,11 @@ impl GraphRenderer {
             &self.layouts.nodes,
             &self.scene.node_buffer.buffer,
         );
-        self.edge_bind_group = bind_group(
+        self.edge_bind_group = edge_bind_group(
             &self.device,
-            "graph edge binding",
             &self.layouts.edges,
             &self.scene.edge_buffer.buffer,
+            &self.scene.node_buffer.buffer,
         );
         self.refresh_lens_binding();
     }
