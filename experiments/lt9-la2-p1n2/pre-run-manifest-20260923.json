@@ -1,0 +1,33 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1n2-prerun/v1",
+  "date": "2026-09-23",
+  "status": "frozen_before_final_execution",
+  "branch": "codex/phoenix-native-p1n2-local-sense-20260923",
+  "protocol_sha256": "3bb74bdcbc5bd2891264867bdb213e2d7b44ef39507e9b60dd2a4542c5aa23a4",
+  "source_sha256": "5ce11d593ed513d6357ef02f98279499020ec2c9bc212f565a79cfb724e53b80",
+  "data_sha256": "5a86266c8facd6f8f813ba6a198288cb3d98be3ec7ac1e1950b013493c6feb5c",
+  "tree_sha256": "dfce6f4cdd6889b7da4cfd8e1c9252c69450bf0f4f0ba0c0bb4026f32eeeaf0a",
+  "core_sha256": "dc4220b075ac2df92c32bc37d853fc1f5deb2ed0ce8837cbe48d5a31f9f0d215",
+  "cargo_manifest_sha256": "fe3351c4bdddcc50877c87b6e8cab3b989503327412a53319a8d85f43a4bdf6c",
+  "cargo_lock_sha256": "4965344f6437c0874e54117a7bc47959d48b5032a0ac04018d184b51ce468607",
+  "train_groups": 8,
+  "total_groups": 12,
+  "tree_max_depth": 3,
+  "min_leaf": 2,
+  "candidates": [
+    "bank_to_water",
+    "car_to_vehicle",
+    "insurance_to_coverage"
+  ],
+  "variants_per_group": 8,
+  "implementation_correction": "Enforced the frozen within-field local n-gram contract; added regression test. No stimulus, model, split, or metric changed.",
+  "superseded_intermediate_output_sha256": "5d37ff838deb090b97ccff0e9f7e3164d787c7adc29717a9c3b572a9f59afefe",
+  "scope_boundary": {
+    "natural_corpus_read": false,
+    "relevance_or_validity_labels_read": false,
+    "p1m2r_or_p1n1_outcome_receipts_read": false,
+    "webis_touche_read": false,
+    "natural_authority_updated": false,
+    "retrieval_or_ranking_run": false
+  }
+}

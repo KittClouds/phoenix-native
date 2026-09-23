@@ -1,0 +1,382 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1n2-result/v1",
+  "date": "2026-09-23",
+  "branch": "codex/phoenix-native-p1n2-local-sense-20260923",
+  "protocol_sha256": "3bb74bdcbc5bd2891264867bdb213e2d7b44ef39507e9b60dd2a4542c5aa23a4",
+  "prerun_manifest_sha256": "f7aaa046c3ea8b75e581b50b0349617649505d6519a56b87fcb5efd934fc42b2",
+  "source_sha256": "5ce11d593ed513d6357ef02f98279499020ec2c9bc212f565a79cfb724e53b80",
+  "data_sha256": "5a86266c8facd6f8f813ba6a198288cb3d98be3ec7ac1e1950b013493c6feb5c",
+  "tree_sha256": "dfce6f4cdd6889b7da4cfd8e1c9252c69450bf0f4f0ba0c0bb4026f32eeeaf0a",
+  "core_sha256": "dc4220b075ac2df92c32bc37d853fc1f5deb2ed0ce8837cbe48d5a31f9f0d215",
+  "cargo_manifest_sha256": "fe3351c4bdddcc50877c87b6e8cab3b989503327412a53319a8d85f43a4bdf6c",
+  "cargo_lock_sha256": "4965344f6437c0874e54117a7bc47959d48b5032a0ac04018d184b51ce468607",
+  "binary_sha256": "20341de4b64c9a871b1543d324b85eb8f82aadd24276e8c252f455a6f39e3b14",
+  "stimuli_sha256": "e304bb6c4c1f6f1925566902ca9fce06142040fbe7e4413b31b43c3f14ddc6bb",
+  "scope": {
+    "natural_corpus_read": false,
+    "validity_or_relevance_labels_read": false,
+    "p1m2r_or_p1n1_outcome_receipts_read": false,
+    "webis_touche_read": false,
+    "natural_authority_updated": false,
+    "retrieval_or_ranking_run": false,
+    "router_selected_or_promoted": false
+  },
+  "total_stimuli": 288,
+  "total_base_groups": 36,
+  "feature_firewall": {
+    "candidate_tokens_in_local_feature_keys": 0,
+    "candidate_id_in_local_feature_keys": 0,
+    "unknown_condition_count": 72,
+    "topic_perturbations_per_local_frame": 2
+  },
+  "candidates": [
+    {
+      "candidate_id": "bank_to_water",
+      "train_groups": 8,
+      "heldout_groups": 4,
+      "heldout_stimuli": 32,
+      "current_family_accuracy": 0.28125,
+      "context_only_family_accuracy": 0.21875,
+      "current_family_topic_invariance": 0.0,
+      "context_only_topic_invariance": 0.0,
+      "local_probe": {
+        "max_depth": 3,
+        "class_axis": [
+          "finance",
+          "geography",
+          "transport",
+          "unknown"
+        ],
+        "train_rows": 64,
+        "test_rows": 32,
+        "split_features": [
+          "context:has_contradiction",
+          "context:local_token_count_bin",
+          "token:debt"
+        ],
+        "heldout_accuracy": 0.625,
+        "heldout_group_macro_accuracy": 0.625,
+        "class_confusion": [
+          [
+            12,
+            0,
+            0,
+            0
+          ],
+          [
+            12,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            8
+          ]
+        ]
+      },
+      "local_topic_invariance": 1.0,
+      "local_sense_sensitivity": 0.0,
+      "local_ambiguity_calibration": 1.0,
+      "local_condition_accuracy": {
+        "a_base": 0.0,
+        "a_topic_amplify": 0.0,
+        "a_topic_swap": 0.0,
+        "b_base": 1.0,
+        "b_topic_amplify": 1.0,
+        "b_topic_swap": 1.0,
+        "conflict": 1.0,
+        "cue_removed": 1.0
+      },
+      "compatibility_probe": {
+        "max_depth": 3,
+        "class_axis": [
+          "same",
+          "different",
+          "unknown",
+          "unused"
+        ],
+        "train_rows": 224,
+        "test_rows": 112,
+        "split_features": [
+          "pair:shared-local-count",
+          "pair:one-context-empty",
+          "pair:after-right-count"
+        ],
+        "heldout_accuracy": 1.0,
+        "heldout_group_macro_accuracy": 1.0,
+        "class_confusion": [
+          [
+            24,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            36,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            52,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ]
+      },
+      "compatibility_group_macro_by_class": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "candidate_id": "car_to_vehicle",
+      "train_groups": 8,
+      "heldout_groups": 4,
+      "heldout_stimuli": 32,
+      "current_family_accuracy": 0.21875,
+      "context_only_family_accuracy": 0.1875,
+      "current_family_topic_invariance": 0.3125,
+      "context_only_topic_invariance": 0.0625,
+      "local_probe": {
+        "max_depth": 3,
+        "class_axis": [
+          "finance",
+          "geography",
+          "transport",
+          "unknown"
+        ],
+        "train_rows": 64,
+        "test_rows": 32,
+        "split_features": [
+          "context:has_contradiction",
+          "context:local_token_count_bin",
+          "token:auto"
+        ],
+        "heldout_accuracy": 0.8125,
+        "heldout_group_macro_accuracy": 0.8125,
+        "class_confusion": [
+          [
+            6,
+            0,
+            6,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            12,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            8
+          ]
+        ]
+      },
+      "local_topic_invariance": 0.625,
+      "local_sense_sensitivity": 0.0,
+      "local_ambiguity_calibration": 1.0,
+      "local_condition_accuracy": {
+        "a_base": 1.0,
+        "a_topic_amplify": 1.0,
+        "a_topic_swap": 1.0,
+        "b_base": 0.0,
+        "b_topic_amplify": 1.0,
+        "b_topic_swap": 0.5,
+        "conflict": 1.0,
+        "cue_removed": 1.0
+      },
+      "compatibility_probe": {
+        "max_depth": 3,
+        "class_axis": [
+          "same",
+          "different",
+          "unknown",
+          "unused"
+        ],
+        "train_rows": 224,
+        "test_rows": 112,
+        "split_features": [
+          "pair:shared-local-count",
+          "pair:one-context-empty",
+          "pair:after-right-count"
+        ],
+        "heldout_accuracy": 1.0,
+        "heldout_group_macro_accuracy": 1.0,
+        "class_confusion": [
+          [
+            24,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            36,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            52,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ]
+      },
+      "compatibility_group_macro_by_class": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "candidate_id": "insurance_to_coverage",
+      "train_groups": 8,
+      "heldout_groups": 4,
+      "heldout_stimuli": 32,
+      "current_family_accuracy": 0.15625,
+      "context_only_family_accuracy": 0.125,
+      "current_family_topic_invariance": 0.25,
+      "context_only_topic_invariance": 0.0,
+      "local_probe": {
+        "max_depth": 3,
+        "class_axis": [
+          "finance",
+          "geography",
+          "transport",
+          "unknown"
+        ],
+        "train_rows": 64,
+        "test_rows": 32,
+        "split_features": [
+          "context:has_contradiction",
+          "context:local_token_count_bin",
+          "token:benefit"
+        ],
+        "heldout_accuracy": 0.71875,
+        "heldout_group_macro_accuracy": 0.71875,
+        "class_confusion": [
+          [
+            3,
+            0,
+            9,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            12,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            8
+          ]
+        ]
+      },
+      "local_topic_invariance": 1.0,
+      "local_sense_sensitivity": 0.25,
+      "local_ambiguity_calibration": 1.0,
+      "local_condition_accuracy": {
+        "a_base": 0.25,
+        "a_topic_amplify": 0.25,
+        "a_topic_swap": 0.25,
+        "b_base": 1.0,
+        "b_topic_amplify": 1.0,
+        "b_topic_swap": 1.0,
+        "conflict": 1.0,
+        "cue_removed": 1.0
+      },
+      "compatibility_probe": {
+        "max_depth": 3,
+        "class_axis": [
+          "same",
+          "different",
+          "unknown",
+          "unused"
+        ],
+        "train_rows": 224,
+        "test_rows": 112,
+        "split_features": [
+          "pair:shared-local-count",
+          "pair:one-context-empty",
+          "pair:after-right-count"
+        ],
+        "heldout_accuracy": 1.0,
+        "heldout_group_macro_accuracy": 1.0,
+        "class_confusion": [
+          [
+            24,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            36,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            52,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ]
+      },
+      "compatibility_group_macro_by_class": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ]
+}

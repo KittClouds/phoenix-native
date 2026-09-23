@@ -1,0 +1,69 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1n2-seal/v1",
+  "date": "2026-09-23",
+  "status": "diagnostic-complete-no-natural-qualification",
+  "branch": "codex/phoenix-native-p1n2-local-sense-20260923",
+  "protocol_sha256": "3bb74bdcbc5bd2891264867bdb213e2d7b44ef39507e9b60dd2a4542c5aa23a4",
+  "pre_run_manifest_sha256": "f7aaa046c3ea8b75e581b50b0349617649505d6519a56b87fcb5efd934fc42b2",
+  "source_sha256": {
+    "lt9_la2p1n2.rs": "5ce11d593ed513d6357ef02f98279499020ec2c9bc212f565a79cfb724e53b80",
+    "lt9_la2p1n2_data.rs": "5a86266c8facd6f8f813ba6a198288cb3d98be3ec7ac1e1950b013493c6feb5c",
+    "lt9_la2p1n2_tree.rs": "dfce6f4cdd6889b7da4cfd8e1c9252c69450bf0f4f0ba0c0bb4026f32eeeaf0a",
+    "lt9_la2p1m1_core.rs": "dc4220b075ac2df92c32bc37d853fc1f5deb2ed0ce8837cbe48d5a31f9f0d215",
+    "Cargo.toml": "fe3351c4bdddcc50877c87b6e8cab3b989503327412a53319a8d85f43a4bdf6c",
+    "Cargo.lock": "4965344f6437c0874e54117a7bc47959d48b5032a0ac04018d184b51ce468607"
+  },
+  "binary_sha256": "20341de4b64c9a871b1543d324b85eb8f82aadd24276e8c252f455a6f39e3b14",
+  "stimuli_sha256": "e304bb6c4c1f6f1925566902ca9fce06142040fbe7e4413b31b43c3f14ddc6bb",
+  "passes": {
+    "pass1": {
+      "path": "D:/phoenix-evals/lt9-la2-p1n2-20260923/p1n2-final-pass1.json",
+      "bytes": 8991,
+      "sha256": "fc3533a22514ce02bbc75c12b38490edec125ea190f017df17239459e96a4f9b"
+    },
+    "pass2": {
+      "path": "D:/phoenix-evals/lt9-la2-p1n2-20260923/p1n2-final-pass2.json",
+      "bytes": 8991,
+      "sha256": "fc3533a22514ce02bbc75c12b38490edec125ea190f017df17239459e96a4f9b"
+    },
+    "byte_identical": true,
+    "committed_result": "experiments/lt9-la2-p1n2/p1n2-result-20260923.json",
+    "committed_result_sha256": "fc3533a22514ce02bbc75c12b38490edec125ea190f017df17239459e96a4f9b"
+  },
+  "design": {
+    "candidate_pairs": 3,
+    "base_groups_per_candidate": 12,
+    "variants_per_group": 8,
+    "training_groups_per_candidate": 8,
+    "heldout_groups_per_candidate": 4,
+    "depth3_tree_min_leaf": 2,
+    "stimuli": 288,
+    "base_groups": 36,
+    "candidate_token_feature_keys": 0,
+    "candidate_id_feature_keys": 0,
+    "unit_tests_passed": 9,
+    "implementation_correction": "Filtered local n-grams that crossed the frozen title/body boundary and added a regression test before the sealed replay.",
+    "superseded_intermediate_output_sha256": "5d37ff838deb090b97ccff0e9f7e3164d787c7adc29717a9c3b572a9f59afefe"
+  },
+  "heldout_summary": {
+    "local_frame_accuracy": [0.625, 0.8125, 0.71875],
+    "local_topic_invariance": [1.0, 0.625, 1.0],
+    "correct_sense_transition_groups": ["0/4", "0/4", "1/4"],
+    "unknown_calibration": [1.0, 1.0, 1.0],
+    "pairwise_compatibility_accuracy": [1.0, 1.0, 1.0],
+    "pairwise_group_macro_accuracy": [1.0, 1.0, 1.0],
+    "current_family_accuracy": [0.28125, 0.21875, 0.15625],
+    "context_only_family_accuracy": [0.21875, 0.1875, 0.125]
+  },
+  "scope": {
+    "natural_corpus_read": false,
+    "validity_or_relevance_labels_read": false,
+    "p1m2r_or_p1n1_outcome_receipts_read": false,
+    "webis_touche_read": false,
+    "natural_authority_updated": false,
+    "retrieval_or_ranking_run": false,
+    "router_selected_or_promoted": false
+  },
+  "promotion": "none",
+  "interpretation": "Controlled synthetic cue construction favors pairwise context compatibility; named-frame classification is weak/degenerate. Natural observability remains unqualified."
+}
