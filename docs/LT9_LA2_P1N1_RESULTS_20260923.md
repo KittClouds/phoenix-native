@@ -1,6 +1,7 @@
 # LT9-LA2 P1N1: topic–sense observability results
 
-Date: 2026-09-23  
+Date: 2026-09-23
+
 Status: **diagnostic result; no router qualified**
 
 P1N1 shows that the frozen broad-family marker route is strongly affected by both candidate-token votes and ambient-family markers. The current phenotype representation has not demonstrated that it tracks lexical-relation sense independently of candidate identity and surrounding topic cues.
