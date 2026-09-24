@@ -26,6 +26,8 @@ pub(super) struct ReaderPanel {
     painted: Option<u32>,
     voice_choices: Vec<(String, phoenix_reader_session::VoiceChoice)>,
     selected_voice: Option<phoenix_reader_session::VoiceChoice>,
+    restart_segment: Option<u32>,
+    cast_restart_segment: Option<u32>,
     studio: Option<studio::StudioInputs>,
     voice_book: Option<[u8; 32]>,
     voice_details: Vec<VoiceDetail>,
@@ -33,6 +35,7 @@ pub(super) struct ReaderPanel {
     notice: String,
     audition: Option<audition::Audition>,
     audition_then_listen: bool,
+    enrollment: Option<enrollment::Enrollment>,
 }
 impl PhoenixShell {
     pub(super) fn take_reader_for_shutdown(&mut self) -> Option<Bridge> {
@@ -71,6 +74,7 @@ impl PhoenixShell {
                 if shell
                     .update(cx, |this, cx| {
                         this.poll_voice_audition(cx);
+                        this.poll_voice_enrollment(cx);
                         if let Some(bridge) = &this.reader.bridge {
                             let status = bridge.status.lock().unwrap().clone();
                             if status == this.reader.status {
@@ -82,8 +86,12 @@ impl PhoenixShell {
                             if this.reader.status.finished
                                 && this.reader.status.message.starts_with("Cast saved")
                             {
+                                this.reader.restart_segment =
+                                    this.reader.cast_restart_segment.take();
                                 this.reader.notice = this.reader.status.message.clone();
                                 this.reader.studio = None;
+                            } else if this.reader.status.finished {
+                                this.reader.cast_restart_segment = None;
                             }
                             if this.reader.lease.is_none() {
                                 this.reader.status.message = message;
@@ -104,6 +112,9 @@ impl PhoenixShell {
         cx.notify();
     }
     pub(super) fn close_reader(&mut self, cx: &mut Context<Self>) {
+        if let Some(enrollment) = &self.reader.enrollment {
+            enrollment.cancel();
+        }
         self.reader.open = false;
         self.editor.update(cx, |editor, cx| {
             editor.set_selection_toolbar_requires_selection(false, cx)
@@ -148,6 +159,7 @@ impl PhoenixShell {
             lease,
             plain,
             self.reader.selected_voice,
+            self.reader.restart_segment.take(),
         ));
         if self.reader.preferred_speed != 0 {
             self.reader_command(Command::Speed(self.reader.preferred_speed), cx);
@@ -322,5 +334,6 @@ impl PhoenixShell {
 
 mod audition;
 mod cast_panel;
+mod enrollment;
 mod studio;
 mod transport;

@@ -51,6 +51,14 @@ async fn read_selection_uses_only_rendered_selected_text(cx: &mut TestAppContext
             ..identity
         };
         assert!(editor.selected_visible_text(&stale, cx).is_none());
+        assert_eq!(
+            editor.host_selected_visible_text(cx).as_deref(),
+            Some("bright words")
+        );
+        let block = editor.document.visible_blocks()[0].entity.clone();
+        let before = block.read(cx).selected_range.clone();
+        editor.read_selection(&editor.current_selection_identity(cx), cx);
+        assert_eq!(block.read(cx).selected_range, before);
     });
 }
 

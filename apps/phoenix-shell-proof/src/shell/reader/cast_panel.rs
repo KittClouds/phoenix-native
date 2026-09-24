@@ -263,6 +263,11 @@ impl PhoenixShell {
                                                     this.reader.notice = format!("Could not save narrator: {error:#}");
                                                     cx.notify(); return;
                                                 }
+                                                this.reader.restart_segment =
+                                                    (this.reader.selected_voice != Some(choice)
+                                                        && this.reader.status.segments > 0
+                                                        && !this.reader.selection_mode)
+                                                        .then_some(this.reader.status.segment);
                                                 this.invalidate_reader_document(cx);
                                                 this.reader.selected_voice = Some(choice);
                                                 this.reader.status.phase = super::worker::presentation::Phase::Stopped;

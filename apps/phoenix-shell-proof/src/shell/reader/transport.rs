@@ -275,6 +275,16 @@ impl PhoenixShell {
                             .flex_basis(px(0.))
                             .justify_end()
                             .child(
+                                Button::new("reader-cast-badge")
+                                    .label("CAST")
+                                    .small()
+                                    .ghost()
+                                    .tooltip("Open voices and passage casting")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.show_reader_sidebar(false, cx)
+                                    })),
+                            )
+                            .child(
                                 Button::new("reader-voice-picker")
                                     .icon(IconName::User)
                                     .label(voice.to_owned())

@@ -1,15 +1,26 @@
-use super::{worker, PhoenixShell};
-use gpui::{div, prelude::*, px, rgb, Context, Entity, IntoElement, Window};
+use super::{enrollment, worker, PhoenixShell};
+use gpui::{div, prelude::*, px, rgb, Context, Entity, IntoElement, PathPromptOptions, Window};
 use gpui_component::{
     button::{Button, ButtonVariants},
     input::{Input, InputState},
     Disableable, Sizable,
 };
 use phoenix_reader_session::{VoiceChoice, VoiceLibrary, VoiceProfile};
+use std::path::PathBuf;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StudioMode {
+    Design,
+    Clone,
+}
 
 pub(super) struct StudioInputs {
     name: Entity<InputState>,
     description: Entity<InputState>,
+    transcript: Entity<InputState>,
+    direction: Entity<InputState>,
+    reference_path: Option<PathBuf>,
+    mode: StudioMode,
     character: Entity<InputState>,
     segment: u32,
     excerpt: String,
@@ -70,6 +81,8 @@ impl PhoenixShell {
             .unwrap_or_else(|| "Start listening to choose a passage.".into());
         self.reader.studio = Some(StudioInputs {
             casting,
+            mode: StudioMode::Design,
+            reference_path: None,
             segment,
             excerpt,
             character: cx
@@ -77,6 +90,11 @@ impl PhoenixShell {
             name: cx.new(|cx| InputState::new(window, cx).placeholder("Narrator name")),
             description: cx.new(|cx| {
                 InputState::new(window, cx).placeholder("Describe voice, accent and delivery")
+            }),
+            transcript: cx
+                .new(|cx| InputState::new(window, cx).placeholder("Exact words spoken in the WAV")),
+            direction: cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Optional tone, emotion, pace, or delivery")
             }),
         });
         cx.notify();
@@ -113,6 +131,9 @@ impl PhoenixShell {
         let choice = library.save(&profile)?;
         library.select(self.reader_book_key(), choice)?;
         drop(library);
+        self.reader.restart_segment = (self.reader.status.segments > 0
+            && !self.reader.selection_mode)
+            .then_some(self.reader.status.segment);
         self.invalidate_reader_document(cx);
         self.reader.selected_voice = Some(choice);
         self.load_reader_voice_choices()?;
@@ -121,6 +142,111 @@ impl PhoenixShell {
         self.reader.notice =
             "Voice saved and selected. Preview a sample or listen to your book.".into();
         Ok(())
+    }
+    fn choose_reference_audio(&mut self, cx: &mut Context<Self>) {
+        let prompt = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Choose a 3–30 second WAV reference".into()),
+        });
+        cx.spawn(async move |shell, cx| {
+            let chosen = prompt.await;
+            let _ = shell.update(cx, |this, cx| {
+                match chosen {
+                    Ok(Ok(Some(paths))) => {
+                        if let Some(studio) = this.reader.studio.as_mut() {
+                            studio.reference_path = paths.into_iter().next();
+                        }
+                    }
+                    Ok(Ok(None)) => {}
+                    _ => this.reader.notice = "Could not open the WAV picker.".into(),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    fn start_reference_clone(&mut self, cx: &mut Context<Self>) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.reader.enrollment.is_none(),
+            "A voice is already being enrolled"
+        );
+        let inputs = self
+            .reader
+            .studio
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Open Voice Studio"))?;
+        let name = inputs.name.read(cx).value().trim().to_owned();
+        let transcript = inputs.transcript.read(cx).value().trim().to_owned();
+        let direction = inputs.direction.read(cx).value().trim().to_owned();
+        let audio = inputs
+            .reference_path
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Choose a WAV reference"))?;
+        anyhow::ensure!(
+            !name.is_empty() && name.len() <= 128,
+            "Enter a voice name (up to 128 bytes)"
+        );
+        anyhow::ensure!(
+            (10..=16_384).contains(&transcript.len()) && !transcript.contains('\0'),
+            "Enter the exact spoken words (10–16,384 bytes)"
+        );
+        anyhow::ensure!(
+            direction.len() <= 2048 && !direction.contains('\0'),
+            "Direction is too long"
+        );
+        let config_path = self.kernel.workspace_path().with_extension("reader.json");
+        anyhow::ensure!(
+            std::fs::metadata(&config_path)?.len() <= 1_048_576,
+            "Reader configuration bounds"
+        );
+        let config: worker::Config = serde_json::from_slice(&std::fs::read(config_path)?)?;
+        let request = enrollment::Request {
+            config,
+            audio,
+            name,
+            transcript,
+            direction,
+        };
+        let previous = self.reader.bridge.take();
+        let audition = self.reader.audition.take();
+        self.reader.lease = None;
+        self.reader.painted = None;
+        self.reader.status.phase = super::worker::presentation::Phase::Preparing;
+        self.reader.status.requested = false;
+        self.reader.status.playing = false;
+        self.reader.status.finished = true;
+        self.reader.enrollment = Some(enrollment::Enrollment::start(request, previous, audition));
+        self.reader.notice = "Encoding reference voice… Playback position is saved; the GPU model will be released when encoding finishes.".into();
+        Ok(())
+    }
+    pub(super) fn poll_voice_enrollment(&mut self, cx: &mut Context<Self>) {
+        if !self
+            .reader
+            .enrollment
+            .as_ref()
+            .is_some_and(enrollment::Enrollment::finished)
+        {
+            return;
+        }
+        let result = self.reader.enrollment.take().unwrap().finish();
+        self.reader.status.phase = super::worker::presentation::Phase::Stopped;
+        match result {
+            Ok((name, _choice)) => match self.load_reader_voice_choices() {
+                Ok(()) => {
+                    self.reader.studio = None;
+                    self.reader.notice = format!(
+                        "{name} added to your voices. Preview it or select Use to hear your book."
+                    );
+                }
+                Err(error) => {
+                    self.reader.notice = format!("Voice saved, but list refresh failed: {error:#}")
+                }
+            },
+            Err(error) => self.reader.notice = format!("Voice enrollment: {error:#}"),
+        }
+        cx.notify();
     }
     pub(super) fn render_voice_studio(
         &self,
@@ -137,10 +263,33 @@ impl PhoenixShell {
             .border_color(rgb(0x303633))
             .when(!inputs.casting, |view| view
             .child(div().text_lg().text_color(rgb(0xf1f3ef)).child("Create a Breeze voice"))
-            .child(div().text_sm().text_color(rgb(0x9ca8a2))
-                .child("Describe its sound and delivery. A voice design is distinct from a speaker clone."))
+            .child(div().flex().gap_2()
+                .child(Button::new("reader-design-tab").label("Design").small()
+                    .disabled(self.reader.enrollment.is_some())
+                    .when(inputs.mode == StudioMode::Design, |b| b.primary())
+                    .when(inputs.mode != StudioMode::Design, |b| b.ghost())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(studio) = this.reader.studio.as_mut() { studio.mode = StudioMode::Design; }
+                        cx.notify();
+                    })))
+                .child(Button::new("reader-clone-tab").label("Clone recording").small()
+                    .disabled(self.reader.enrollment.is_some())
+                    .when(inputs.mode == StudioMode::Clone, |b| b.primary())
+                    .when(inputs.mode != StudioMode::Clone, |b| b.ghost())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(studio) = this.reader.studio.as_mut() { studio.mode = StudioMode::Clone; }
+                        cx.notify();
+                    }))))
+            .child(div().text_sm().text_color(rgb(0x9ca8a2)).child(
+                if inputs.mode == StudioMode::Clone {
+                    "Use a clean WAV and its exact spoken words. The clone is saved locally and appears in this voice list."
+                } else {
+                    "Describe its sound and delivery. Designs can vary between passages."
+                }))
             .child(div().text_xs().text_color(rgb(0x72d6b3)).child("VOICE NAME"))
             .child(Input::new(&inputs.name).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0())
+            )
+            .when(!inputs.casting && inputs.mode == StudioMode::Design, |view| view
             .child(div().text_xs().text_color(rgb(0x72d6b3)).child("DESCRIPTION"))
             .child(Input::new(&inputs.description).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0())
             .child(div().text_xs().text_color(rgb(0x9ca8a2))
@@ -149,6 +298,7 @@ impl PhoenixShell {
                 Button::new("reader-save-designed")
                     .label("Save narrator")
                     .small().primary()
+                    .disabled(self.reader.enrollment.is_some())
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Err(error) = this.save_designed_narrator(cx) {
                             this.reader.notice = format!("{error:#}");
@@ -156,6 +306,33 @@ impl PhoenixShell {
                         cx.notify();
                     })),
             ))
+            .when(!inputs.casting && inputs.mode == StudioMode::Clone, |view| view
+            .child(Button::new("reader-choose-reference").label("Choose WAV recording…").small().ghost()
+                .disabled(self.reader.enrollment.is_some())
+                .on_click(cx.listener(|this, _, _, cx| this.choose_reference_audio(cx))))
+            .child(div().text_xs().text_color(rgb(0x9ca8a2)).child(
+                inputs.reference_path.as_ref().map_or("No recording chosen".to_owned(), |p| p.display().to_string())))
+            .child(div().text_xs().text_color(rgb(0x72d6b3)).child("EXACT SPOKEN WORDS"))
+            .child(Input::new(&inputs.transcript).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0())
+            .child(div().text_xs().text_color(rgb(0x9ca8a2)).child("Include punctuation. A clean 3–30 second excerpt works best."))
+            .child(div().text_xs().text_color(rgb(0x72d6b3)).child("VOICE DIRECTION · OPTIONAL"))
+            .child(Input::new(&inputs.direction).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0())
+            .child(Button::new("reader-save-clone").label("Save reference voice").small().primary()
+                .disabled(self.reader.enrollment.is_some())
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Err(error) = this.start_reference_clone(cx) {
+                        this.reader.notice = format!("{error:#}");
+                    }
+                    cx.notify();
+                })))
+            .when(self.reader.enrollment.is_some(), |view| view.child(
+                Button::new("reader-cancel-clone").label("Cancel encoding").small().ghost()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(enrollment) = &this.reader.enrollment { enrollment.cancel(); }
+                        this.reader.notice = "Stopping voice encoder…".into();
+                        cx.notify();
+                    }))))
+            )
             .when(inputs.casting, |view| view
             .child(div().text_lg().text_color(rgb(0xf1f3ef)).child("Cast a passage"))
             .child(div().text_xs().text_color(rgb(0x72d6b3)).child(format!(
@@ -182,6 +359,7 @@ impl PhoenixShell {
                                         let character =
                                             inputs.character.read(cx).value().to_string();
                                         let segment = inputs.segment;
+                                        this.reader.cast_restart_segment = Some(segment);
                                         this.reader.details = true;
                                         this.reader_command(
                                             super::Command::Assign {

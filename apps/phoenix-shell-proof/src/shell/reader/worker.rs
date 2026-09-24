@@ -114,15 +114,16 @@ impl Config {
 
 #[allow(dead_code)] // Shared by the standalone controller smoke.
 pub fn start(workspace: PathBuf, lease: Arc<DocumentLease>, plain: bool) -> Bridge {
-    start_with_voice(workspace, lease, plain, None)
+    start_with_voice(workspace, lease, plain, None, None)
 }
 pub(super) fn start_with_voice(
     workspace: PathBuf,
     lease: Arc<DocumentLease>,
     plain: bool,
     voice: Option<VoiceChoice>,
+    restart_segment: Option<u32>,
 ) -> Bridge {
-    start_source(workspace, lease, plain, voice, false)
+    start_source(workspace, lease, plain, voice, false, restart_segment)
 }
 
 pub(super) fn start_selection_with_voice(
@@ -130,7 +131,7 @@ pub(super) fn start_selection_with_voice(
     lease: Arc<DocumentLease>,
     voice: Option<VoiceChoice>,
 ) -> Bridge {
-    start_source(workspace, lease, true, voice, true)
+    start_source(workspace, lease, true, voice, true, None)
 }
 
 fn start_source(
@@ -139,6 +140,7 @@ fn start_source(
     plain: bool,
     voice: Option<VoiceChoice>,
     selection: bool,
+    restart_segment: Option<u32>,
 ) -> Bridge {
     let (tx, rx) = mpsc::sync_channel(16);
     let status = Arc::new(Mutex::new(Status {
@@ -151,7 +153,15 @@ fn start_source(
     let token = cancel.clone();
     let join = thread::spawn(move || {
         let result = run(
-            workspace, lease, plain, voice, selection, rx, &shared, &token,
+            workspace,
+            lease,
+            plain,
+            voice,
+            selection,
+            restart_segment,
+            rx,
+            &shared,
+            &token,
         );
         let mut status = shared.lock().unwrap();
         status.playing = false;
@@ -182,6 +192,7 @@ fn run(
     plain: bool,
     selected_voice: Option<VoiceChoice>,
     selection: bool,
+    restart_segment: Option<u32>,
     rx: Receiver<Command>,
     shared: &Mutex<Status>,
     cancel: &Cancellation,
@@ -252,7 +263,7 @@ fn run(
     id.update(&voice_binding);
     let session_id = *id.finalize().as_bytes();
     let mut sessions = SessionStore::open(config.storage.join("sessions"))?;
-    let (session, restored) = if selection {
+    let (mut session, restored) = if selection {
         (ReaderSession::new(session_id, &plan, voice_binding)?, false)
     } else {
         match sessions.load(session_id, &plan) {
@@ -263,9 +274,13 @@ fn run(
             Err(e) => return Err(e.into()),
         }
     };
+    if let Some(segment) = restart_segment {
+        anyhow::ensure!(!selection, "selection cannot inherit book position");
+        session.restart_at_segment(&plan, segment)?;
+    }
     let cache = AudioCache::open(config.storage.join("cache"), 1024 * 1024 * 1024)?;
     let provider = engines::Providers::new(bundle, config.storage.clone())?;
-    let mut runtime = if restored {
+    let mut runtime = if restored && restart_segment.is_none() {
         ReaderRuntime::restore(
             WaveOutput::open_default()?,
             plan,
@@ -277,6 +292,9 @@ fn run(
         ReaderRuntime::new(WaveOutput::open_default()?, plan, session, identity)?
     };
     runtime.bind_voices(table)?;
+    if restart_segment.is_some() {
+        runtime.checkpoint(&mut sessions, 0, true)?;
+    }
     let mut generator = Generator::new(provider, cache);
     let mut active = false;
     let mut priming = true;
@@ -320,7 +338,7 @@ fn run(
                         narrator,
                     )?;
                     shared.lock().unwrap().message =
-                        "Cast saved - reload the saved document to apply.".into();
+                        "Cast saved. Press Listen to continue from this passage.".into();
                     cancel.cancel();
                     break;
                 }

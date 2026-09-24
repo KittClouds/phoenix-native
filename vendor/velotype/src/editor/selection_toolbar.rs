@@ -618,6 +618,12 @@ impl Editor {
         (!text.trim().is_empty()).then_some(text)
     }
 
+    /// Borrow the current rendered selection for a host shortcut without changing
+    /// its caret, range, or toolbar state. The host can resume editing it after playback.
+    pub fn host_selected_visible_text(&self, cx: &App) -> Option<String> {
+        self.selected_visible_text(&self.current_selection_identity(cx), cx)
+    }
+
     fn read_selection(&mut self, expected: &SelectionIdentity, cx: &mut Context<Self>) {
         if let Some(text) = self.selected_visible_text(expected, cx) {
             cx.emit(EditorEvent::ReadSelectionRequested {

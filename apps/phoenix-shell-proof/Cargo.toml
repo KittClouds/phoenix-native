@@ -49,3 +49,4 @@ tokio.workspace = true
 keyring.workspace = true
 uuid.workspace = true
 blake3.workspace = true
+tempfile = "3"

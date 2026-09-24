@@ -13,7 +13,7 @@ use std::{
 pub struct Position {
     pub segment: u32,
     pub source_frame: u64,
-    /// Zero only for the initial, not-yet-generated position at frame zero.
+    /// Zero for a segment-boundary position awaiting its first audio artifact.
     pub audio_key: Digest,
     pub artifact_hash: Digest,
 }
@@ -65,6 +65,20 @@ impl ReaderSession {
     }
     pub fn position(&self) -> Position {
         self.position
+    }
+    /// A narrator change can carry a sentence boundary across voice identities.
+    /// Audio-frame offsets cannot cross that boundary: the new waveform differs.
+    pub fn restart_at_segment(&mut self, plan: &NarrationPlan, segment: u32) -> Result<()> {
+        self.validate(plan)?;
+        plan.segment(segment)?;
+        self.bump()?;
+        self.position = Position {
+            segment,
+            source_frame: 0,
+            audio_key: [0; 32],
+            artifact_hash: [0; 32],
+        };
+        Ok(())
     }
     pub fn sequence(&self) -> u64 {
         self.sequence
@@ -210,7 +224,7 @@ impl ReaderSession {
 }
 fn validate_position(p: Position) -> Result<()> {
     if (p.audio_key == [0; 32]) != (p.artifact_hash == [0; 32])
-        || (p.audio_key == [0; 32] && (p.source_frame != 0 || p.segment != 0))
+        || (p.audio_key == [0; 32] && p.source_frame != 0)
     {
         return Err(Error::Invalid("position artifact binding"));
     }

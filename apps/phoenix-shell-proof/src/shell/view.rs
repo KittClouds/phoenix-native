@@ -6,7 +6,7 @@ use super::{
 };
 use gpui::{
     div, linear_color_stop, linear_gradient, prelude::*, px, rgb, Context, IntoElement,
-    ParentElement, Render, SharedString, Window,
+    KeyDownEvent, ParentElement, Render, SharedString, Window,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
@@ -20,6 +20,32 @@ const ACCENT_BRIGHT: u32 = 0x57e2bb;
 pub(super) const SHELL_HEADER_HEIGHT: f32 = 44.;
 
 impl PhoenixShell {
+    fn on_reader_shortcut(
+        &mut self,
+        event: &KeyDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.is_held || event.keystroke.unparse() != "ctrl-shift-space" {
+            return;
+        }
+        cx.stop_propagation();
+        let (selection, revision) = self.editor.read_with(cx, |editor, cx| {
+            (
+                editor.host_selected_visible_text(cx),
+                editor.document_revision(),
+            )
+        });
+        if let Some(selection) = selection {
+            self.read_editor_selection(&selection, revision, cx);
+        } else if self.reader.open {
+            self.reader_primary(cx);
+        } else {
+            self.open_reader(cx);
+            self.reader_primary(cx);
+        }
+    }
+
     fn render_nav_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .w(px(NAV_RAIL_WIDTH))
@@ -641,6 +667,7 @@ impl Render for PhoenixShell {
         });
         div()
             .size_full()
+            .capture_key_down(cx.listener(Self::on_reader_shortcut))
             .relative()
             .flex()
             .flex_col()

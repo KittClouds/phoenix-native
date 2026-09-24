@@ -15,6 +15,11 @@ are outside this cut.
 | Narrator continuity | Unassigned prose keeps the selected speaker across independently generated passages; intentional character casting remains separate. | The user reported audible speaker changes during the long run. Live inspection showed Calm narrator, a description-only Breeze design, selected for the review book. The app sent the same profile and seed for each passage; a design has no fixed reference recording. At the user's request, the book was switched to Woods, a saved Breeze reference voice. The latest dock showed Woods through passage 72. The voice panel now distinguishes designs, references, and directed references. | Operational selection passed; long-form acoustic consistency pending user listening |
 | GPU model lifecycle | Pausing retains position, releases an idle Breeze worker, and restarts it on demand; previews do not hold GPU memory during playback. | In the 2026-09-24 build, Woods paused at passage 67 and its worker exited after the 20-second idle window. GPU use fell from 8,292 to 4,357 MiB. Resume advanced to passage 72 with a new worker; directed Alyssa preview played with no worker resident. See `reader-voices-and-model-lifecycle-20260924.md`. | Passed for the live pause/resume and preview check |
 | Alyssa voice direction | A delivery instruction adds enthusiastic energy while preserving the recognizable reference voice. | In the same-reference A/B short sample, the user heard the same voice with more underlying energy and judged the result good. | Passed for the short sample; long-form consistency pending |
+| In-app voice enrollment | Clone a short WAV with an exact transcript, preview it, and make it available without restarting Reader. Retire the book worker before opening the model and release that model before spawning the clone encoder. | In the isolated QA workspace, `Gilly UI QA` was cloned from a local WAV, previewed, published, and appeared in the live list as voice 2. The resulting directed reference played through passage 5 with zero rebufferings and device gaps. | Passed in isolated QA; broader file/error cases pending |
+| Voice switch position | Switching the book narrator restarts at the current sentence with a fresh voice identity, preserving the configured speed. | `voice_handoff_restarts_only_current_sentence_without_old_audio_identity` passes in release mode. Exact audio-frame transfer between different voices is intentionally not claimed. | Contract passed; live switch check pending on v13 |
+| Cast edit position | Saving a passage cast and pressing Listen continues at the cast passage rather than returning to passage 1. | QA on v12 exposed a restart at passage 1 after casting passage 5. V13 now carries the passage through worker retirement and checkpoints the new session there; `cargo check` and release build pass. User redirected the live window to the full workspace before a v13 UI retest. | Source fix compiled; live UI retest pending |
+| Editor shortcut and cast discovery | `Ctrl+Shift+Space` speaks the visible selection or toggles Reader; the transport CAST chip opens the voice panel. | The selected-visible-text editor unit test passes and the CAST chip opened the full catalog in v13. The shortcut has not yet had a live keyboard pass. | Partial; live shortcut check pending |
+| One full product instance | The screenshot app has the published graph, full voice library, and backend arguments in a single process. | V13 replaced the prior full-workspace process and the isolated QA process. The live Reader showed 13 voices with Alyssa expressive selected; the same window showed Atlas 86 entities and rendered the graph. Process inspection found one `phoenix-shell.exe`, launched with the full workspace, scene publication root, producer, NER root, and NLI root. | Passed for visible catalog and graph; fresh extraction not rerun |
 | Freeze listening | Long-form Breeze and Supertonic listening, cold and cached starts, repeated pause/resume, voice continuity, and the seven-day listening gate. | No new long-form or seven-day run in this cut. | Pending |
 
 The Reader is not frozen. The final build passed the scoped interaction checks
@@ -27,5 +32,15 @@ rebufferings and one device gap. A release build overlapped this run and was
 stopped to protect playback; the cause of the gap is not established. A clean build and a short live pass do not establish acoustic quality or
 long-form continuity.
 
-Latest review executable: `C:\phoenix-bin\phoenix-reader-voices-lifecycle-v11-20260924\release\phoenix-shell.exe`.
+Later user listening observation: Woods retained its voice over several minutes
+past passage 85; Alyssa expressive also held beyond passage 80. After Reader
+closed, the Breeze worker disappeared from Task Manager and GPU fan noise wound
+down. These observations strengthen the continuity and lifecycle gates, while
+the scheduled seven-day listening gate remains open.
+
+Prior review executable: `C:\phoenix-bin\phoenix-reader-voices-lifecycle-v11-20260924\release\phoenix-shell.exe`.
 External SHA-256: `E93C2A302D3F9DE96025B9A0F64014C88EDE283E8954AA75AF2572FD37EF42E0`.
+
+2026-09-24 replacement app: `C:\phoenix-bin\phoenix-reader-voice-studio-v13-20260924\release\phoenix-shell.exe`.
+External SHA-256: `A2A56C60CD717864B3261A6F00003E07956D1BCCEB6F503C93DC0B1E77D6DB9B`.
+The v11 identity above is retained as the prior review baseline; v13 is the running product instance.

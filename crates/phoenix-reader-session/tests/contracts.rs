@@ -4,6 +4,35 @@ use phoenix_tts_contract::{AudioFormat, Event, FinishReason};
 use support::*;
 
 #[test]
+fn voice_handoff_restarts_only_current_sentence_without_old_audio_identity() {
+    let plan = plan_markdown(
+        [1; 32],
+        &lease("First sentence. Second sentence. Third sentence.", 1),
+        PlannerConfig::default(),
+    )
+    .unwrap()
+    .plan;
+    assert!(plan.spec().segments.len() >= 3);
+    let mut session = ReaderSession::new([7; 32], &plan, [6; 32]).unwrap();
+    session.set_speed(1300).unwrap();
+    session.restart_at_segment(&plan, 1).unwrap();
+    assert_eq!(session.position().segment, 1);
+    assert_eq!(session.position().source_frame, 0);
+    assert_eq!(session.position().audio_key, [0; 32]);
+    assert_eq!(session.speed_milli(), 1300);
+    session.validate(&plan).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let mut store = SessionStore::open(root.path()).unwrap();
+    store.checkpoint(&session, &plan, 0, true).unwrap();
+    drop(store);
+    let store = SessionStore::open(root.path()).unwrap();
+    let resumed = store.load(session.id(), &plan).unwrap();
+    assert_eq!(resumed.position(), session.position());
+    assert_eq!(resumed.speed_milli(), 1300);
+    assert!(session.restart_at_segment(&plan, u32::MAX).is_err());
+}
+
+#[test]
 fn revision_snapshot_cache_checkpoint_restart_smoke() {
     let root = tempfile::tempdir().unwrap();
     let old = lease("A narrator reads.", 1);

@@ -5939,6 +5939,7 @@ dependencies = [
  "serde",
  "serde_json",
  "smallvec",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
