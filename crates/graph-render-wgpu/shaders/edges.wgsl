@@ -57,7 +57,7 @@ struct GraphLensUniform {
     focus_active: u32,
     dimmed_node_opacity: f32,
     dimmed_edge_opacity: f32,
-    _padding: u32,
+    topology_emphasis: u32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -74,6 +74,7 @@ struct VertexOutput {
     @location(2) @interpolate(flat) visible: u32,
     @location(3) @interpolate(flat) flags: u32,
     @location(4) progress: f32,
+    @location(5) @interpolate(flat) emphasis_match: u32,
 };
 
 // Line width is relative to the smallest ordinary node, never to either endpoint.
@@ -92,6 +93,15 @@ fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
 // disappear from hover even when their geometry is on screen.
 fn family_visible(product_mask: vec2<u32>) -> bool {
     return intersects(product_mask, lens.family_mask);
+}
+
+fn emphasis_matches(primary_family: vec2<u32>) -> bool {
+    switch lens.topology_emphasis {
+        case 1u: { return (primary_family.x & 0x100u) != 0u; }
+        case 2u: { return (primary_family.x & 0x200u) != 0u; }
+        case 3u: { return (primary_family.x & 0x400u) != 0u; }
+        default: { return false; }
+    }
 }
 
 fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
@@ -186,6 +196,7 @@ fn vs_main(
         edge.color.a,
     );
     output.side = side;
+    output.emphasis_match = select(0u, 1u, emphasis_matches(primary_edge_family(edge_products[instance_index])));
     output.visible = select(0u, 1u, is_visible);
     output.flags = edge.kind_flags & 0xffffu;
     output.progress = progress;
@@ -210,6 +221,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         && (input.flags & 32768u) == 0u
         && (input.flags & 16384u) == 0u) {
         color.a *= lens.dimmed_edge_opacity;
+    } else if (lens.focus_active == 0u && lens.topology_emphasis != 0u) {
+        color.a *= select(0.60, 1.25, input.emphasis_match != 0u);
     }
     color.a *= mix(0.68, 1.0, input.progress);
     color.a *= 1.0 - smoothstep(1.0 - derivative, 1.0, edge_distance);

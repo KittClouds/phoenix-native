@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use phoenix_scene_contract::GraphViewState;
+use phoenix_scene_contract::{GraphSurface, GraphTopologyEmphasis, GraphViewState};
 use phoenix_scene_product_index::{EdgeProductRecord, NodeProductRecord};
 
 #[repr(C)]
@@ -84,7 +84,7 @@ pub struct GraphLensUniform {
     pub focus_active: u32,
     pub dimmed_node_opacity: f32,
     pub dimmed_edge_opacity: f32,
-    pub _padding: u32,
+    pub topology_emphasis: u32,
 }
 
 impl GraphLensUniform {
@@ -99,7 +99,7 @@ impl GraphLensUniform {
         focus_active: 0,
         dimmed_node_opacity: 1.0,
         dimmed_edge_opacity: 1.0,
-        _padding: 0,
+        topology_emphasis: 0,
     };
 
     #[must_use]
@@ -115,7 +115,14 @@ impl GraphLensUniform {
             focus_active: 0,
             dimmed_node_opacity: 1.0,
             dimmed_edge_opacity: 1.0,
-            _padding: 0,
+            topology_emphasis: match view.topology_emphasis {
+                GraphTopologyEmphasis::Off => 0,
+                GraphTopologyEmphasis::Structure => 1,
+                GraphTopologyEmphasis::Facts => 2,
+                GraphTopologyEmphasis::Discourse => 3,
+            } * u32::from(
+                product_index_enabled && view.surface == GraphSurface::Atlas,
+            ),
         }
     }
 
@@ -142,7 +149,8 @@ const fn split_u64(value: u64) -> [u32; 2] {
 mod tests {
     use super::*;
     use phoenix_scene_contract::{
-        FamilyMask, GraphScope, GraphSurface, RelationMask, ReviewMask, ScopeMask,
+        FamilyMask, GraphScope, GraphSurface, GraphTopologyEmphasis, RelationMask, ReviewMask,
+        ScopeMask,
     };
 
     #[test]
@@ -172,5 +180,19 @@ mod tests {
         assert_eq!(uniform.relation_mask, [0xcccc_dddd, 0xaaaa_bbbb]);
         assert_eq!(uniform.review_mask, 2);
         assert_eq!(uniform.product_index_enabled, 1);
+    }
+
+    #[test]
+    fn topology_emphasis_requires_published_product_identity() {
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            topology_emphasis: GraphTopologyEmphasis::Facts,
+            ..GraphViewState::default()
+        };
+        assert_eq!(GraphLensUniform::from_view(view, true).topology_emphasis, 2);
+        assert_eq!(
+            GraphLensUniform::from_view(view, false).topology_emphasis,
+            0
+        );
     }
 }

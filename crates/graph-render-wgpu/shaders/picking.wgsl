@@ -37,7 +37,7 @@ struct GraphLensUniform {
     focus_active: u32,
     dimmed_node_opacity: f32,
     dimmed_edge_opacity: f32,
-    _padding: u32,
+    topology_emphasis: u32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;

@@ -5,12 +5,13 @@ use glyphon::{
 };
 use graph_model::NodeId;
 use phoenix_scene_archive::LabelPriorityRecord;
-use phoenix_scene_contract::{FamilyMask, GraphViewState};
+use phoenix_scene_contract::{FamilyMask, GraphSurface, GraphTopologyEmphasis, GraphViewState};
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::sync::Arc;
 
 pub const MAX_RESIDENT_LABELS: usize = 256;
 const MAX_VISIBLE_LABELS: usize = 96;
+const MAX_EMPHASIZED_LABELS: usize = 6;
 const LABEL_WIDTH: f32 = 176.0;
 const LABEL_HEIGHT: f32 = 22.0;
 const LABEL_FONT_SIZE: f32 = 13.0;
@@ -198,55 +199,74 @@ impl LabelLayer {
         let scope_mask = view.scope_mask().0;
         let hover_slot = focus.hover.and_then(|id| scene.node_slot(id));
         let selected_slot = focus.selected.and_then(|id| scene.node_slot(id));
-        for (entry_index, entry) in self.entries.iter().enumerate() {
-            if Some(entry.node_slot) != hover_slot && Some(entry.node_slot) != selected_slot {
-                continue;
-            }
-            let entity_lanes = entry.family_mask & FamilyMask::ENTITY_LANES.0;
-            let topology_lanes = entry.family_mask & FamilyMask::TOPOLOGY_LANES.0;
-            if entry.family_mask & family_mask == 0
-                || (entity_lanes != 0 && entity_lanes & entity_family_mask == 0)
-                || (topology_lanes != 0 && topology_lanes & topology_family_mask == 0)
-                || entry.scope_mask & scope_mask == 0
-                || entry.review_mask & view.reviews.0 == 0
-            {
-                continue;
-            }
-            let Some(node) = scene.node_at_slot(entry.node_slot) else {
-                continue;
-            };
-            let clip = matrix * glam::Vec3::from_array(node.position).extend(1.0);
-            if clip.w <= 0.0 {
-                continue;
-            }
-            let ndc = clip.truncate() / clip.w;
-            if ndc.z < 0.0 || ndc.z > 1.0 || ndc.x.abs() > 1.05 || ndc.y.abs() > 1.05 {
-                continue;
-            }
-            let left = (ndc.x * 0.5 + 0.5) * width as f32 + 8.0;
-            let top = (0.5 - ndc.y * 0.5) * height as f32 - LABEL_HEIGHT * 0.5;
-            if left + entry.width > width as f32 || top < 0.0 || top + LABEL_HEIGHT > height as f32
-            {
-                continue;
-            }
-            if collides(
-                &mut self.collision_stamps,
-                generation,
-                columns,
-                rows,
-                left,
-                top,
-                entry.width,
-            ) {
-                continue;
-            }
-            self.placed.push(PlacedLabel {
-                entry: entry_index as u16,
-                left,
-                top,
-            });
-            if self.placed.len() == MAX_VISIBLE_LABELS {
-                break;
+        let emphasis_family = if view.surface == GraphSurface::Atlas {
+            emphasis_family_mask(view.topology_emphasis)
+        } else {
+            0
+        };
+        // Focus labels always claim collision cells first. A bounded second
+        // pass reveals the published lane without flooding dense scenes.
+        let mut emphasized_count = 0;
+        for focused_only in [true, false] {
+            for (entry_index, entry) in self.entries.iter().enumerate() {
+                let focused =
+                    Some(entry.node_slot) == hover_slot || Some(entry.node_slot) == selected_slot;
+                if focused_only != focused || (!focused && entry.family_mask & emphasis_family == 0)
+                {
+                    continue;
+                }
+                if !focused && emphasized_count >= MAX_EMPHASIZED_LABELS {
+                    break;
+                }
+                let entity_lanes = entry.family_mask & FamilyMask::ENTITY_LANES.0;
+                let topology_lanes = entry.family_mask & FamilyMask::TOPOLOGY_LANES.0;
+                if entry.family_mask & family_mask == 0
+                    || (entity_lanes != 0 && entity_lanes & entity_family_mask == 0)
+                    || (topology_lanes != 0 && topology_lanes & topology_family_mask == 0)
+                    || entry.scope_mask & scope_mask == 0
+                    || entry.review_mask & view.reviews.0 == 0
+                {
+                    continue;
+                }
+                let Some(node) = scene.node_at_slot(entry.node_slot) else {
+                    continue;
+                };
+                let clip = matrix * glam::Vec3::from_array(node.position).extend(1.0);
+                if clip.w <= 0.0 {
+                    continue;
+                }
+                let ndc = clip.truncate() / clip.w;
+                if ndc.z < 0.0 || ndc.z > 1.0 || ndc.x.abs() > 1.05 || ndc.y.abs() > 1.05 {
+                    continue;
+                }
+                let left = (ndc.x * 0.5 + 0.5) * width as f32 + 8.0;
+                let top = (0.5 - ndc.y * 0.5) * height as f32 - LABEL_HEIGHT * 0.5;
+                if left + entry.width > width as f32
+                    || top < 0.0
+                    || top + LABEL_HEIGHT > height as f32
+                {
+                    continue;
+                }
+                if collides(
+                    &mut self.collision_stamps,
+                    generation,
+                    columns,
+                    rows,
+                    left,
+                    top,
+                    entry.width,
+                ) {
+                    continue;
+                }
+                self.placed.push(PlacedLabel {
+                    entry: entry_index as u16,
+                    left,
+                    top,
+                });
+                emphasized_count += usize::from(!focused);
+                if self.placed.len() == MAX_VISIBLE_LABELS {
+                    break;
+                }
             }
         }
 
@@ -319,6 +339,17 @@ impl LabelLayer {
     }
 }
 
+const fn emphasis_family_mask(emphasis: GraphTopologyEmphasis) -> u64 {
+    match emphasis {
+        GraphTopologyEmphasis::Off => 0,
+        GraphTopologyEmphasis::Structure => {
+            FamilyMask::DOCUMENTS.0 | FamilyMask::EPISODES.0 | FamilyMask::CHAPTERS.0
+        }
+        GraphTopologyEmphasis::Facts => FamilyMask::FACTS.0,
+        GraphTopologyEmphasis::Discourse => FamilyMask::DISCOURSE.0,
+    }
+}
+
 fn collides(
     stamps: &mut [u32],
     generation: u32,
@@ -356,6 +387,23 @@ fn collides(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emphasized_labels_follow_published_broad_lanes() {
+        assert_eq!(emphasis_family_mask(GraphTopologyEmphasis::Off), 0);
+        assert_eq!(
+            emphasis_family_mask(GraphTopologyEmphasis::Structure),
+            FamilyMask::DOCUMENTS.0 | FamilyMask::EPISODES.0 | FamilyMask::CHAPTERS.0
+        );
+        assert_eq!(
+            emphasis_family_mask(GraphTopologyEmphasis::Facts),
+            FamilyMask::FACTS.0
+        );
+        assert_eq!(
+            emphasis_family_mask(GraphTopologyEmphasis::Discourse),
+            FamilyMask::DISCOURSE.0
+        );
+    }
 
     #[test]
     fn collision_grid_rejects_overlap_without_allocating() {

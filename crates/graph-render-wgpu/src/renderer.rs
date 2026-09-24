@@ -453,6 +453,7 @@ impl GraphRenderer {
         let framing_changed = graph_view_change_requires_fit(self.active_view, view);
         let canvas_changed = self.active_view.canvas != view.canvas;
         let projection_changed = self.active_view.projection != view.projection;
+        let emphasis_changed = self.active_view.topology_emphasis != view.topology_emphasis;
         let _index_hash = validate_view_authority(
             view,
             self.scene.revision(),
@@ -474,10 +475,15 @@ impl GraphRenderer {
             let context_bytes = self.scene.set_interaction_visibility(view, &self.queue);
             self.refresh_interaction_lens();
             context_bytes.saturating_add(size_of::<GraphLensUniform>())
+        } else if emphasis_changed {
+            self.refresh_interaction_lens();
+            size_of::<GraphLensUniform>()
         } else {
             0
         };
-        self.picking.invalidate();
+        if visibility_changed || projection_changed || framing_changed {
+            self.picking.invalidate();
+        }
         if projection_changed || framing_changed {
             self.camera.set_projection(view.projection);
             let restored = if framing_changed {
@@ -1161,7 +1167,8 @@ fn interaction_visibility_changed(current: GraphViewState, next: GraphViewState)
 mod view_delta_tests {
     use super::*;
     use phoenix_scene_contract::{
-        FamilyMask, GraphCanvas, GraphEdgePresentation, GraphProjection, Manifold,
+        FamilyMask, GraphCanvas, GraphEdgePresentation, GraphProjection, GraphTopologyEmphasis,
+        Manifold,
     };
 
     #[test]
@@ -1210,6 +1217,29 @@ mod view_delta_tests {
         assert!(!graph_view_change_requires_fit(current, next));
         assert_eq!(current.authority, next.authority);
         assert_eq!(current.topology_families, next.topology_families);
+    }
+
+    #[test]
+    fn emphasis_only_change_preserves_framing_and_interaction_visibility() {
+        for manifold in Manifold::ALL {
+            let current = GraphViewState {
+                manifold,
+                ..GraphViewState::default()
+            };
+            for emphasis in [
+                GraphTopologyEmphasis::Structure,
+                GraphTopologyEmphasis::Facts,
+                GraphTopologyEmphasis::Discourse,
+            ] {
+                let next = GraphViewState {
+                    topology_emphasis: emphasis,
+                    ..current
+                };
+                assert!(!interaction_visibility_changed(current, next));
+                assert!(!graph_view_change_requires_fit(current, next));
+                assert_eq!(current.authority, next.authority);
+            }
+        }
     }
 }
 mod geometry;

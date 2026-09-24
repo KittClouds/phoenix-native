@@ -11,7 +11,8 @@ use phoenix_app_core::{GraphProvenanceReceipt, KernelCommand, KernelOutcome};
 use phoenix_scene_archive::{PageKey, PageKind};
 use phoenix_scene_contract::{
     FamilyMask, GraphAction, GraphCanvas, GraphEdgePresentation, GraphProjection, GraphScope,
-    GraphSurface, GraphViewState, Manifold, RelationFamily, ReviewMask, SceneSource,
+    GraphSurface, GraphTopologyEmphasis, GraphViewState, Manifold, RelationFamily, ReviewMask,
+    SceneSource,
 };
 
 const CONTROL_BG: u32 = 0x111514;
@@ -135,6 +136,9 @@ impl PhoenixShell {
                 )
                 .child(projection_segment(view.projection, cx))
                 .child(self.edge_presentation_control(view, cx))
+                .when(view.surface == GraphSurface::Atlas, |row| {
+                    row.child(topology_emphasis_control(view.topology_emphasis, cx))
+                })
                 .child(canvas_toggle(view.canvas, cx))
                 .child(self.provenance_popover(cx))
                 .child(action_button(
@@ -460,6 +464,44 @@ const fn edge_presentation_label(style: GraphEdgePresentation) -> &'static str {
         GraphEdgePresentation::Bundled => "Bundled",
         GraphEdgePresentation::Hidden => "Hidden",
     }
+}
+
+const fn topology_emphasis_label(emphasis: GraphTopologyEmphasis) -> &'static str {
+    match emphasis {
+        GraphTopologyEmphasis::Off => "Off",
+        GraphTopologyEmphasis::Structure => "Structure",
+        GraphTopologyEmphasis::Facts => "Facts",
+        GraphTopologyEmphasis::Discourse => "Discourse",
+    }
+}
+
+const fn next_topology_emphasis(emphasis: GraphTopologyEmphasis) -> GraphTopologyEmphasis {
+    match emphasis {
+        GraphTopologyEmphasis::Off => GraphTopologyEmphasis::Structure,
+        GraphTopologyEmphasis::Structure => GraphTopologyEmphasis::Facts,
+        GraphTopologyEmphasis::Facts => GraphTopologyEmphasis::Discourse,
+        GraphTopologyEmphasis::Discourse => GraphTopologyEmphasis::Off,
+    }
+}
+
+fn topology_emphasis_control(
+    emphasis: GraphTopologyEmphasis,
+    cx: &mut Context<PhoenixShell>,
+) -> impl IntoElement {
+    Button::new("graph-topology-emphasis-cycle")
+        .label(format!("Emphasis · {}", topology_emphasis_label(emphasis)))
+        .tooltip(
+            "Emphasize published structure, facts, or discourse without changing graph visibility.",
+        )
+        .small()
+        .ghost()
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.mutate_graph_view(
+                |next| next.topology_emphasis = next_topology_emphasis(next.topology_emphasis),
+                "EMPHASIS",
+                cx,
+            );
+        }))
 }
 
 fn next_edge_presentation(
@@ -821,6 +863,20 @@ mod tests {
             next_edge_presentation(GraphEdgePresentation::Manifold, [false, true, false]),
             GraphEdgePresentation::Curved,
         );
+    }
+
+    #[test]
+    fn topology_emphasis_cycles_through_published_lanes_and_off() {
+        let mut emphasis = GraphTopologyEmphasis::Off;
+        for expected in [
+            GraphTopologyEmphasis::Structure,
+            GraphTopologyEmphasis::Facts,
+            GraphTopologyEmphasis::Discourse,
+            GraphTopologyEmphasis::Off,
+        ] {
+            emphasis = next_topology_emphasis(emphasis);
+            assert_eq!(emphasis, expected);
+        }
     }
 
     #[test]

@@ -37,7 +37,7 @@ struct GraphLensUniform {
     focus_active: u32,
     dimmed_node_opacity: f32,
     dimmed_edge_opacity: f32,
-    _padding: u32,
+    topology_emphasis: u32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -53,6 +53,7 @@ struct VertexOutput {
     @location(3) @interpolate(flat) visible: u32,
     @location(4) @interpolate(flat) kind: u32,
     @location(5) @interpolate(flat) context_only: u32,
+    @location(6) @interpolate(flat) emphasis_match: u32,
 };
 
 // Screen-space geometry contract. Semantic radius may grow for hubs, centroids,
@@ -107,6 +108,15 @@ fn entity_lane_visible(product_mask: vec2<u32>) -> bool {
 
 fn family_visible(product_mask: vec2<u32>) -> bool {
     return intersects(product_mask, lens.family_mask);
+}
+
+fn emphasis_matches(primary_family: vec2<u32>) -> bool {
+    switch lens.topology_emphasis {
+        case 1u: { return (primary_family.x & 0x100u) != 0u; }
+        case 2u: { return (primary_family.x & 0x200u) != 0u; }
+        case 3u: { return (primary_family.x & 0x400u) != 0u; }
+        default: { return false; }
+    }
 }
 
 fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
@@ -208,6 +218,7 @@ fn vs_main(
     let uv = corners[vertex_index] * 1.24;
     let flags = node.kind_flags & 0xffffu;
     let role = visual_role(flags);
+    let emphasized = emphasis_matches(primary_node_family(product.family_mask));
     let diameter_pixels = clamp(
         node.position_radius.w * NODE_DIAMETER_SCALE * role_scale(role),
         NODE_MIN_DIAMETER_PX,
@@ -238,6 +249,7 @@ fn vs_main(
     output.flags = flags;
     output.visible = select(0u, 1u, is_visible);
     output.context_only = select(1u, 0u, is_primary);
+    output.emphasis_match = select(0u, 1u, emphasized);
     var kind = node.kind_flags >> 16u;
     // An unfiltered renderer uses the sentinel all-ones product page.  Do
     // not interpret that sentinel as a character lane; only an installed,
@@ -319,6 +331,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     if (lens.focus_active != 0u && !hovered && !selected && !neighbor && !route) {
         color.a *= lens.dimmed_node_opacity;
+    } else if (lens.focus_active == 0u && lens.topology_emphasis != 0u
+        && input.emphasis_match == 0u && !hovered && !selected && !neighbor && !route) {
+        color.a *= 0.58;
     }
     return color;
 }

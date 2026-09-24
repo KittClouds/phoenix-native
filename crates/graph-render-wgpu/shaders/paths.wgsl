@@ -66,7 +66,7 @@ struct GraphLensUniform {
     focus_active: u32,
     dimmed_node_opacity: f32,
     dimmed_edge_opacity: f32,
-    _padding: u32,
+    topology_emphasis: u32,
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -85,6 +85,7 @@ struct VertexOutput {
     @location(3) @interpolate(flat) edge_slot: u32,
     @location(4) @interpolate(flat) segment_flags: u32,
     @location(5) progress: f32,
+    @location(6) @interpolate(flat) emphasis_match: u32,
 };
 
 // Prepared paths and direct edges share the same bounded screen-space width.
@@ -100,6 +101,15 @@ fn intersects(left: vec2<u32>, right: vec2<u32>) -> bool {
 
 fn family_visible(product_mask: vec2<u32>) -> bool {
     return intersects(product_mask, lens.family_mask);
+}
+
+fn emphasis_matches(primary_family: vec2<u32>) -> bool {
+    switch lens.topology_emphasis {
+        case 1u: { return (primary_family.x & 0x100u) != 0u; }
+        case 2u: { return (primary_family.x & 0x200u) != 0u; }
+        case 3u: { return (primary_family.x & 0x400u) != 0u; }
+        default: { return false; }
+    }
 }
 
 fn topology_lane_visible(product_mask: vec2<u32>) -> bool {
@@ -203,6 +213,11 @@ fn vs_main(
     output.side = side;
     output.visible = select(0u, 1u, is_visible);
     output.edge_slot = segment.edge_slot;
+    var emphasis_match = 0u;
+    if ((segment.flags & 1u) == 0u) {
+        emphasis_match = select(0u, 1u, emphasis_matches(primary_edge_family(edge_products[segment.edge_slot])));
+    }
+    output.emphasis_match = emphasis_match;
     output.segment_flags = segment.flags;
     output.progress = progress;
     return output;
@@ -229,6 +244,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             && (runtime_flags & 32768u) == 0u
             && (runtime_flags & 16384u) == 0u) {
             color.a *= lens.dimmed_edge_opacity;
+        } else if (lens.focus_active == 0u && lens.topology_emphasis != 0u) {
+            color.a *= select(0.60, 1.25, input.emphasis_match != 0u);
         }
         color.a *= mix(0.68, 1.0, input.progress);
     }
