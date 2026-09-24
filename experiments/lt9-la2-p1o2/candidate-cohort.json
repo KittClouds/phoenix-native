@@ -1,0 +1,11 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1o2-conditional-candidate-cohort/v1",
+  "selection_rule": "all and only P1O1 candidates meeting its frozen MIXED criterion; candidate identities were fixed before P1O2 occurrence scanning; no P1O2 label or feature is used in selection",
+  "candidates": [
+    { "candidate_id": "allotment-apportioning", "lemma_a": "allotment", "lemma_b": "apportioning" },
+    { "candidate_id": "save-spare", "lemma_a": "save", "lemma_b": "spare" },
+    { "candidate_id": "leaning-tilt", "lemma_a": "leaning", "lemma_b": "tilt" },
+    { "candidate_id": "occlusive-stop", "lemma_a": "occlusive", "lemma_b": "stop" },
+    { "candidate_id": "publication-publishing", "lemma_a": "publication", "lemma_b": "publishing" }
+  ]
+}
