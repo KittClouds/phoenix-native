@@ -1,0 +1,21 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1o1-excluded-candidate-lemmas/v1",
+  "selection_basis": "previously used candidate identities only; no judgments, outcome labels, features, or authority values",
+  "excluded_pairs": [
+    ["bank", "water"], ["bank", "shore"], ["bank", "lender"],
+    ["car", "vehicle"], ["vehicle", "car"], ["car", "automobile"],
+    ["insurance", "coverage"], ["credit", "loan"], ["loan", "debt"],
+    ["engine", "motor"], ["repair", "fix"], ["stock", "bond"],
+    ["cell", "membrane"], ["cell", "phone"], ["cell", "tower"],
+    ["mouse", "rodent"], ["mouse", "device"], ["economic", "tumor"],
+    ["plant", "factory"], ["virus", "malware"], ["charge", "fee"],
+    ["draft", "plan"]
+  ],
+  "excluded_lemmas": [
+    "automobile", "bank", "bond", "car", "charge", "cell", "coverage",
+    "credit", "debt", "device", "draft", "economic", "engine", "factory",
+    "fee", "fix", "insurance", "lender", "loan", "malware", "membrane",
+    "motor", "mouse", "phone", "plant", "plan", "repair", "rodent",
+    "shore", "stock", "tower", "tumor", "vehicle", "virus", "water"
+  ]
+}
