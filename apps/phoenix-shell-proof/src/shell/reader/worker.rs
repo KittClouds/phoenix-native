@@ -53,6 +53,8 @@ pub struct Status {
     pub finished: bool,
     pub requested: bool,
     pub buffered_seconds: u64,
+    pub target_seconds: u64,
+    pub synthesis_rtf: f32,
     pub rebufferings: u32,
     pub generated_during_playback: u32,
     pub device_starvations: u32,
@@ -118,6 +120,24 @@ pub(super) fn start_with_voice(
     plain: bool,
     voice: Option<VoiceChoice>,
 ) -> Bridge {
+    start_source(workspace, lease, plain, voice, false)
+}
+
+pub(super) fn start_selection_with_voice(
+    workspace: PathBuf,
+    lease: Arc<DocumentLease>,
+    voice: Option<VoiceChoice>,
+) -> Bridge {
+    start_source(workspace, lease, true, voice, true)
+}
+
+fn start_source(
+    workspace: PathBuf,
+    lease: Arc<DocumentLease>,
+    plain: bool,
+    voice: Option<VoiceChoice>,
+    selection: bool,
+) -> Bridge {
     let (tx, rx) = mpsc::sync_channel(16);
     let status = Arc::new(Mutex::new(Status {
         phase: Phase::Preparing,
@@ -128,7 +148,9 @@ pub(super) fn start_with_voice(
     let cancel = Cancellation::default();
     let token = cancel.clone();
     let join = thread::spawn(move || {
-        let result = run(workspace, lease, plain, voice, rx, &shared, &token);
+        let result = run(
+            workspace, lease, plain, voice, selection, rx, &shared, &token,
+        );
         let mut status = shared.lock().unwrap();
         status.playing = false;
         status.requested = false;
@@ -157,6 +179,7 @@ fn run(
     lease: Arc<DocumentLease>,
     plain: bool,
     selected_voice: Option<VoiceChoice>,
+    selection: bool,
     rx: Receiver<Command>,
     shared: &Mutex<Status>,
     cancel: &Cancellation,
@@ -200,7 +223,10 @@ fn run(
     snapshots.retain_plan(&plan)?;
     shared.lock().unwrap().message = "Verifying local narrator files…".into();
     config.load_voices()?;
-    if config.cast.is_none() {
+    if selection {
+        config.cast = None;
+    }
+    if config.cast.is_none() && !selection {
         config.cast =
             VoiceLibrary::open(config.storage.join("voices"))?.load_cast(&lease.content, &plan)?;
     }
@@ -224,12 +250,16 @@ fn run(
     id.update(&voice_binding);
     let session_id = *id.finalize().as_bytes();
     let mut sessions = SessionStore::open(config.storage.join("sessions"))?;
-    let (session, restored) = match sessions.load(session_id, &plan) {
-        Ok(s) => (s, true),
-        Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            (ReaderSession::new(session_id, &plan, voice_binding)?, false)
+    let (session, restored) = if selection {
+        (ReaderSession::new(session_id, &plan, voice_binding)?, false)
+    } else {
+        match sessions.load(session_id, &plan) {
+            Ok(s) => (s, true),
+            Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                (ReaderSession::new(session_id, &plan, voice_binding)?, false)
+            }
+            Err(e) => return Err(e.into()),
         }
-        Err(e) => return Err(e.into()),
     };
     let cache = AudioCache::open(config.storage.join("cache"), 1024 * 1024 * 1024)?;
     let provider = engines::Providers::new(bundle, config.storage.clone())?;
@@ -307,11 +337,23 @@ fn run(
                     if runtime.state() == PlaybackState::Playing {
                         runtime.pause(true)?;
                     }
-                    runtime.checkpoint(&mut sessions, clock.elapsed().as_millis() as u64, true)?;
+                    if !selection {
+                        runtime.checkpoint(
+                            &mut sessions,
+                            clock.elapsed().as_millis() as u64,
+                            true,
+                        )?;
+                    }
                 }
                 Command::Bookmark => {
                     runtime.bookmark(1)?;
-                    runtime.checkpoint(&mut sessions, clock.elapsed().as_millis() as u64, true)?;
+                    if !selection {
+                        runtime.checkpoint(
+                            &mut sessions,
+                            clock.elapsed().as_millis() as u64,
+                            true,
+                        )?;
+                    }
                 }
                 Command::ReturnBookmark => {
                     if let Some(p) = runtime.session().bookmarks().get(&1) {
@@ -347,7 +389,9 @@ fn run(
                 if runtime.state() == PlaybackState::Playing {
                     runtime.pause(true)?;
                 }
-                runtime.checkpoint(&mut sessions, clock.elapsed().as_millis() as u64, true)?;
+                if !selection {
+                    runtime.checkpoint(&mut sessions, clock.elapsed().as_millis() as u64, true)?;
+                }
             }
         }
         if cancel.is_cancelled() {
@@ -376,13 +420,19 @@ fn run(
                 }
             }
         }
-        let target = ((3.0 + rtf * 12.0).clamp(8.0, 30.0) * 24000.0) as u64;
+        // Keep the single provider busy ahead of the device. Breeze can deliver
+        // bursts slower than real time even when its average is near 1x.
+        // A bounded, larger reservoir absorbs those bursts without changing
+        // model precision, voice identity, or the PCM delivered to the device.
+        let target_seconds = (12.0 + rtf * 24.0).clamp(45.0, 75.0);
+        let target = (target_seconds * 24000.0) as u64;
+        let start_target = if started { target } else { 24 * 24000 };
         let end = runtime.plan().spec().segments.len() as u32;
         if active
             && priming
             && selected.is_none()
             && runtime.state() == PlaybackState::Paused
-            && (runtime.buffered_frames() >= target
+            && (runtime.buffered_frames() >= start_target
                 || runtime.ahead_count() == PREFETCH_SEGMENTS
                 || runtime.next_prefetch_segment() >= end)
         {
@@ -435,7 +485,9 @@ fn run(
                 inflight = Some(segment);
             }
         }
-        runtime.checkpoint(&mut sessions, clock.elapsed().as_millis() as u64, false)?;
+        if !selection {
+            runtime.checkpoint(&mut sessions, clock.elapsed().as_millis() as u64, false)?;
+        }
         if last_status.elapsed() >= Duration::from_millis(100) {
             let p = runtime.session().position();
             let segment = runtime.plan().segment(p.segment)?;
@@ -476,6 +528,8 @@ fn run(
                 finished: false,
                 requested: active && runtime.state() != PlaybackState::Completed,
                 buffered_seconds: runtime.buffered_frames() / 24000,
+                target_seconds: target_seconds as u64,
+                synthesis_rtf: rtf as f32,
                 rebufferings,
                 generated_during_playback,
                 device_starvations: runtime.device_starvations(),
@@ -485,7 +539,9 @@ fn run(
         thread::sleep(Duration::from_millis(10));
     }
     runtime.cancel()?;
-    runtime.checkpoint(&mut sessions, clock.elapsed().as_millis() as u64, true)?;
+    if !selection {
+        runtime.checkpoint(&mut sessions, clock.elapsed().as_millis() as u64, true)?;
+    }
     // Generator drop cancels and joins its owned request before stores close.
     Ok(())
 }

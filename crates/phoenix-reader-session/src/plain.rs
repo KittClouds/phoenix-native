@@ -3,6 +3,8 @@ use crate::{
     Segment,
 };
 
+const MAX_PLAIN_SEGMENT_BYTES: usize = 512;
+
 /// A single plain-text chapter. Nonempty lines are paragraph units. Whitespace
 /// at paragraph edges is explicitly omitted, never silently changed by a provider.
 /// This does not discover chapters or claim sentence/word alignment.
@@ -56,12 +58,17 @@ pub fn plan_plain_chapter(source: &str, document: DocumentBinding) -> Result<Nar
                 spoken.len(),
                 MappingKind::Omit,
             );
-            segments.push(Segment {
-                chapter: 0,
-                sentence: segments.len() as u32,
-                source: range(body_start, body_end),
-                spoken: range(first, spoken.len()),
-            });
+            let mut start = 0;
+            while start < trimmed.len() {
+                let end = next_segment_end(trimmed, start);
+                segments.push(Segment {
+                    chapter: 0,
+                    sentence: segments.len() as u32,
+                    source: range(body_start + start, body_start + end),
+                    spoken: range(first + start, first + end),
+                });
+                start = end;
+            }
         }
         source_at = end;
     }
@@ -69,7 +76,7 @@ pub fn plan_plain_chapter(source: &str, document: DocumentBinding) -> Result<Nar
         source,
         PlanSpec {
             document,
-            planner: *blake3::hash(b"phoenix.plain-chapter/trim-paragraph-edges/v1").as_bytes(),
+            planner: *blake3::hash(b"phoenix.plain-chapter/trim-and-split-512/v2").as_bytes(),
             pronunciation: *blake3::hash(b"phoenix.pronunciation/identity-v1").as_bytes(),
             rules: vec![*blake3::hash(b"unicode-edge-whitespace-omit/v1").as_bytes()].into(),
             spoken: spoken.into_boxed_str(),
@@ -81,6 +88,32 @@ pub fn plan_plain_chapter(source: &str, document: DocumentBinding) -> Result<Nar
             segments: segments.into(),
         },
     )
+}
+
+fn next_segment_end(text: &str, start: usize) -> usize {
+    if text.len() - start <= MAX_PLAIN_SEGMENT_BYTES {
+        return text.len();
+    }
+    let mut limit = start + MAX_PLAIN_SEGMENT_BYTES;
+    while !text.is_char_boundary(limit) {
+        limit -= 1;
+    }
+    let mut sentence = None;
+    let mut space = None;
+    for (offset, ch) in text[start..limit].char_indices() {
+        let at = start + offset;
+        if ch.is_whitespace() && at > start {
+            space = Some(at + ch.len_utf8());
+            if text[..at]
+                .chars()
+                .next_back()
+                .is_some_and(|prev| matches!(prev, '.' | '!' | '?'))
+            {
+                sentence = space;
+            }
+        }
+    }
+    sentence.or(space).unwrap_or(limit)
 }
 fn range(start: usize, end: usize) -> ByteRange {
     ByteRange {
@@ -147,5 +180,18 @@ mod tests {
         let q = plan(" \"a b\"\n");
         assert_eq!(&*p.spec().spoken, "\"a  b\"");
         assert_ne!(p.id(), q.id());
+    }
+
+    #[test]
+    fn long_selected_prose_is_bounded_without_omitting_words() {
+        let source = format!("{}{}", "A long sentence with café. ".repeat(45), "End.");
+        let plan = plan(&source);
+        assert!(plan.spec().segments.len() > 1);
+        assert_eq!(&*plan.spec().spoken, source);
+        for segment in &plan.spec().segments {
+            let spoken = segment.spoken.slice(&plan.spec().spoken).unwrap();
+            assert!(spoken.len() <= MAX_PLAIN_SEGMENT_BYTES);
+            assert_eq!(segment.source.slice(&source).unwrap(), spoken);
+        }
     }
 }

@@ -286,7 +286,9 @@ impl PhoenixShell {
                             .truncate()
                             .text_xs()
                             .text_color(rgb(TEXT_MUTED))
-                            .child(if self.reader.open {
+                            .child(if self.reader.selection_mode {
+                                "Reading · selected text".to_owned()
+                            } else if self.reader.open {
                                 "Reading · saved document".to_owned()
                             } else {
                                 lease_label

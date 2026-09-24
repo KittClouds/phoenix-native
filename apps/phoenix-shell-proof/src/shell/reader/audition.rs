@@ -23,6 +23,12 @@ impl Audition {
     pub fn cancel(&self) {
         self.token.cancel();
     }
+    pub fn shutdown(mut self) {
+        self.cancel();
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
 }
 impl Drop for Audition {
     fn drop(&mut self) {

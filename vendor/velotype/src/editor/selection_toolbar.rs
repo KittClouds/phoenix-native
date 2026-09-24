@@ -21,7 +21,7 @@ use crate::components::{
 };
 use crate::theme::Theme;
 
-const TOOLBAR_WIDTH: f32 = 478.0;
+const TOOLBAR_WIDTH: f32 = 514.0;
 const TOOLBAR_HEIGHT: f32 = 38.0;
 const TOOLBAR_GAP: f32 = 10.0;
 const BLOCK_MENU_WIDTH: f32 = 174.0;
@@ -61,6 +61,7 @@ pub(super) enum SelectionCommand {
     Link,
     Entity,
     Copy,
+    Read,
 }
 
 impl SelectionCommand {
@@ -71,7 +72,7 @@ impl SelectionCommand {
             Self::Underline => Some(StyleFlag::Underline),
             Self::Strikethrough => Some(StyleFlag::Strikethrough),
             Self::Code => Some(StyleFlag::Code),
-            Self::Link | Self::Entity | Self::Copy => None,
+            Self::Link | Self::Entity | Self::Copy | Self::Read => None,
         }
     }
 }
@@ -603,6 +604,29 @@ impl Editor {
         }
     }
 
+    fn selected_visible_text(&self, expected: &SelectionIdentity, cx: &App) -> Option<String> {
+        let slices = self.validated_selection_slices(expected, cx)?;
+        let mut text = String::new();
+        for slice in slices {
+            let block = slice.block.read(cx);
+            let part = block.display_text().get(slice.current_range)?;
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(part);
+        }
+        (!text.trim().is_empty()).then_some(text)
+    }
+
+    fn read_selection(&mut self, expected: &SelectionIdentity, cx: &mut Context<Self>) {
+        if let Some(text) = self.selected_visible_text(expected, cx) {
+            cx.emit(EditorEvent::ReadSelectionRequested {
+                text,
+                revision: expected.document_revision,
+            });
+        }
+    }
+
     fn on_selection_toolbar_command(
         &mut self,
         command: SelectionCommand,
@@ -649,6 +673,7 @@ impl Editor {
                 cx.notify();
             }
             SelectionCommand::Copy => self.copy_selection(&identity, cx),
+            SelectionCommand::Read => self.read_selection(&identity, cx),
             _ => {
                 let _ = self.execute_style_command(command, &identity, cx);
             }
@@ -855,6 +880,13 @@ impl Editor {
                 "selection-copy",
                 "Copy",
                 SelectionCommand::Copy,
+                SelectionMarkState::Off,
+                cx,
+            ))
+            .child(self.render_toolbar_button(
+                "selection-read",
+                "🔊",
+                SelectionCommand::Read,
                 SelectionMarkState::Off,
                 cx,
             ));

@@ -197,6 +197,7 @@ pub enum EditorEvent {
     DocumentChanged { revision: u64 },
     SaveRequested,
     EntityTagRequested(EntityTagRequest),
+    ReadSelectionRequested { text: String, revision: u64 },
 }
 
 impl EventEmitter<EditorEvent> for Editor {}

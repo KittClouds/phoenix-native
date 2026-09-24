@@ -7,6 +7,25 @@ use gpui_component::{
 
 impl PhoenixShell {
     pub(in crate::shell) fn reader_primary(&mut self, cx: &mut Context<Self>) {
+        if self.reader.selection_mode {
+            if self.reader.status.phase == Phase::Preparing {
+                self.reader_command(Command::Stop, cx);
+                return;
+            }
+            if self.reader.status.requested {
+                self.reader_command(Command::Pause, cx);
+                return;
+            }
+            if self.reader.status.phase != Phase::Completed && !self.reader.status.finished {
+                self.reader_command(Command::Play, cx);
+                return;
+            }
+            self.reader.selection_request = self.reader.selection_request.wrapping_add(1);
+            self.reader.selection_mode = false;
+            self.reader.lease = None;
+            self.reader.status.phase = Phase::Stopped;
+            self.reader.status.finished = true;
+        }
         if let Some(audition) = &self.reader.audition {
             audition.cancel();
             self.reader.audition_then_listen = true;
@@ -90,9 +109,18 @@ impl PhoenixShell {
     pub(in crate::shell) fn render_reader(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let s = &self.reader.status;
         let phase = s.phase;
-        let available = self.reader.lease.is_some() && !s.finished && s.segments > 0;
+        let available = self.reader.lease.is_some()
+            && !self.reader.selection_mode
+            && !s.finished
+            && s.segments > 0;
         let location = if s.segments == 0 {
-            "LOCAL VOICE · PREVIEW".to_owned()
+            if self.reader.selection_mode {
+                "SELECTED TEXT · PREPARING".to_owned()
+            } else {
+                "LOCAL VOICE · PREVIEW".to_owned()
+            }
+        } else if self.reader.selection_mode {
+            format!("SELECTED TEXT · PASSAGE {} / {}", s.segment + 1, s.segments)
         } else {
             format!(
                 "CHAPTER {} / {} · PASSAGE {} / {}",
@@ -156,6 +184,7 @@ impl PhoenixShell {
                         div()
                             .min_w_0()
                             .flex_1()
+                            .flex_basis(px(0.))
                             .flex()
                             .flex_col()
                             .gap_1()
@@ -193,7 +222,16 @@ impl PhoenixShell {
                             .child(
                                 Button::new("reader-play")
                                     .label(
-                                        phase.primary(s.requested, self.editor.read(cx).is_dirty()),
+                                        if self.reader.selection_mode
+                                            && (phase == Phase::Completed || s.finished)
+                                        {
+                                            "Read note"
+                                        } else {
+                                            phase.primary(
+                                                s.requested,
+                                                self.editor.read(cx).is_dirty(),
+                                            )
+                                        },
                                     )
                                     .primary()
                                     .rounded(px(24.))
@@ -219,7 +257,10 @@ impl PhoenixShell {
                             .flex()
                             .items_center()
                             .gap_1()
-                            .flex_shrink_0()
+                            .min_w_0()
+                            .flex_1()
+                            .flex_basis(px(0.))
+                            .justify_end()
                             .child(
                                 Button::new("reader-voice-picker")
                                     .icon(IconName::User)

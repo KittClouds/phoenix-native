@@ -21,6 +21,40 @@ fn redraw(cx: &mut gpui::VisualTestContext) {
 }
 
 #[gpui::test]
+async fn read_selection_uses_only_rendered_selected_text(cx: &mut TestAppContext) {
+    init(cx);
+    let (editor, cx) = cx.add_window_view(|_window, cx| {
+        Editor::embedded_from_markdown(cx, "Before **bright words** after".into())
+    });
+    redraw(cx);
+    editor.update_in(cx, |editor, window, cx| {
+        let block = editor.document.visible_blocks()[0].entity.clone();
+        let text = block.read(cx).display_text().to_string();
+        let start = text.find("bright").unwrap();
+        block.update(cx, |block, cx| {
+            block.selected_range = start..start + "bright words".len();
+            block.focus_handle.focus(window);
+            cx.notify();
+        });
+        editor.active_entity_id = Some(block.entity_id());
+        editor.on_selection_changed(cx);
+    });
+    redraw(cx);
+    editor.update_in(cx, |editor, _window, cx| {
+        let identity = editor.current_selection_identity(cx);
+        assert_eq!(
+            editor.selected_visible_text(&identity, cx).as_deref(),
+            Some("bright words")
+        );
+        let stale = super::SelectionIdentity {
+            document_revision: identity.document_revision + 1,
+            ..identity
+        };
+        assert!(editor.selected_visible_text(&stale, cx).is_none());
+    });
+}
+
+#[gpui::test]
 async fn rendered_selection_opens_toolbar_from_native_layout(cx: &mut TestAppContext) {
     init(cx);
     let (editor, cx) =

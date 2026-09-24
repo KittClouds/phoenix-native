@@ -5,6 +5,7 @@ use velotype::SemanticHighlight;
 
 impl PhoenixShell {
     pub(crate) fn invalidate_reader_document(&mut self, cx: &mut Context<Self>) {
+        self.reader.selection_request = self.reader.selection_request.wrapping_add(1);
         self.reader.pending_listen = false;
         if self.reader.lease.take().is_some() {
             if let Some(bridge) = &self.reader.bridge {
@@ -19,6 +20,9 @@ impl PhoenixShell {
     }
 
     pub(super) fn refresh_reader_highlight(&mut self, cx: &mut Context<Self>) {
+        if self.reader.selection_mode {
+            return;
+        }
         let Some(lease) = self.reader.lease.clone() else {
             return;
         };

@@ -179,6 +179,7 @@ impl PhoenixShell {
                         .child(s.message.clone())
                         .child(format!("{} seconds buffered · {} rebufferings · {} device gaps",
                             s.buffered_seconds, s.rebufferings, s.device_starvations))
+                        .child(format!("Target {}s · synthesis RTF {:.2}", s.target_seconds, s.synthesis_rtf))
                         .child(format!("{} segments generated during playback", s.generated_during_playback))
                         .child(Button::new("reader-plain-mode")
                             .label(if self.reader.plain { "Text format: plain text" }

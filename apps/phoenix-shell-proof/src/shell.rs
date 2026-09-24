@@ -872,6 +872,10 @@ impl PhoenixShell {
             self.tag_entity_selection(editor, request, cx);
             return;
         }
+        if let velotype::EditorEvent::ReadSelectionRequested { text, revision } = event {
+            self.read_editor_selection(text, *revision, cx);
+            return;
+        }
         if !matches!(event, velotype::EditorEvent::SaveRequested) {
             return;
         }
