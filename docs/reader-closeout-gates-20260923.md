@@ -18,19 +18,15 @@ are outside this cut.
 | In-app voice enrollment | Clone a short WAV with an exact transcript, preview it, and make it available without restarting Reader. Retire the book worker before opening the model and release that model before spawning the clone encoder. | In the isolated QA workspace, `Gilly UI QA` was cloned from a local WAV, previewed, published, and appeared in the live list as voice 2. The resulting directed reference played through passage 5 with zero rebufferings and device gaps. | Passed in isolated QA; broader file/error cases pending |
 | Voice switch position | Switching the book narrator restarts at the current sentence with a fresh voice identity, preserving the configured speed. | `voice_handoff_restarts_only_current_sentence_without_old_audio_identity` passes in release mode. Exact audio-frame transfer between different voices is intentionally not claimed. | Contract passed; live switch check pending on v13 |
 | Cast edit position | Saving a passage cast and pressing Listen continues at the cast passage rather than returning to passage 1. | QA on v12 exposed a restart at passage 1 after casting passage 5. On v13 in the full workspace, I assigned Woods to temporary character `Temporary Reader QA` at passage 142. After save, Listen displayed `Preparing this passage…`, chapter 1, passage 142, and Woods in the transport. It advanced to passage 143, which returned to Alyssa expressive as expected. I restored the pretest cast archive byte for byte (SHA-256 `9F3978E1311B3A055D20FC1CA83B57F16F2B073385AD20632FE80C0799EC9B3A`) and relaunched the app. | Passed live; test assignment removed |
-| Editor shortcut and cast discovery | `Ctrl+Shift+Space` speaks the visible selection or toggles Reader; the transport CAST chip opens the voice panel. | The selected-visible-text editor unit test passes and the CAST chip opened the full catalog in v13. The shortcut has not yet had a live keyboard pass. | Partial; live shortcut check pending |
-| One full product instance | The screenshot app has the published graph, full voice library, and backend arguments in a single process. | V13 replaced the prior full-workspace process and the isolated QA process. The live Reader showed 13 voices with Alyssa expressive selected; the same window showed Atlas 86 entities and rendered the graph. Process inspection found one `phoenix-shell.exe`, launched with the full workspace, scene publication root, producer, NER root, and NLI root. | Passed for visible catalog and graph; fresh extraction not rerun |
+| Selection playback and cast discovery | The selection toolbar speaker action reads only the selected text; the transport CAST chip opens the voice panel. | The user reports selection playback through the toolbar icon works. The global `Ctrl+Shift+Space` handler was removed after the user identified a key-routing race that could delete selected text. No keyboard shortcut replaces it. The CAST chip opened the 13-voice catalog in v13. | Toolbar action retained; global shortcut removed |
+| One full product instance | The screenshot app has the published graph, full voice library, and backend arguments in a single process. | V13 first replaced the prior full-workspace process and the isolated QA process. After removing the global key handler, v14 was launched with the same full workspace arguments; the live Reader showed 13 voices with Alyssa expressive selected and Atlas · 86 entities remained visible. | Passed for visible catalog and graph; fresh extraction not rerun |
 | Freeze listening | Long-form Breeze and Supertonic listening, cold and cached starts, repeated pause/resume, voice continuity, and the seven-day listening gate. | The user reports Alyssa expressive remained expressive and consistent beyond passage 100 in the current session. No new cold/cached comparison or seven-day run in this cut. | Long-form Alyssa listening passed by user report; remaining freeze checks pending |
+| TTS implementation freeze | Hold further TTS implementation changes until the user brings a new idea or a materially better model. | At the user's direction, the unsafe global selection shortcut is removed. The selection toolbar icon remains the selection playback control. | Frozen by user direction |
 
-The Reader is not frozen. The final build passed the scoped interaction checks
-and a short uninterrupted 1x playback run. The longer Breeze and Supertonic
-listening pass, sustained faster-speed playback, and the seven-day listening gate remain
-open. The reported design-voice drift remains an acoustic failure for that design;
-the Woods switch needs a long-form listening verdict. Woods reached passage 9 with
-zero rebufferings and device gaps. By passage 35 the panel showed zero
-rebufferings and one device gap. A release build overlapped this run and was
-stopped to protect playback; the cause of the gap is not established. A clean build and a short live pass do not establish acoustic quality or
-long-form continuity.
+TTS implementation is frozen by the user's direction. Long-form Alyssa
+consistency is confirmed by user listening beyond passage 100. The seven-day
+listening gate remains open as qualification evidence; this does not authorize
+additional TTS implementation work.
 
 Later user listening observation: Woods retained its voice over several minutes
 past passage 85; Alyssa expressive also held beyond passage 80. After Reader
@@ -47,4 +43,8 @@ External SHA-256: `E93C2A302D3F9DE96025B9A0F64014C88EDE283E8954AA75AF2572FD37EF4
 
 2026-09-24 replacement app: `C:\phoenix-bin\phoenix-reader-voice-studio-v13-20260924\release\phoenix-shell.exe`.
 External SHA-256: `A2A56C60CD717864B3261A6F00003E07956D1BCCEB6F503C93DC0B1E77D6DB9B`.
+
+2026-09-24 TTS freeze app: `C:\phoenix-bin\phoenix-reader-tts-freeze-v14-20260924\release\phoenix-shell.exe`.
+External SHA-256: `67B3A7FBC22023E1618C21C632F770BCE21034FB2BCAA95D8DEE211643571AB5`.
+The v14 process is the current full-workspace app; the global selection shortcut is absent.
 The v11 identity above is retained as the prior review baseline; v13 is the running product instance.
