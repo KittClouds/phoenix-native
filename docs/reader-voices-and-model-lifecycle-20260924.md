@@ -29,6 +29,11 @@ experiment, not an acoustic qualification or Reader freeze verdict.
 Review files: `D:\phoenix-reader-closeout-review-20260923\voices-final-20260924\alyssa-neutral-sample.wav`
 and `D:\phoenix-reader-closeout-review-20260923\voices-final-20260924\alyssa-expressive-sample.wav`.
 
+User listening verdict on the short A/B samples: the directed sample is
+recognizably the same voice, with more underlying energy, and sounds good.
+This passes the intended voice-identity and delivery-direction check for that
+sample. It does not establish consistency over several minutes of narration.
+
 ## GPU ownership
 
 The Reader generator owns at most one Breeze worker and one generation job. A
@@ -66,5 +71,4 @@ scene with 6,941 nodes and 9,736 edges.
 The paused book resumed with Woods and advanced to passage 72. The voice panel
 showed 13 Breeze voices, including Gilly, Alyssa, and the separate
 `Alyssa · expressive narrator` entry with a `directed reference` label. Its
-preview completed while Woods remained the selected book narrator. The live
-sample was not assessed for subjective vocal quality in this check.
+preview completed while Woods remained the selected book narrator.
