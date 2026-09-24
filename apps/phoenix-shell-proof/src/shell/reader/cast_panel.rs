@@ -200,6 +200,10 @@ impl PhoenixShell {
                         .when(self.reader.cpu_voices, |b| b.primary())
                         .when(!self.reader.cpu_voices, |b| b.ghost())
                         .on_click(cx.listener(|this,_,_,cx| { this.reader.cpu_voices = true; cx.notify(); }))))
+                .when(!self.reader.cpu_voices && self.reader.studio.is_none(), |view| view.child(
+                    div().text_xs().text_color(rgb(MUTED)).child(
+                        "Voice designs can vary between passages. Choose a reference voice for a steadier narrator."
+                    )))
                 .child(Button::new("reader-studio")
                     .label(if self.reader.studio.is_some() { "Back to voices" } else { "Create a voice" })
                     .icon(if self.reader.studio.is_some() { IconName::ArrowLeft } else { IconName::Plus })
@@ -224,7 +228,7 @@ impl PhoenixShell {
                                     else {
                                         let mut summary = description.chars().take(32).collect::<String>();
                                         if description.chars().nth(32).is_some() { summary.push('…'); }
-                                        summary
+                                        format!("Design · {summary}")
                                     };
                                 div().w_full().min_w_0().flex_shrink_0().py_2().px_2()
                                     .flex().items_center().gap_3().border_b_1().border_color(rgb(LINE))

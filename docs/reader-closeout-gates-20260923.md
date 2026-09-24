@@ -12,12 +12,17 @@ are outside this cut.
 | Long excerpt bounds | A selection longer than one TTS request is split at sentence or word boundaries without dropping source text or breaking UTF-8. | `long_selected_prose_is_bounded_without_omitting_words` passes. | Passed |
 | Playback continuity | Audio quality settings are unchanged. During live playback, rebufferings and device gaps remain zero; generation proceeds while audio plays. | Selected excerpt: 0 rebufferings, 0 device gaps. Earlier full-note policies rebuffered twice by passage 20 and once by passage 36. The final bounded reservoir resumed the saved note at passage 45 and reached passage 99 in roughly four minutes of observation, with 0 rebufferings, 0 device gaps, 44 seconds buffered, synthesis RTF about 0.7, and generation during playback. | Passed for this short 1x run; extended and faster-speed runs pending |
 | Playback menu and speed | The dock kebab opens a distinct settings panel. Speeds 0.85×, 1×, 1.15×, and 1.3× change tempo without changing the cached voice PCM, pitch, or saved source-frame position. | Runtime test verifies queue flush and source-frame position across a live speed change; a sine test verifies shorter duration with stable pitch. In the review app, the menu opened, 1.3× resumed from passage 99 and reached 112 with 0 rebufferings and 0 device gaps. An in-flight switch to 0.85× retained those counters. After a restart, the saved note resumed at passage 120 with 0.85× restored, then reached passage 157 with 0 rebufferings and 0 device gaps. The final executable restored 0.85× and reached passage 159, again with zero counters. Acoustic listening quality remains for the user to judge. | Function passed; acoustic qualification pending |
+| Narrator continuity | Unassigned prose keeps the selected speaker across independently generated passages; intentional character casting remains separate. | The user reported audible speaker changes during the long run. Live inspection showed Calm narrator, a description-only Breeze design, selected for the review book. The app sent the same profile and seed for each passage; a design has no fixed reference recording. At the user's request, the book was switched to Woods, a saved Breeze reference voice. The dock showed Woods from passage 1 through passage 15. The candidate voice panel copy distinguishes designs and reference voices; that copy is not in the running binary yet. | Operational selection passed; long-form acoustic consistency pending user listening |
 | Freeze listening | Long-form Breeze and Supertonic listening, cold and cached starts, repeated pause/resume, voice continuity, and the seven-day listening gate. | No new long-form or seven-day run in this cut. | Pending |
 
 The Reader is not frozen. The final build passed the scoped interaction checks
 and a short uninterrupted 1x playback run. The longer Breeze and Supertonic
 listening pass, sustained faster-speed playback, and the seven-day listening gate remain
-open. A clean build and a short live pass do not establish acoustic quality or
+open. The reported design-voice drift remains an acoustic failure for that design;
+the Woods switch needs a long-form listening verdict. Woods reached passage 9 with
+zero rebufferings and device gaps, then one rebuffering appeared by passage 15
+while a release build ran concurrently. The build was stopped to protect playback;
+the cause of that single rebuffering is not established. A clean build and a short live pass do not establish acoustic quality or
 long-form continuity.
 
 Final review executable: `C:\phoenix-bin\phoenix-reader-closeout-v10-20260923\release\phoenix-shell.exe`.
