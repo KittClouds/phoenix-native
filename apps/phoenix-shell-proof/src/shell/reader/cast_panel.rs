@@ -190,7 +190,7 @@ impl PhoenixShell {
                     div().flex().items_center().justify_between()
                         .child(div().text_xs().text_color(rgb(MUTED)).child("YOUR VOICES"))
                         .child(div().text_xs().text_color(rgb(ACCENT)).child(format!("{} voices",
-                            self.reader.voice_details.iter().filter(|(_, _, cpu)| *cpu == self.reader.cpu_voices).count())))))
+                            self.reader.voice_details.iter().filter(|detail| detail.cpu == self.reader.cpu_voices).count())))))
                 .child(div().flex().flex_wrap().gap_2()
                     .child(Button::new("voices-breeze-tab").label("Breeze").small()
                         .when(!self.reader.cpu_voices, |b| b.primary())
@@ -215,14 +215,15 @@ impl PhoenixShell {
                     div().w_full().min_w_0().flex_shrink_0().flex().flex_col()
                         .children(self.reader.voice_choices.iter().enumerate()
                             .filter(|(i,_)| self.reader.voice_details.get(*i)
-                                .is_some_and(|(_,_,cpu)| *cpu == self.reader.cpu_voices))
+                                .is_some_and(|detail| detail.cpu == self.reader.cpu_voices))
                             .map(|(index, (name, choice))| {
                                 let choice = *choice;
                                 let selected = self.reader.selected_voice == Some(choice);
-                                let (description, reference, cpu) = self.reader.voice_details.get(index)
-                                    .map(|(description, reference, cpu)| (description.as_str(), *reference, *cpu))
-                                    .unwrap_or(("", false, false));
+                                let (description, reference, cpu, directed) = self.reader.voice_details.get(index)
+                                    .map(|detail| (detail.description.as_str(), detail.reference, detail.cpu, detail.directed))
+                                    .unwrap_or(("", false, false, false));
                                 let subtitle = if cpu { "Supertonic · local".to_owned() }
+                                    else if directed { "Breeze · directed reference".to_owned() }
                                     else if reference { "Breeze · reference".to_owned() }
                                     else if description.is_empty() { "Breeze · voice design".to_owned() }
                                     else {

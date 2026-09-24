@@ -51,6 +51,11 @@ fn valid_cache_hit_and_resident_worker() {
     assert_eq!(provider.pid(), pid);
     provider.stop().unwrap();
     assert_eq!(provider.pid(), None);
+    let resumed = provider
+        .generate(request("after idle release"), &mut cache, &cancel)
+        .unwrap();
+    assert_eq!(cache.get(resumed).unwrap().pcm(), [1, 0, 2, 0, 3, 0, 4, 0]);
+    assert!(provider.pid().is_some());
 }
 #[test]
 fn faults_never_publish_and_next_request_restarts() {

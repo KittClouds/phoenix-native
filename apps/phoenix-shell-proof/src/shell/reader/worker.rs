@@ -330,12 +330,14 @@ fn run(
                 }
                 Command::Play => {
                     active = true;
+                    generator.set_active(true);
                     if runtime.state() == PlaybackState::Paused && !priming {
                         runtime.pause(false)?;
                     }
                 }
                 Command::Pause => {
                     active = false;
+                    generator.set_active(false);
                     if runtime.state() == PlaybackState::Playing {
                         runtime.pause(true)?;
                     }
@@ -466,6 +468,10 @@ fn run(
         }
         if active && !priming {
             runtime.tick()?;
+            if runtime.state() == PlaybackState::Completed {
+                active = false;
+                generator.set_active(false);
+            }
             if matches!(runtime.state(), PlaybackState::NeedsAudio(_)) {
                 priming = true;
                 if started {

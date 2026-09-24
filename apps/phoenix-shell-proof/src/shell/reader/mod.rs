@@ -28,7 +28,7 @@ pub(super) struct ReaderPanel {
     selected_voice: Option<phoenix_reader_session::VoiceChoice>,
     studio: Option<studio::StudioInputs>,
     voice_book: Option<[u8; 32]>,
-    voice_details: Vec<(String, bool, bool)>,
+    voice_details: Vec<VoiceDetail>,
     cpu_voices: bool,
     notice: String,
     audition: Option<audition::Audition>,
@@ -268,6 +268,12 @@ impl PhoenixShell {
         cx.notify();
     }
 }
+struct VoiceDetail {
+    description: String,
+    reference: bool,
+    cpu: bool,
+    directed: bool,
+}
 mod highlight;
 
 impl PhoenixShell {
@@ -302,12 +308,11 @@ impl PhoenixShell {
         self.reader.voice_details = config
             .voices
             .iter()
-            .map(|v| {
-                (
-                    v.profile.description.clone(),
-                    v.profile.reference.is_some(),
-                    v.supertonic_style.is_some(),
-                )
+            .map(|v| VoiceDetail {
+                description: v.profile.description.clone(),
+                reference: v.profile.reference.is_some(),
+                cpu: v.supertonic_style.is_some(),
+                directed: v.profile.reference.is_some() && !v.profile.default_delivery.is_empty(),
             })
             .collect();
         self.reader.voice_choices = choices;
