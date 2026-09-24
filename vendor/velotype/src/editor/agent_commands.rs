@@ -64,6 +64,10 @@ pub enum AgentDocumentOp {
         context_digest: [u8; 32],
         blocks: Vec<AgentBlockDraft>,
     },
+    ReplaceBlock {
+        target: AgentAnchor,
+        text: SharedString,
+    },
     SetDisposition {
         invocation_id: Uuid,
         disposition: AgentInvocationDisposition,
@@ -88,6 +92,10 @@ pub struct AgentInsertionReceipt {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentInvocationReceipt {
     Inserted(AgentInsertionReceipt),
+    Replaced {
+        block_id: Uuid,
+        editor_revision: u64,
+    },
     DispositionChanged {
         invocation_id: Uuid,
         disposition: AgentInvocationDisposition,
@@ -244,11 +252,73 @@ impl Editor {
                 blocks,
                 cx,
             ),
+            AgentDocumentOp::ReplaceBlock { target, text } => {
+                self.replace_agent_block(target, text, cx)
+            }
             AgentDocumentOp::SetDisposition {
                 invocation_id,
                 disposition,
             } => self.set_agent_disposition(invocation_id, disposition, cx),
         }
+    }
+
+    fn replace_agent_block(
+        &mut self,
+        target: AgentAnchor,
+        text: SharedString,
+        cx: &mut gpui::Context<Self>,
+    ) -> Result<AgentInvocationReceipt, AgentCommandError> {
+        if target.editor_revision != self.document_revision {
+            return Err(AgentCommandError::StaleAnchor {
+                expected: target.editor_revision,
+                actual: self.document_revision,
+            });
+        }
+        if text.trim().is_empty() {
+            return Err(AgentCommandError::EmptyInvocation);
+        }
+        if text.len() > MAX_AGENT_TEXT_BYTES_PER_OP {
+            return Err(AgentCommandError::PayloadTooLarge {
+                bytes: text.len(),
+                limit: MAX_AGENT_TEXT_BYTES_PER_OP,
+            });
+        }
+        let block = self
+            .document
+            .block_entity_by_uuid(target.block_id)
+            .ok_or(AgentCommandError::AnchorMissing(target.block_id))?;
+        let (kind, block_len, valid_offset) = {
+            let block = block.read(cx);
+            let text = block.display_text();
+            (
+                block.kind(),
+                text.len(),
+                target.byte_offset <= text.len() && text.is_char_boundary(target.byte_offset),
+            )
+        };
+        if !agent_insert_kind_supported(&kind) {
+            return Err(AgentCommandError::UnsupportedBlockKind(kind));
+        }
+        if !valid_offset {
+            return Err(AgentCommandError::InvalidAnchorOffset {
+                offset: target.byte_offset,
+                block_len,
+            });
+        }
+
+        self.prepare_undo_capture(UndoCaptureKind::NonCoalescible, cx);
+        block.update(cx, |block, cx| {
+            block.replace_text_in_visible_range(0..block_len, &text, None, false, cx);
+        });
+        self.mark_dirty(cx);
+        self.finalize_pending_undo_capture(cx);
+        self.request_active_block_scroll_into_view(cx);
+        cx.notify();
+
+        Ok(AgentInvocationReceipt::Replaced {
+            block_id: target.block_id,
+            editor_revision: self.document_revision,
+        })
     }
 
     fn insert_agent_blocks(
@@ -476,6 +546,93 @@ mod tests {
                 cx,
             )
             .expect("valid simulated response")
+    }
+
+    #[gpui::test]
+    fn replacement_is_revision_bound_atomic_and_undoable(cx: &mut TestAppContext) {
+        init_editor_test_app(cx);
+        let editor = cx.new(|cx| {
+            Editor::from_markdown(cx, "Original sentence.\n\nKeep this.".to_string(), None)
+        });
+        editor.update(cx, |editor, cx| {
+            let block = editor.document.visible_blocks()[0].entity.read(cx);
+            let target = AgentAnchor {
+                editor_revision: editor.document_revision,
+                block_id: block.record.id,
+                byte_offset: block.display_text().len(),
+            };
+            let receipt = editor
+                .execute_agent_document_op(
+                    AgentDocumentOp::ReplaceBlock {
+                        target,
+                        text: SharedString::new("A cleaner sentence."),
+                    },
+                    cx,
+                )
+                .expect("replace exact target");
+
+            assert!(matches!(
+                receipt,
+                AgentInvocationReceipt::Replaced {
+                    block_id,
+                    editor_revision: 1,
+                } if block_id == target.block_id
+            ));
+            assert_eq!(
+                editor.current_document_source(cx),
+                "A cleaner sentence.\n\nKeep this."
+            );
+            assert_eq!(editor.undo_history.len(), 1);
+        });
+
+        editor.update(cx, |editor, cx| editor.undo_document(cx));
+        editor.update(cx, |editor, cx| {
+            assert_eq!(
+                editor.current_document_source(cx),
+                "Original sentence.\n\nKeep this."
+            );
+        });
+        editor.update(cx, |editor, cx| editor.redo_document(cx));
+        editor.update(cx, |editor, cx| {
+            assert_eq!(
+                editor.current_document_source(cx),
+                "A cleaner sentence.\n\nKeep this."
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn stale_or_empty_replacement_is_rejected_without_mutation(cx: &mut TestAppContext) {
+        init_editor_test_app(cx);
+        let editor = cx.new(|cx| Editor::from_markdown(cx, "Original sentence.".to_string(), None));
+        editor.update(cx, |editor, cx| {
+            let block = editor.document.visible_blocks()[0].entity.read(cx);
+            let mut target = AgentAnchor {
+                editor_revision: editor.document_revision + 1,
+                block_id: block.record.id,
+                byte_offset: block.display_text().len(),
+            };
+            let stale = editor.execute_agent_document_op(
+                AgentDocumentOp::ReplaceBlock {
+                    target,
+                    text: SharedString::new("Should not apply."),
+                },
+                cx,
+            );
+            assert!(matches!(stale, Err(AgentCommandError::StaleAnchor { .. })));
+
+            target.editor_revision = editor.document_revision;
+            let empty = editor.execute_agent_document_op(
+                AgentDocumentOp::ReplaceBlock {
+                    target,
+                    text: SharedString::new("  \n "),
+                },
+                cx,
+            );
+            assert!(matches!(empty, Err(AgentCommandError::EmptyInvocation)));
+            assert_eq!(editor.current_document_source(cx), "Original sentence.");
+            assert!(editor.undo_history.is_empty());
+        });
     }
 
     #[gpui::test]

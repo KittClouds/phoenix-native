@@ -31,7 +31,7 @@ use hashbrown::HashSet;
 use phoenix_app_core::GraphProvenanceReceipt;
 use phoenix_app_core::{KernelCommand, KernelOutcome, KernelSnapshot, PhoenixKernel};
 use phoenix_scene_contract::{GraphColorKey, ResidentSceneLoadError};
-use phoenix_workspace::{DocumentLease, EntryId, EntryKind, WorkspaceEntry, ROOT_ID};
+use phoenix_workspace::{DocumentLease, EntryId, EntryKind, ROOT_ID, WorkspaceEntry};
 use smallvec::SmallVec;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -174,6 +174,10 @@ impl PhoenixShell {
         let mut kammi = kammi::KammiState::new(window, cx).expect("initialize Kammi state");
         if let Ok(Some(store)) = kammi::store::KammiStoreV1::load(kernel.workspace_path()) {
             kammi.settings = store.settings.normalize();
+            let reasoning_index = kammi.settings.reasoning.slider_index();
+            kammi.reasoning_slider.update(cx, |slider, cx| {
+                slider.set_value(reasoning_index, window, cx);
+            });
             let system_prompt = kammi.settings.system_prompt.clone();
             kammi.system_prompt_input.update(cx, |input, cx| {
                 input.set_value(system_prompt, window, cx);

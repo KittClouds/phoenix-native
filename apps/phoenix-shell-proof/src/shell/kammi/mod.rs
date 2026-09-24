@@ -7,9 +7,10 @@ pub mod ui;
 
 use gpui::{AppContext as _, Entity, ScrollHandle, Task, Window};
 use gpui_component::input::InputState;
-use provider::{spawn_provider_runtime, KammiProviderRuntime};
-use session::{KammiSession, MessageState, PendingInsertion};
-use settings::{load_openrouter_key, KammiSettings, ProviderBackend};
+use gpui_component::slider::{SliderEvent, SliderState, SliderValue};
+use provider::{KammiProviderRuntime, spawn_provider_runtime};
+use session::{KammiSession, MessageState};
+use settings::{KammiSettings, ProviderBackend, load_openrouter_key};
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
@@ -76,6 +77,7 @@ pub struct KammiState {
     pub llama_model_input: Entity<InputState>,
     pub llama_endpoint_input: Entity<InputState>,
     pub system_prompt_input: Entity<InputState>,
+    pub reasoning_slider: Entity<SliderState>,
     pub session: KammiSession,
     pub history: VecDeque<KammiSession>,
     pub provider: KammiProviderRuntime,
@@ -86,7 +88,6 @@ pub struct KammiState {
     pub settings: KammiSettings,
     #[allow(dead_code)]
     pub scroll: ScrollHandle,
-    pub pending_insertion: Option<PendingInsertion>,
     pub error_banner: Option<String>,
 }
 
@@ -119,6 +120,19 @@ impl KammiState {
                 .auto_grow(4, 12)
                 .placeholder("Define Kammi's role, voice, boundaries, and working style...")
         });
+        let reasoning_slider = cx.new(|_| {
+            SliderState::new()
+                .min(0.0)
+                .max((settings::ReasoningLevel::ALL.len() - 1) as f32)
+                .step(1.0)
+                .default_value(settings::ReasoningLevel::Auto.slider_index())
+        });
+        cx.subscribe(&reasoning_slider, |shell, _, event: &SliderEvent, cx| {
+            if let SliderEvent::Change(SliderValue::Single(index)) = event {
+                shell.set_kammi_reasoning(settings::ReasoningLevel::from_slider_index(*index), cx);
+            }
+        })
+        .detach();
 
         let provider = spawn_provider_runtime()?;
         let has_api_key = load_openrouter_key().ok().flatten().is_some();
@@ -134,6 +148,7 @@ impl KammiState {
             llama_model_input,
             llama_endpoint_input,
             system_prompt_input,
+            reasoning_slider,
             session: KammiSession::new(1),
             history: VecDeque::new(),
             provider,
@@ -143,7 +158,6 @@ impl KammiState {
             has_api_key,
             settings: KammiSettings::default(),
             scroll,
-            pending_insertion: None,
             error_banner: None,
         })
     }

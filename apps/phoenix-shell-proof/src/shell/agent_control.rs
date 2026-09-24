@@ -3,19 +3,19 @@ use anyhow::{Context as _, Result};
 use gpui::Context;
 use hashbrown::HashMap;
 use phoenix_agent_control::{
-    AgentControlRequestV1, AgentControlResponseV1, AgentControlStatusV1, HostRequest, PhxCommandV1,
-    AGENT_CONTROL_SCHEMA_V1,
+    AGENT_CONTROL_SCHEMA_V1, AgentControlRequestV1, AgentControlResponseV1, AgentControlStatusV1,
+    HostRequest, PhxCommandV1,
 };
 use phoenix_app_core::{KernelCommand, KernelSnapshot};
-use phoenix_workspace::{open_document, DocumentLease, EntryId, EntryKind};
+use phoenix_workspace::{DocumentLease, EntryId, EntryKind, open_document};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
-use velotype::{AgentBlockDraft, AgentDocumentOp, AgentInvocationReceipt};
+use velotype::{AgentAnchor, AgentBlockDraft, AgentDocumentOp, AgentInvocationReceipt};
 
 const RECEIPT_SUFFIX: &str = ".agent-receipts-v1.jsonl";
 const MAX_RECEIPT_LOG_BYTES: u64 = 64 * 1024 * 1024;
@@ -187,6 +187,23 @@ impl PhoenixShell {
                 &snapshot,
                 entry_id,
                 after,
+                text,
+                expected_document_revision,
+                idempotency_key,
+                cx,
+            ),
+            PhxCommandV1::BlockReplace {
+                entry_id,
+                block_id,
+                text,
+                expected_document_revision,
+                idempotency_key,
+            } => self.agent_block_replace(
+                request,
+                &canonical,
+                &snapshot,
+                entry_id,
+                block_id,
                 text,
                 expected_document_revision,
                 idempotency_key,
@@ -603,6 +620,188 @@ impl PhoenixShell {
                 "entry_id": selected,
                 "inserted_block_ids": inserted.inserted_block_ids,
                 "editor_revision": inserted.editor_revision,
+                "idempotency_key": idempotency_key,
+            }),
+            None,
+        );
+        if let Err(error) =
+            self.agent_receipts
+                .record(idempotency_key, canonical.to_owned(), response.clone())
+        {
+            response.status = AgentControlStatusV1::Error;
+            response.error = Some(format!(
+                "mutation committed but durable idempotency receipt failed: {error:#}; inspect before retry"
+            ));
+        }
+        response
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn agent_block_replace(
+        &mut self,
+        request: &AgentControlRequestV1,
+        canonical: &str,
+        snapshot: &KernelSnapshot,
+        entry_id: Option<u64>,
+        block_id: Uuid,
+        text: String,
+        expected_document_revision: u64,
+        idempotency_key: String,
+        cx: &mut Context<Self>,
+    ) -> AgentControlResponseV1 {
+        match self
+            .agent_receipts
+            .replay(request, &idempotency_key, canonical)
+        {
+            Ok(Some(response)) => return response,
+            Ok(None) => {}
+            Err(error) => {
+                return self.agent_failure(
+                    request,
+                    canonical,
+                    AgentControlStatusV1::Conflict,
+                    snapshot,
+                    error,
+                );
+            }
+        }
+        let selected = entry_id.unwrap_or(snapshot.active_entry.0);
+        if selected != snapshot.active_entry.0 {
+            return self.agent_failure(
+                request,
+                canonical,
+                AgentControlStatusV1::Conflict,
+                snapshot,
+                "block mutation currently requires the active note".into(),
+            );
+        }
+        let Some(lease) = self.editor_lease.as_ref().map(Arc::clone) else {
+            return self.agent_failure(
+                request,
+                canonical,
+                AgentControlStatusV1::Conflict,
+                snapshot,
+                "active note has no document lease".into(),
+            );
+        };
+        if lease.revision.0 != expected_document_revision {
+            return self.agent_failure(
+                request,
+                canonical,
+                AgentControlStatusV1::Conflict,
+                snapshot,
+                format!(
+                    "stale document revision: expected {expected_document_revision}, current {}",
+                    lease.revision.0
+                ),
+            );
+        }
+        let editor_snapshot = self
+            .editor
+            .read_with(cx, |editor, cx| editor.agent_document_snapshot(cx));
+        let Some(block) = editor_snapshot
+            .blocks
+            .iter()
+            .find(|block| block.block_id == block_id)
+        else {
+            return self.agent_failure(
+                request,
+                canonical,
+                AgentControlStatusV1::Conflict,
+                snapshot,
+                format!("replacement target block {block_id} no longer exists"),
+            );
+        };
+        let anchor = AgentAnchor {
+            editor_revision: editor_snapshot.editor_revision,
+            block_id,
+            byte_offset: block.text.len(),
+        };
+        let original_markdown = self
+            .editor
+            .read_with(cx, |editor, cx| editor.host_document_text(cx));
+        let invocation = self.editor.update(cx, |editor, cx| {
+            editor.execute_agent_document_op(
+                AgentDocumentOp::ReplaceBlock {
+                    target: anchor,
+                    text: text.into(),
+                },
+                cx,
+            )
+        });
+        let editor_revision = match invocation {
+            Ok(AgentInvocationReceipt::Replaced {
+                block_id: replaced,
+                editor_revision,
+            }) if replaced == block_id => editor_revision,
+            Ok(_) => unreachable!("replace operation returned a different receipt"),
+            Err(error) => {
+                return self.agent_failure(
+                    request,
+                    canonical,
+                    AgentControlStatusV1::Conflict,
+                    snapshot,
+                    format!("editor rejected block replacement: {error:?}"),
+                );
+            }
+        };
+        let content: Arc<str> = Arc::from(
+            self.editor
+                .read_with(cx, |editor, cx| editor.host_document_text(cx)),
+        );
+        let commit = match self.kernel.execute(KernelCommand::SaveDocument {
+            lease: lease.token(),
+            content,
+        }) {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                self.editor.update(cx, |editor, cx| {
+                    editor.replace_embedded_document(original_markdown, cx);
+                });
+                if let Ok(current) = self.kernel.snapshot() {
+                    self.editor_lease = current.active_document_lease;
+                }
+                return self.agent_failure(
+                    request,
+                    canonical,
+                    AgentControlStatusV1::Conflict,
+                    snapshot,
+                    format!("document commit failed and editor was restored: {error}"),
+                );
+            }
+        };
+        let committed_snapshot = match self.kernel.snapshot() {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                return AgentControlResponseV1::error(
+                    request,
+                    format!("document committed but snapshot refresh failed: {error}"),
+                );
+            }
+        };
+        self.editor_lease = committed_snapshot.active_document_lease.clone();
+        self.editor
+            .update(cx, |editor, cx| editor.mark_embedded_saved(cx));
+        self.initialize_highlights(cx);
+        self.status = format!(
+            "AGENT REPLACE SAVED / DOCUMENT REVISION {} / SEQUENCE {}",
+            self.editor_lease
+                .as_ref()
+                .map_or(0, |lease| lease.revision.0),
+            commit.sequence
+        )
+        .into();
+        cx.notify();
+        let mut response = self.agent_response(
+            request,
+            canonical,
+            AgentControlStatusV1::Ok,
+            &committed_snapshot,
+            commit.sequence,
+            json!({
+                "entry_id": selected,
+                "replaced_block_id": block_id,
+                "editor_revision": editor_revision,
                 "idempotency_key": idempotency_key,
             }),
             None,

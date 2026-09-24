@@ -29,6 +29,13 @@ pub enum PhxCommandV1 {
         expected_document_revision: u64,
         idempotency_key: String,
     },
+    BlockReplace {
+        entry_id: Option<u64>,
+        block_id: Uuid,
+        text: String,
+        expected_document_revision: u64,
+        idempotency_key: String,
+    },
     EventsAfter {
         sequence: u64,
     },
@@ -63,6 +70,17 @@ impl PhxCommandV1 {
                 "phx block insert{}{} --text-blake3 {} --expected-document-rev {expected_document_revision} --idempotency-key {idempotency_key}",
                 note_suffix(*entry_id),
                 after.map_or_else(String::new, |value| format!(" --after {value}")),
+                blake3::hash(text.as_bytes()).to_hex(),
+            ),
+            Self::BlockReplace {
+                entry_id,
+                block_id,
+                text,
+                expected_document_revision,
+                idempotency_key,
+            } => format!(
+                "phx block replace{} --block {block_id} --text-blake3 {} --expected-document-rev {expected_document_revision} --idempotency-key {idempotency_key}",
+                note_suffix(*entry_id),
                 blake3::hash(text.as_bytes()).to_hex(),
             ),
             Self::EventsAfter { sequence } => format!("phx events after {sequence}"),
@@ -110,6 +128,7 @@ pub fn parse_command(raw: &str) -> Result<PhxCommandV1, ParseError> {
         ("note", "cat") => parse_note_read(args),
         ("block", "ls") => parse_block_list(args),
         ("block", "insert") => parse_block_insert(args),
+        ("block", "replace") => parse_block_replace(args),
         ("events", "after") if args.len() == 1 => Ok(PhxCommandV1::EventsAfter {
             sequence: parse_u64(&args[0], "event sequence")?,
         }),
@@ -180,6 +199,40 @@ fn parse_block_insert(args: &[String]) -> Result<PhxCommandV1, ParseError> {
     Ok(PhxCommandV1::BlockInsert {
         entry_id,
         after,
+        text,
+        expected_document_revision,
+        idempotency_key,
+    })
+}
+
+fn parse_block_replace(args: &[String]) -> Result<PhxCommandV1, ParseError> {
+    let (entry_id, flags) = split_entry_and_flags(args)?;
+    validate_flags(
+        &flags,
+        &["block", "text", "expected-document-rev", "idempotency-key"],
+    )?;
+    let block_id = Uuid::parse_str(required_flag(&flags, "block")?)
+        .map_err(|_| ParseError::Invalid("invalid --block UUID".into()))?;
+    let text = required_flag(&flags, "text")?.to_string();
+    if text.trim().is_empty() || text.len() > MAX_TEXT_BYTES {
+        return Err(ParseError::Invalid("--text is empty or oversized".into()));
+    }
+    let expected_document_revision = parse_u64(
+        required_flag(&flags, "expected-document-rev")?,
+        "expected document revision",
+    )?;
+    let idempotency_key = required_flag(&flags, "idempotency-key")?.to_string();
+    if idempotency_key.is_empty()
+        || idempotency_key.len() > 128
+        || !idempotency_key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
+    {
+        return Err(ParseError::Invalid("invalid idempotency key".into()));
+    }
+    Ok(PhxCommandV1::BlockReplace {
+        entry_id,
+        block_id,
         text,
         expected_document_revision,
         idempotency_key,
@@ -360,6 +413,17 @@ mod tests {
             parse_command("phx note cat --from 1 --from 2"),
             Err(ParseError::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn parser_builds_revision_checked_replace() {
+        let block_id = Uuid::new_v4();
+        let command = parse_command(&format!(
+            "phx block replace note://7 --block {block_id} --text 'revised paragraph' --expected-document-rev 9 --idempotency-key turn-2"
+        )).expect("parse replace");
+        assert!(matches!(command, PhxCommandV1::BlockReplace {
+            entry_id: Some(7), block_id: actual, expected_document_revision: 9, ref text, ..
+        } if actual == block_id && text == "revised paragraph"));
     }
 
     #[test]

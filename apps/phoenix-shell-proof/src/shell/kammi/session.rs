@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use velotype::AgentAnchor;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct KammiSession {
@@ -67,6 +66,19 @@ pub struct KammiMessage {
     pub model: Option<String>,
     #[serde(default)]
     pub state: MessageState,
+    #[serde(default)]
+    pub document_target: Option<KammiDocumentTarget>,
+}
+
+/// The exact editor target captured when a response was requested.
+/// Persisting this with the response prevents an old reply from being applied
+/// at a newer caret after the conversation moves on or is reopened.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct KammiDocumentTarget {
+    pub editor_revision: u64,
+    pub block_id: String,
+    pub byte_offset: usize,
+    pub preview: String,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -85,14 +97,6 @@ pub enum MessageState {
     Streaming,
     Interrupted,
     Failed,
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-pub struct PendingInsertion {
-    pub request_id: u64,
-    pub anchor: AgentAnchor,
-    pub context_digest: [u8; 32],
 }
 
 pub fn digest_messages(messages: &[KammiMessage]) -> [u8; 32] {
@@ -122,6 +126,7 @@ mod tests {
             content: String::new(),
             model: None,
             state,
+            document_target: None,
         }
     }
 

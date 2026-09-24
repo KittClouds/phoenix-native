@@ -7,6 +7,7 @@ const OPENROUTER_USER: &str = "openrouter-api-key";
 pub const MAX_SAVED_MODELS: usize = 24;
 pub const MAX_SYSTEM_PROMPT_BYTES: usize = 32 * 1024;
 const MAX_OPENROUTER_KEY_BYTES: usize = 512;
+pub const BONSAI_2_OPENROUTER_MODEL: &str = "prism-ml/ternary-bonsai-2-27b";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -117,6 +118,10 @@ fn default_llama_endpoint() -> String {
     "http://127.0.0.1:8080/v1".to_owned()
 }
 
+const fn default_include_active_note() -> bool {
+    false
+}
+
 const fn default_llama_context_size() -> u32 {
     8_192
 }
@@ -176,6 +181,24 @@ impl ReasoningLevel {
             Self::Xhigh => "Request extra-high reasoning where the provider supports it.",
         }
     }
+
+    pub const fn slider_index(self) -> f32 {
+        match self {
+            Self::Auto => 0.0,
+            Self::None => 1.0,
+            Self::Minimal => 2.0,
+            Self::Low => 3.0,
+            Self::Medium => 4.0,
+            Self::High => 5.0,
+            Self::Max => 6.0,
+            Self::Xhigh => 7.0,
+        }
+    }
+
+    pub fn from_slider_index(index: f32) -> Self {
+        let index = index.round().clamp(0.0, (Self::ALL.len() - 1) as f32) as usize;
+        Self::ALL[index]
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -188,6 +211,8 @@ pub struct KammiSettings {
     pub saved_models: Vec<String>,
     #[serde(default)]
     pub reasoning: ReasoningLevel,
+    #[serde(default = "default_include_active_note")]
+    pub include_active_note: bool,
     #[serde(default)]
     pub system_prompt: String,
     #[serde(default)]
@@ -201,6 +226,7 @@ impl Default for KammiSettings {
             model: String::new(),
             saved_models: Vec::new(),
             reasoning: ReasoningLevel::Auto,
+            include_active_note: false,
             system_prompt: String::new(),
             llama_cpp: LlamaCppSettings::default(),
         }
@@ -352,6 +378,7 @@ mod tests {
         assert_eq!(settings.model, "google/gemini-2.5-flash");
         assert_eq!(settings.saved_models, ["google/gemini-2.5-flash"]);
         assert_eq!(settings.reasoning, ReasoningLevel::Auto);
+        assert!(!settings.include_active_note);
         assert_eq!(settings.backend, ProviderBackend::OpenRouter);
         assert_eq!(settings.llama_cpp.endpoint, "http://127.0.0.1:8080/v1");
         assert_eq!(
@@ -395,6 +422,26 @@ mod tests {
         assert!(validate_model_id("Gemini Flash").is_err());
         assert!(validate_model_id("google/gemini flash").is_err());
         assert!(validate_model_id("google/gemini-2.5-flash").is_ok());
+        assert_eq!(
+            validate_model_id(BONSAI_2_OPENROUTER_MODEL).unwrap(),
+            BONSAI_2_OPENROUTER_MODEL
+        );
+    }
+
+    #[test]
+    fn reasoning_slider_maps_every_discrete_provider_value() {
+        for (index, level) in ReasoningLevel::ALL.into_iter().enumerate() {
+            assert_eq!(level.slider_index(), index as f32);
+            assert_eq!(ReasoningLevel::from_slider_index(index as f32), level);
+        }
+        assert_eq!(
+            ReasoningLevel::from_slider_index(-3.0),
+            ReasoningLevel::Auto
+        );
+        assert_eq!(
+            ReasoningLevel::from_slider_index(9.0),
+            ReasoningLevel::Xhigh
+        );
     }
 
     #[test]

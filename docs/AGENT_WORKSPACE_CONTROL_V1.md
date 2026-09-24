@@ -16,6 +16,8 @@ phx note cat [note://ID] [--from BYTE] [--to BYTE]
 phx block ls [note://ID] [--from INDEX] [--limit 1..256]
 phx block insert [note://ID] [--after UUID] --text MARKDOWN \
   --expected-document-rev REV --idempotency-key KEY
+phx block replace [note://ID] --block UUID --text MARKDOWN \
+  --expected-document-rev REV --idempotency-key KEY
 phx events after SEQUENCE
 ```
 
@@ -26,9 +28,10 @@ return `next_from` when more content remains.
 
 ## Mutation contract
 
-Block insertion currently targets the active note only. It enters through the
-resident Velotype agent-operation boundary, commits through the kernel's
-document lease, and restores the editor if the durable commit fails.
+Block insertion and replacement currently target the active note only. Both
+enter through the resident Velotype agent-operation boundary, commit through
+the kernel's document lease, and restore the editor if the durable commit
+fails. Replacement names the exact block UUID returned by `block ls`.
 
 Every write requires the document revision observed by a prior read. Stale
 revisions fail with `conflict`. The idempotency key is durably bound to the

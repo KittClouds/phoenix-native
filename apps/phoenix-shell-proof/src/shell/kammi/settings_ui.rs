@@ -1,17 +1,18 @@
 use super::{
+    KammiPanel,
     provider::validate_llama_cpp_settings,
     settings::{
-        clear_openrouter_key, store_openrouter_key, LlamaPerformanceProfile, ProviderBackend,
-        ReasoningLevel, MAX_SAVED_MODELS,
+        BONSAI_2_OPENROUTER_MODEL, LlamaPerformanceProfile, MAX_SAVED_MODELS, ProviderBackend,
+        ReasoningLevel, clear_openrouter_key, store_openrouter_key,
     },
-    KammiPanel,
 };
-use crate::shell::{PhoenixShell, BORDER, SURFACE, TEXT, TEXT_MUTED};
-use gpui::{div, prelude::*, px, rgb, Context, FontWeight, IntoElement, Window};
+use crate::shell::{BORDER, PhoenixShell, SURFACE, TEXT, TEXT_MUTED};
+use gpui::{Context, FontWeight, IntoElement, Window, div, prelude::*, px, rgb};
+use gpui_component::Sizable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
 use gpui_component::scroll::ScrollableElement;
-use gpui_component::Sizable;
+use gpui_component::slider::Slider;
 
 const ACCENT: u32 = 0x57e2bb;
 const ACCENT_DARK: u32 = 0x0d3029;
@@ -66,7 +67,7 @@ impl PhoenixShell {
                                     .text_base()
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(TEXT))
-                                    .child("KAMMI CONFIGURATION"),
+                            .child("KAMMI · MODEL & INSTRUCTIONS"),
                             )
                             .child(
                                 div()
@@ -85,7 +86,7 @@ impl PhoenixShell {
                             .mt_1()
                             .text_xs()
                             .text_color(rgb(TEXT_MUTED))
-                            .child("Connection, model library, reasoning, and persistent instructions."),
+                            .child("Choose where Kammi runs and what it can see."),
                     ),
             )
             .child(
@@ -140,7 +141,7 @@ impl PhoenixShell {
                                     ),
                             ),
                     )
-                    .child(
+                    .when(backend == ProviderBackend::OpenRouter, |content| content.child(
                         div()
                             .p_3()
                             .rounded_lg()
@@ -209,9 +210,9 @@ impl PhoenixShell {
                                                 this.clear_kammi_api_key(window, cx);
                                             })),
                                     ),
-                            ),
-                    )
-                    .child(
+                                    ),
+                    ))
+                    .when(backend == ProviderBackend::LlamaCpp, |content| content.child(
                         div()
                             .p_3()
                             .rounded_lg()
@@ -235,7 +236,7 @@ impl PhoenixShell {
                                     .mb_2()
                                     .text_xs()
                                     .text_color(rgb(TEXT_MUTED))
-                                    .child("Phoenix launches llama-server out of process, keeps it warm, and streams its OpenAI-compatible response. Paths must be absolute."),
+                                    .child("Phoenix supervises llama-server and streams its local response. Paths must be absolute. Bonsai 2 uses the OpenRouter preset; its packed GGUF needs the PrismML llama.cpp fork."),
                             )
                             .child(
                                 div()
@@ -338,8 +339,8 @@ impl PhoenixShell {
                                         this.save_kammi_llama_cpp(cx);
                                     })),
                             ),
-                    )
-                    .child(
+                    ))
+                    .when(backend == ProviderBackend::OpenRouter, |content| content.child(
                         div()
                             .p_3()
                             .rounded_lg()
@@ -351,14 +352,67 @@ impl PhoenixShell {
                                     .text_xs()
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(TEXT))
-                                    .child("OPENROUTER MODEL LIBRARY"),
+                                    .child("MODEL LIBRARY"),
                             )
                             .child(
                                 div()
                                     .mt_1()
                                     .text_xs()
                                     .text_color(rgb(TEXT_MUTED))
-                                    .child("Paste an exact OpenRouter provider/model ID. Saved models stay available here."),
+                                    .child("Choose a known model or add an exact OpenRouter model ID."),
+                            )
+                            .child(
+                                div()
+                                    .mt_3()
+                                    .p_3()
+                                    .rounded_lg()
+                                    .border_1()
+                                    .border_color(rgb(0x285b4f))
+                                    .bg(rgb(0x13221e))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(rgb(TEXT))
+                                                    .child("Bonsai 2 · 27B"),
+                                            )
+                                            .child(
+                                                div()
+                                                    .ml_auto()
+                                                    .px_2()
+                                                    .py_0p5()
+                                                    .rounded_full()
+                                                    .bg(rgb(ACCENT_DARK))
+                                                    .text_xs()
+                                                    .text_color(rgb(ACCENT))
+                                                    .child("OPENROUTER"),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_1()
+                                            .text_xs()
+                                            .text_color(rgb(TEXT_MUTED))
+                                            .child(BONSAI_2_OPENROUTER_MODEL),
+                                    )
+                                    .child(
+                                        Button::new("kammi-use-bonsai-2")
+                                            .label(if self.kammi.settings.model == BONSAI_2_OPENROUTER_MODEL {
+                                                "BONSAI 2 SELECTED"
+                                            } else {
+                                                "USE BONSAI 2"
+                                            })
+                                            .small()
+                                            .mt_2()
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.select_kammi_model(BONSAI_2_OPENROUTER_MODEL, cx);
+                                            })),
+                                    ),
                             )
                             .child(
                                 div()
@@ -448,8 +502,8 @@ impl PhoenixShell {
                                     .text_color(rgb(TEXT_MUTED))
                                     .child(format!("Up to {MAX_SAVED_MODELS} models are retained per workspace.")),
                             ),
-                    )
-                    .child(
+                    ))
+                    .when(backend == ProviderBackend::OpenRouter, |content| content.child(
                         div()
                             .p_3()
                             .rounded_lg()
@@ -458,10 +512,27 @@ impl PhoenixShell {
                             .bg(rgb(CARD_BG))
                             .child(
                                 div()
-                                    .text_xs()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(rgb(TEXT))
-                                    .child("REASONING EFFORT"),
+                                    .flex()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(rgb(TEXT))
+                                            .child("REASONING EFFORT"),
+                                    )
+                                    .child(
+                                        div()
+                                            .ml_auto()
+                                            .px_2()
+                                            .py_0p5()
+                                            .rounded_full()
+                                            .bg(rgb(ACCENT_DARK))
+                                            .text_xs()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(rgb(ACCENT))
+                                            .child(active_reasoning.label()),
+                                    ),
                             )
                             .child(
                                 div()
@@ -471,24 +542,37 @@ impl PhoenixShell {
                                     .child(active_reasoning.description()),
                             )
                             .child(
+                                Slider::new(&self.kammi.reasoning_slider)
+                                    .h_8()
+                                    .mt_2()
+                                    .bg(rgb(0x31413c))
+                                    .text_color(rgb(ACCENT)),
+                            )
+                            .child(
                                 div()
-                                    .mt_3()
                                     .flex()
-                                    .flex_wrap()
-                                    .gap_1()
-                                    .children(ReasoningLevel::ALL.into_iter().enumerate().map(
-                                        |(index, level)| {
-                                            Button::new(("kammi-reasoning", index))
-                                                .label(level.label())
-                                                .small()
-                                                .when(level != active_reasoning, |button| button.ghost())
-                                                .on_click(cx.listener(move |this, _, _, cx| {
-                                                    this.set_kammi_reasoning(level, cx);
-                                                }))
-                                        },
-                                    )),
+                                    .items_center()
+                                    .justify_between()
+                                    .mt_1()
+                                    .children(ReasoningLevel::ALL.into_iter().map(|level| {
+                                        div()
+                                            .flex_1()
+                                            .text_center()
+                                            .text_xs()
+                                            .font_weight(if level == active_reasoning {
+                                                FontWeight::BOLD
+                                            } else {
+                                                FontWeight::NORMAL
+                                            })
+                                            .text_color(rgb(if level == active_reasoning {
+                                                ACCENT
+                                            } else {
+                                                TEXT_MUTED
+                                            }))
+                                            .child(level.label())
+                                    })),
                             ),
-                    )
+                    ))
                     .child(
                         div()
                             .p_3()
@@ -709,11 +793,28 @@ impl PhoenixShell {
         cx.notify();
     }
 
-    fn set_kammi_reasoning(&mut self, level: ReasoningLevel, cx: &mut Context<Self>) {
+    pub(super) fn set_kammi_reasoning(&mut self, level: ReasoningLevel, cx: &mut Context<Self>) {
+        if self.kammi.settings.reasoning == level {
+            return;
+        }
         self.kammi.settings.reasoning = level;
         self.kammi.error_banner = None;
         self.save_kammi_history();
         self.status = format!("KAMMI / REASONING {}", level.label()).into();
+        cx.notify();
+    }
+
+    pub(super) fn set_kammi_note_context(&mut self, include: bool, cx: &mut Context<Self>) {
+        if self.kammi.settings.include_active_note == include {
+            return;
+        }
+        self.kammi.settings.include_active_note = include;
+        self.save_kammi_history();
+        self.status = if include {
+            "KAMMI / ACTIVE NOTE CONTEXT ON".into()
+        } else {
+            "KAMMI / ACTIVE NOTE CONTEXT OFF".into()
+        };
         cx.notify();
     }
 

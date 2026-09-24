@@ -1,24 +1,27 @@
 use super::{
-    provider::{ProviderMessage, ProviderRequest},
-    session::{KammiMessage, KammiRole, KammiSession, MessageState, PendingInsertion},
-    settings::{
-        clear_openrouter_key, contains_openrouter_key, store_openrouter_key, validate_model_id,
-        ProviderBackend,
-    },
     GenerationState, KammiPanel, KammiTab, ProviderStatus, RightSidebarPage,
+    provider::{ProviderMessage, ProviderRequest},
+    session::{KammiDocumentTarget, KammiMessage, KammiRole, KammiSession, MessageState},
+    settings::{
+        ProviderBackend, clear_openrouter_key, contains_openrouter_key, store_openrouter_key,
+        validate_model_id,
+    },
 };
-use crate::shell::{PhoenixShell, BORDER, CANVAS, SURFACE, TEXT, TEXT_MUTED};
-use gpui::{div, prelude::*, px, rgb, Context, FontWeight, IntoElement, Window};
+use crate::shell::{BORDER, CANVAS, KernelCommand, PhoenixShell, SURFACE, TEXT, TEXT_MUTED};
+use gpui::{Context, FontWeight, IntoElement, Window, div, prelude::*, px, rgb};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::{Disableable, Sizable};
+use std::sync::Arc;
 use uuid::Uuid;
-use velotype::{AgentBlockDraft, AgentDocumentOp};
+use velotype::{AgentAnchor, AgentBlockDraft, AgentDocumentOp};
 
 const ACCENT: u32 = 0x57e2bb;
 const ACCENT_DARK: u32 = 0x0d3029;
 const CARD_BG: u32 = 0x1c1f20;
+const MAX_ACTIVE_NOTE_CONTEXT_BYTES: usize = 64 * 1024;
+const MAX_LOCAL_ACTIVE_NOTE_CONTEXT_BYTES: usize = 8 * 1024;
 
 impl PhoenixShell {
     pub(crate) fn render_right_sidebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -487,6 +490,22 @@ impl PhoenixShell {
                                 this.kammi.tab = KammiTab::Context;
                                 cx.notify();
                             })),
+                    )
+                    .child(
+                        Button::new("kammi-note-context-toggle")
+                            .label(if self.kammi.settings.include_active_note {
+                                "NOTE · ON"
+                            } else {
+                                "NOTE · OFF"
+                            })
+                            .small()
+                            .when(!self.kammi.settings.include_active_note, |button| {
+                                button.ghost()
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let include = !this.kammi.settings.include_active_note;
+                                this.set_kammi_note_context(include, cx);
+                            })),
                     ),
             )
             .when_some(self.kammi.error_banner.as_ref(), |chat, error| {
@@ -540,6 +559,25 @@ impl PhoenixShell {
 
     fn render_kammi_context_tab(&self, note: String, cx: &mut Context<Self>) -> impl IntoElement {
         let anchor_info = self.editor.read(cx).current_agent_anchor(cx);
+        let document = self.editor.read(cx).host_document_text(cx);
+        let document_revision = self
+            .editor
+            .read(cx)
+            .agent_document_snapshot(cx)
+            .editor_revision;
+        let (context_limit, context_destination) = match self.kammi.settings.backend {
+            ProviderBackend::LlamaCpp => ("8 KiB", "the local model"),
+            ProviderBackend::OpenRouter => ("64 KiB", "OpenRouter"),
+        };
+        let context_description = if self.kammi.settings.include_active_note {
+            format!(
+                "Up to the first {context_limit} of this note goes to {context_destination} with each request. Longer notes are marked as truncated. Graph and memory are not included."
+            )
+        } else {
+            format!(
+                "Note text is excluded. Turn this on to send up to the first {context_limit} of the note to {context_destination}. Graph and memory are not included."
+            )
+        };
         let (anchor_desc, rev_desc) = match anchor_info {
             Ok(anchor) => (
                 format!("Block ID: {}", anchor.block_id),
@@ -580,7 +618,12 @@ impl PhoenixShell {
                             .text_color(rgb(TEXT))
                             .child("Active Note"),
                     )
-                    .child(div().text_xs().text_color(rgb(TEXT_MUTED)).child(note)),
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(rgb(TEXT_MUTED))
+                            .child(note.clone()),
+                    ),
             )
             .child(
                 div()
@@ -607,34 +650,59 @@ impl PhoenixShell {
             .child(
                 div()
                     .p_3()
-                    .rounded_md()
+                    .rounded_lg()
                     .bg(rgb(CARD_BG))
                     .border_1()
                     .border_color(rgb(BORDER))
                     .child(
                         div()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgb(TEXT))
-                            .child("Context Inclusion Flags"),
+                            .flex()
+                            .items_center()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(rgb(TEXT))
+                                    .child("ACTIVE NOTE"),
+                            )
+                            .child(
+                                Button::new("kammi-note-context-toggle-panel")
+                                    .label(if self.kammi.settings.include_active_note {
+                                        "IN CONTEXT"
+                                    } else {
+                                        "EXCLUDED"
+                                    })
+                                    .small()
+                                    .ml_auto()
+                                    .when(!self.kammi.settings.include_active_note, |button| {
+                                        button.ghost()
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        let include = !this.kammi.settings.include_active_note;
+                                        this.set_kammi_note_context(include, cx);
+                                    })),
+                            ),
                     )
                     .child(
                         div()
+                            .mt_2()
                             .text_xs()
                             .text_color(rgb(TEXT_MUTED))
-                            .child("[ ] Active Note text"),
+                            .child(format!(
+                                "{note} · revision {document_revision} · {} characters",
+                                document.chars().count()
+                            )),
                     )
                     .child(
                         div()
+                            .mt_2()
+                            .px_2()
+                            .py_2()
+                            .rounded_md()
+                            .bg(rgb(0x111414))
                             .text_xs()
                             .text_color(rgb(TEXT_MUTED))
-                            .child("[ ] Graph neighborhood"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(TEXT_MUTED))
-                            .child("[ ] Persistent Memory"),
+                            .child(context_description),
                     ),
             )
     }
@@ -744,6 +812,12 @@ impl PhoenixShell {
                         .child(message.content),
                 )
         } else {
+            let target_preview = message
+                .document_target
+                .as_ref()
+                .map(|target| target.preview.clone());
+            let can_apply =
+                message.state == MessageState::Complete && message.document_target.is_some();
             let model_tag = message
                 .model
                 .unwrap_or_else(|| self.kammi.settings.model.clone());
@@ -771,6 +845,19 @@ impl PhoenixShell {
                     message.content,
                     if is_streaming { " ▌" } else { "" }
                 )))
+                .when_some(target_preview, |card, preview| {
+                    card.child(
+                        div()
+                            .mt_2()
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(0x101514))
+                            .text_xs()
+                            .text_color(rgb(TEXT_MUTED))
+                            .child(format!("TARGET · {preview}")),
+                    )
+                })
                 .when(is_failed, |card| {
                     card.child(
                         div()
@@ -795,13 +882,22 @@ impl PhoenixShell {
                                 })),
                         )
                         .child(
-                            Button::new(("insert", msg_id as usize))
-                                .label("INSERT")
+                            Button::new(("add-after", msg_id as usize))
+                                .label("ADD AFTER")
+                                .small()
+                                .disabled(!can_apply)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.apply_kammi_message(msg_id, false, cx);
+                                })),
+                        )
+                        .child(
+                            Button::new(("replace-block", msg_id as usize))
+                                .label("REPLACE BLOCK")
                                 .small()
                                 .ghost()
-                                .disabled(is_streaming)
+                                .disabled(!can_apply)
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.insert_message_into_editor(msg_id, cx);
+                                    this.apply_kammi_message(msg_id, true, cx);
                                 })),
                         )
                         .child(
@@ -816,6 +912,21 @@ impl PhoenixShell {
                         ),
                 )
         }
+    }
+
+    fn capture_kammi_document_target(&self, cx: &Context<Self>) -> Option<KammiDocumentTarget> {
+        let anchor = self.editor.read(cx).current_agent_anchor(cx).ok()?;
+        let snapshot = self.editor.read(cx).agent_document_snapshot(cx);
+        let block = snapshot
+            .blocks
+            .iter()
+            .find(|block| block.block_id == anchor.block_id)?;
+        Some(KammiDocumentTarget {
+            editor_revision: anchor.editor_revision,
+            block_id: anchor.block_id.to_string(),
+            byte_offset: anchor.byte_offset,
+            preview: text_excerpt(&block.text, 128),
+        })
     }
 
     fn start_new_kammi_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -837,11 +948,11 @@ impl PhoenixShell {
         };
         self.kammi.session = KammiSession::new(new_id);
         self.kammi.generation = GenerationState::Idle;
-        self.kammi.pending_insertion = None;
         self.kammi.error_banner = None;
         self.kammi
             .composer
             .update(cx, |input, cx| input.set_value("", window, cx));
+
         self.save_kammi_history();
         cx.notify();
     }
@@ -997,6 +1108,21 @@ impl PhoenixShell {
             .composer
             .update(cx, |input, cx| input.set_value("", window, cx));
 
+        let document_target = self.capture_kammi_document_target(cx);
+        let note_context = self.kammi.settings.include_active_note.then(|| {
+            let name = self
+                .selected_entry()
+                .map_or_else(|| "Active note".to_string(), |entry| entry.name.clone());
+            let snapshot = self.editor.read(cx).agent_document_snapshot(cx);
+            let markdown = self.editor.read(cx).host_document_text(cx);
+            let context_limit = if self.kammi.settings.backend == ProviderBackend::LlamaCpp {
+                MAX_LOCAL_ACTIVE_NOTE_CONTEXT_BYTES
+            } else {
+                MAX_ACTIVE_NOTE_CONTEXT_BYTES
+            };
+            active_note_context(&name, snapshot.editor_revision, &markdown, context_limit)
+        });
+
         let Some(user_id) = self.kammi.take_next_identity() else {
             self.kammi.error_banner = Some("Kammi identity space is exhausted".to_string());
             cx.notify();
@@ -1008,6 +1134,7 @@ impl PhoenixShell {
             content: prompt.clone(),
             model: None,
             state: MessageState::Complete,
+            document_target: None,
         });
 
         let Some(assistant_req_id) = self.kammi.take_next_identity() else {
@@ -1021,27 +1148,26 @@ impl PhoenixShell {
             content: String::new(),
             model: Some(self.kammi.settings.active_model_label()),
             state: MessageState::Streaming,
+            document_target: document_target.clone(),
         });
 
         self.kammi.session.update_title_from_first_message();
 
-        if let Ok(anchor) = self.editor.read(cx).current_agent_anchor(cx) {
-            let digest = super::session::digest_messages(&self.kammi.session.messages);
-            self.kammi.pending_insertion = Some(PendingInsertion {
-                request_id: assistant_req_id,
-                anchor,
-                context_digest: digest,
-            });
-        }
-
         let mut provider_msgs = Vec::with_capacity(
             self.kammi.session.messages.len()
-                + usize::from(!self.kammi.settings.system_prompt.is_empty()),
+                + usize::from(!self.kammi.settings.system_prompt.is_empty())
+                + usize::from(note_context.is_some()),
         );
         if !self.kammi.settings.system_prompt.is_empty() {
             provider_msgs.push(ProviderMessage {
                 role: KammiRole::System,
                 content: self.kammi.settings.system_prompt.clone(),
+            });
+        }
+        if let Some(context) = note_context {
+            provider_msgs.push(ProviderMessage {
+                role: KammiRole::System,
+                content: context,
             });
         }
         provider_msgs.extend(
@@ -1118,7 +1244,7 @@ impl PhoenixShell {
         }
     }
 
-    fn insert_message_into_editor(&mut self, msg_id: u64, cx: &mut Context<Self>) {
+    fn apply_kammi_message(&mut self, msg_id: u64, replace: bool, cx: &mut Context<Self>) {
         let Some(msg) = self
             .kammi
             .session
@@ -1129,60 +1255,201 @@ impl PhoenixShell {
         else {
             return;
         };
+        if msg.state != MessageState::Complete {
+            self.status = "KAMMI APPLY BLOCKED / RESPONSE IS NOT COMPLETE".into();
+            cx.notify();
+            return;
+        }
+        let Some(target) = msg.document_target else {
+            self.status = "KAMMI APPLY BLOCKED / NO NOTE TARGET WAS CAPTURED".into();
+            cx.notify();
+            return;
+        };
+        let Ok(block_id) = Uuid::parse_str(&target.block_id) else {
+            self.status = "KAMMI APPLY BLOCKED / INVALID SAVED NOTE TARGET".into();
+            cx.notify();
+            return;
+        };
+        let anchor = AgentAnchor {
+            editor_revision: target.editor_revision,
+            block_id,
+            byte_offset: target.byte_offset,
+        };
+        let current_revision = self
+            .editor
+            .read(cx)
+            .agent_document_snapshot(cx)
+            .editor_revision;
+        if current_revision != target.editor_revision {
+            self.status = format!(
+                "KAMMI APPLY BLOCKED / NOTE CHANGED / TARGET REVISION {} CURRENT {}",
+                target.editor_revision, current_revision
+            )
+            .into();
+            cx.notify();
+            return;
+        }
+        let Some(lease) = self.editor_lease.as_ref().map(Arc::clone) else {
+            self.status = "KAMMI APPLY BLOCKED / NO ACTIVE DOCUMENT LEASE".into();
+            cx.notify();
+            return;
+        };
+        if msg.content.trim().is_empty() {
+            self.status = "KAMMI APPLY BLOCKED / EMPTY RESPONSE".into();
+            cx.notify();
+            return;
+        }
 
-        let pending = self.kammi.pending_insertion.clone();
+        let original_markdown = self.editor.read(cx).host_document_text(cx);
         let model = msg
             .model
             .clone()
             .unwrap_or_else(|| self.kammi.settings.active_model_label());
-
-        let result = if let Some(pending) = pending {
-            self.editor.update(cx, |editor, cx| {
-                editor.execute_agent_document_op(
-                    AgentDocumentOp::InsertAfter {
-                        anchor: pending.anchor,
-                        invocation_id: Uuid::new_v4(),
-                        turn_id: Uuid::new_v4(),
-                        model: model.into(),
-                        context_digest: pending.context_digest,
-                        blocks: vec![AgentBlockDraft::paragraph(msg.content.clone())],
-                    },
-                    cx,
-                )
-            })
+        let context_digest = super::session::digest_messages(&self.kammi.session.messages);
+        let operation = if replace {
+            AgentDocumentOp::ReplaceBlock {
+                target: anchor,
+                text: msg.content.clone().into(),
+            }
         } else {
-            let anchor = match self.editor.read(cx).current_agent_anchor(cx) {
-                Ok(a) => a,
-                Err(err) => {
-                    self.status = format!("KAMMI INSERT BLOCKED / {err:?}").into();
-                    cx.notify();
-                    return;
-                }
-            };
-            let digest = super::session::digest_messages(&self.kammi.session.messages);
-            self.editor.update(cx, |editor, cx| {
-                editor.execute_agent_document_op(
-                    AgentDocumentOp::InsertAfter {
-                        anchor,
-                        invocation_id: Uuid::new_v4(),
-                        turn_id: Uuid::new_v4(),
-                        model: model.into(),
-                        context_digest: digest,
-                        blocks: vec![AgentBlockDraft::paragraph(msg.content.clone())],
-                    },
-                    cx,
-                )
-            })
+            AgentDocumentOp::InsertAfter {
+                anchor,
+                invocation_id: Uuid::new_v4(),
+                turn_id: Uuid::new_v4(),
+                model: model.into(),
+                context_digest,
+                blocks: vec![AgentBlockDraft::paragraph(msg.content.clone())],
+            }
         };
-
-        match result {
-            Ok(_) => {
-                self.status = "KAMMI / RESPONSE INSERTED".into();
-            }
-            Err(error) => {
-                self.status = format!("KAMMI INSERT BLOCKED / {error:?}").into();
-            }
+        if let Err(error) = self.editor.update(cx, |editor, cx| {
+            editor.execute_agent_document_op(operation, cx)
+        }) {
+            self.status = format!("KAMMI APPLY BLOCKED / {error:?}").into();
+            cx.notify();
+            return;
         }
+
+        let content: Arc<str> = Arc::from(self.editor.read(cx).host_document_text(cx));
+        let commit = self.kernel.execute(KernelCommand::SaveDocument {
+            lease: lease.token(),
+            content,
+        });
+        let receipt = match commit {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                self.editor.update(cx, |editor, cx| {
+                    editor.replace_embedded_document(original_markdown, cx);
+                });
+                if let Ok(snapshot) = self.kernel.snapshot() {
+                    self.editor_lease = snapshot.active_document_lease;
+                }
+                self.status = format!("KAMMI APPLY ROLLED BACK / {error}").into();
+                cx.notify();
+                return;
+            }
+        };
+        let snapshot = match self.kernel.snapshot() {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.status = format!("KAMMI NOTE SAVED / LEASE REFRESH FAILED / {error}").into();
+                cx.notify();
+                return;
+            }
+        };
+        self.editor_lease = snapshot.active_document_lease;
+        self.editor
+            .update(cx, |editor, cx| editor.mark_embedded_saved(cx));
+        self.initialize_highlights(cx);
+        self.save_kammi_history();
+        self.status = format!(
+            "KAMMI / NOTE {} SAVED / SEQUENCE {}",
+            if replace {
+                "BLOCK REPLACED"
+            } else {
+                "RESPONSE ADDED"
+            },
+            receipt.sequence
+        )
+        .into();
         cx.notify();
+    }
+}
+
+fn active_note_context(
+    note_name: &str,
+    revision: u64,
+    markdown: &str,
+    context_limit: usize,
+) -> String {
+    let header = format!(
+        "PHOENIX ACTIVE NOTE SNAPSHOT\nNote: {note_name}\nEditor revision: {revision}\nUse this snapshot as read-only source context. It may become stale while you respond.\n--- MARKDOWN ---\n"
+    );
+    let footer = "\n--- END NOTE SNAPSHOT ---";
+    let truncation_notice = format!(
+        "\n[Note snapshot truncated at the {} KiB context limit.]\n",
+        context_limit / 1024
+    );
+    let body_budget = context_limit
+        .saturating_sub(header.len())
+        .saturating_sub(footer.len())
+        .saturating_sub(truncation_notice.len());
+    let mut end = markdown.len().min(body_budget);
+    while !markdown.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    let mut context =
+        String::with_capacity(header.len() + end + footer.len() + truncation_notice.len());
+    context.push_str(&header);
+    context.push_str(&markdown[..end]);
+    if end < markdown.len() {
+        context.push_str(&truncation_notice);
+    }
+    context.push_str(footer);
+    context
+}
+
+fn text_excerpt(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let mut excerpt = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_some() {
+        excerpt.push('…');
+    }
+    excerpt
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn active_note_context_is_bounded_and_keeps_utf8_boundaries() {
+        let markdown = "é".repeat(MAX_ACTIVE_NOTE_CONTEXT_BYTES);
+        let context =
+            active_note_context("Test note", 12, &markdown, MAX_ACTIVE_NOTE_CONTEXT_BYTES);
+
+        assert!(context.len() <= MAX_ACTIVE_NOTE_CONTEXT_BYTES);
+        assert!(context.contains("Editor revision: 12"));
+        assert!(context.contains("context limit"));
+        assert!(context.ends_with("--- END NOTE SNAPSHOT ---"));
+    }
+
+    #[test]
+    fn local_note_context_respects_the_smaller_model_budget() {
+        let markdown = "local model context ".repeat(2_000);
+        let context = active_note_context(
+            "Test note",
+            13,
+            &markdown,
+            MAX_LOCAL_ACTIVE_NOTE_CONTEXT_BYTES,
+        );
+
+        assert!(context.len() <= MAX_LOCAL_ACTIVE_NOTE_CONTEXT_BYTES);
+        assert!(context.contains("8 KiB context limit"));
+    }
+
+    #[test]
+    fn target_excerpt_marks_truncation_without_scanning_unbounded_tail() {
+        assert_eq!(text_excerpt("Phoenix agent", 7), "Phoenix…");
+        assert_eq!(text_excerpt("short", 7), "short");
     }
 }
