@@ -1,5 +1,5 @@
 use super::{worker::presentation::Phase, Command, PhoenixShell};
-use gpui::{div, prelude::*, px, rgb, Context, IntoElement};
+use gpui::{div, prelude::*, px, relative, rgb, Context, IntoElement};
 use gpui_component::{
     button::{Button, ButtonVariants},
     Disableable, IconName, Sizable,
@@ -80,7 +80,7 @@ impl PhoenixShell {
     }
 
     pub(super) fn show_reader_sidebar(&mut self, details: bool, cx: &mut Context<Self>) {
-        self.right_sidebar_width = self.right_sidebar_width.max(380.);
+        self.right_sidebar_width = self.right_sidebar_width.max(440.);
         self.reader.sidebar = true;
         self.reader.details = details;
         self.right_open = true;
@@ -112,38 +112,37 @@ impl PhoenixShell {
         } else {
             &s.voice_name
         };
+        let progress = if s.segments == 0 {
+            0.
+        } else {
+            ((s.segment + 1) as f32 / s.segments as f32).clamp(0., 1.)
+        };
         div()
             .id("reader-dock")
-            .h(px(88.))
+            .h(px(92.))
             .flex_shrink_0()
             .min_w_0()
             .flex()
             .flex_col()
-            .justify_between()
-            .px_4()
-            .py_2()
+            .gap_2()
+            .px_3()
+            .pt_2()
+            .pb_2()
             .border_t_1()
-            .border_color(rgb(0x35443c))
-            .bg(rgb(0x19221e))
+            .border_color(rgb(0x303633))
+            .bg(rgb(0x101312))
             .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_2()
+                    .h(px(3.))
+                    .w_full()
+                    .rounded_full()
+                    .bg(rgb(0x303633))
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(rgb(0xaab9b1))
-                            .truncate()
-                            .child(location),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x72d6b3))
-                            .truncate()
-                            .child(phase.headline()),
+                            .h_full()
+                            .w(relative(progress))
+                            .rounded_full()
+                            .bg(rgb(0xe7eee9)),
                     ),
             )
             .child(
@@ -154,16 +153,25 @@ impl PhoenixShell {
                     .gap_2()
                     .min_w_0()
                     .child(
-                        Button::new("reader-voice-picker")
-                            .icon(IconName::User)
-                            .label(voice.to_owned())
-                            .small()
-                            .ghost()
-                            .max_w(px(160.))
-                            .overflow_hidden()
-                            .tooltip("Voices and passage casting")
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.show_reader_sidebar(false, cx)),
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x72d6b3))
+                                    .truncate()
+                                    .child(phase.headline()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(rgb(0x9ca8a2))
+                                    .truncate()
+                                    .child(location),
                             ),
                     )
                     .child(
@@ -188,9 +196,9 @@ impl PhoenixShell {
                                         phase.primary(s.requested, self.editor.read(cx).is_dirty()),
                                     )
                                     .primary()
-                                    .rounded(px(22.))
+                                    .rounded(px(24.))
                                     .min_w(px(92.))
-                                    .h(px(40.))
+                                    .h(px(44.))
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.reader_primary(cx)),
                                     ),
@@ -212,6 +220,19 @@ impl PhoenixShell {
                             .items_center()
                             .gap_1()
                             .flex_shrink_0()
+                            .child(
+                                Button::new("reader-voice-picker")
+                                    .icon(IconName::User)
+                                    .label(voice.to_owned())
+                                    .small()
+                                    .ghost()
+                                    .max_w(px(150.))
+                                    .overflow_hidden()
+                                    .tooltip("Voices and passage casting")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.show_reader_sidebar(false, cx)
+                                    })),
+                            )
                             .child(
                                 Button::new("reader-bookmark")
                                     .icon(IconName::Star)

@@ -209,8 +209,8 @@ impl PhoenixShell {
                     .overflow_hidden()
                     .px_4()
                     .border_b_1()
-                    .border_color(rgb(BORDER))
-                    .bg(rgb(SURFACE))
+                    .border_color(rgb(if self.reader.open { 0x303633 } else { BORDER }))
+                    .bg(rgb(if self.reader.open { 0x111413 } else { SURFACE }))
                     .child(
                         div()
                             .min_w_0()
@@ -223,10 +223,20 @@ impl PhoenixShell {
                                     .min_w_0()
                                     .truncate()
                                     .text_xs()
-                                    .text_color(rgb(ACCENT_BRIGHT))
+                                    .text_color(rgb(if self.reader.open {
+                                        0xf1f3ef
+                                    } else {
+                                        ACCENT_BRIGHT
+                                    }))
                                     .child(format!(
                                         "{} / {selected_name}",
-                                        if is_note { "NOTE" } else { "FOLDER" }
+                                        if self.reader.open {
+                                            "READER"
+                                        } else if is_note {
+                                            "NOTE"
+                                        } else {
+                                            "FOLDER"
+                                        }
                                     )),
                             )
                             .child(

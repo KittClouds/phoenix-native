@@ -1,7 +1,7 @@
 use super::{worker, PhoenixShell};
-use gpui::{div, prelude::*, px, Context, Entity, IntoElement, Window};
+use gpui::{div, prelude::*, px, rgb, Context, Entity, IntoElement, Window};
 use gpui_component::{
-    button::Button,
+    button::{Button, ButtonVariants},
     input::{Input, InputState},
     Disableable, Sizable,
 };
@@ -131,22 +131,24 @@ impl PhoenixShell {
             .w_full().min_w_0().flex_shrink_0()
             .flex()
             .flex_col()
-            .gap_2()
-            .p_3()
-            .rounded_lg()
-            .bg(gpui::rgb(0x222824))
+            .gap_3()
+            .pt_4()
+            .border_t_1()
+            .border_color(rgb(0x303633))
             .when(!inputs.casting, |view| view
-            .child("Create a Breeze voice")
-            .child("Describe how it should sound. This creates a voice design; it does not clone a speaker.")
-            .child("Voice name")
+            .child(div().text_lg().text_color(rgb(0xf1f3ef)).child("Create a Breeze voice"))
+            .child(div().text_sm().text_color(rgb(0x9ca8a2))
+                .child("Describe its sound and delivery. A voice design is distinct from a speaker clone."))
+            .child(div().text_xs().text_color(rgb(0x72d6b3)).child("VOICE NAME"))
             .child(Input::new(&inputs.name).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0())
-            .child("Voice description")
+            .child(div().text_xs().text_color(rgb(0x72d6b3)).child("DESCRIPTION"))
             .child(Input::new(&inputs.description).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0())
-            .child(div().text_sm().child("Example: Warm, low-pitched English voice; measured pace and gentle delivery."))
+            .child(div().text_xs().text_color(rgb(0x9ca8a2))
+                .child("Example: Warm, low English voice; measured pace and gentle delivery."))
             .child(
                 Button::new("reader-save-designed")
                     .label("Save narrator")
-                    .small()
+                    .small().primary()
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Err(error) = this.save_designed_narrator(cx) {
                             this.reader.notice = format!("{error:#}");
@@ -155,13 +157,12 @@ impl PhoenixShell {
                     })),
             ))
             .when(inputs.casting, |view| view
-            .child("Cast a passage")
-            .child(format!(
-                "Whole passage {} · save, then Listen to apply",
-                inputs.segment + 1
-            ))
-            .child(inputs.excerpt.clone())
-            .child("Character name")
+            .child(div().text_lg().text_color(rgb(0xf1f3ef)).child("Cast a passage"))
+            .child(div().text_xs().text_color(rgb(0x72d6b3)).child(format!(
+                "PASSAGE {} · SAVE, THEN LISTEN", inputs.segment + 1)))
+            .child(div().p_3().rounded_md().bg(rgb(0x1b201e))
+                .text_sm().text_color(rgb(0xc2cbc5)).child(inputs.excerpt.clone()))
+            .child(div().text_xs().text_color(rgb(0x72d6b3)).child("CHARACTER NAME"))
             .child(Input::new(&inputs.character).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0())
             .child(
                 div().flex().flex_wrap().gap_2().children(
