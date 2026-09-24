@@ -89,6 +89,83 @@ fn device_backpressure_bounds_submission_without_skipping_frames() {
     assert_eq!(r.tick().unwrap(), PlaybackState::Completed);
 }
 
+#[test]
+fn speed_change_preserves_source_position_and_flushes_old_output() {
+    use phoenix_tts_contract::{AudioFormat, Event, FinishReason};
+    let root = tempfile::tempdir().unwrap();
+    let plan = plan(&lease("Hello.", 1));
+    let mut cache = AudioCache::open(root.path(), 2 * 1024 * 1024).unwrap();
+    let binding = binding("Hello.");
+    let mut writer = cache.begin(binding, identity(), "Hello.", 24_000).unwrap();
+    writer
+        .push(
+            event(
+                binding,
+                0,
+                Event::Started {
+                    provider: identity().provider,
+                    format: AudioFormat::PCM24,
+                },
+            ),
+            &[],
+        )
+        .unwrap();
+    let pcm: Vec<u8> = (0..24_000)
+        .flat_map(|n| {
+            let phase = n as f32 * std::f32::consts::TAU * 240.0 / 24_000.0;
+            ((phase.sin() * 16000.0) as i16).to_le_bytes()
+        })
+        .collect();
+    let mut sequence = 1;
+    for (index, chunk) in pcm.chunks(4096).enumerate() {
+        writer
+            .push(
+                event(
+                    binding,
+                    sequence,
+                    Event::AudioChunk {
+                        first_frame: (index * 2048) as u64,
+                        frames: (chunk.len() / 2) as u32,
+                    },
+                ),
+                chunk,
+            )
+            .unwrap();
+        sequence += 1;
+    }
+    writer
+        .finish(
+            event(
+                binding,
+                sequence,
+                Event::Completed {
+                    frames: 24_000,
+                    reason: FinishReason::Normal,
+                },
+            ),
+            None,
+        )
+        .unwrap();
+    let state = Rc::new(RefCell::new(State::default()));
+    let session = ReaderSession::new([7; 32], &plan, [6; 32]).unwrap();
+    let mut runtime = ReaderRuntime::new(Device(state.clone()), plan, session, identity()).unwrap();
+    runtime
+        .attach(runtime.epoch(), 0, cache.get(binding.audio_key).unwrap())
+        .unwrap();
+    runtime.tick().unwrap();
+    state.borrow_mut().presented = 1024;
+    let old_epoch = runtime.epoch();
+    runtime.set_speed(1300).unwrap();
+    assert!(runtime.epoch() > old_epoch);
+    assert_eq!(runtime.speed_milli(), 1300);
+    assert_eq!(runtime.session().position().source_frame, 1024);
+    assert_eq!(state.borrow().queued, 0);
+    runtime.pause(false).unwrap();
+    runtime.tick().unwrap();
+    assert!(state.borrow().queued > 0);
+    assert_eq!(runtime.session().position().source_frame, 1024);
+}
+
 #[derive(Default)]
 struct State {
     queued: u64,

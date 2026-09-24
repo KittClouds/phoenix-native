@@ -1,5 +1,5 @@
 use super::{Command, PhoenixShell};
-use gpui::{div, prelude::*, px, rgb, Context, IntoElement};
+use gpui::{div, prelude::*, px, rgb, AnyElement, Context, IntoElement};
 use gpui_component::{
     button::{Button, ButtonVariants},
     scroll::ScrollableElement,
@@ -24,10 +24,143 @@ fn avatar_color(name: &str) -> u32 {
 }
 
 impl PhoenixShell {
-    pub(in crate::shell) fn render_reader_sidebar(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render_reader_settings(&self, cx: &mut Context<Self>) -> AnyElement {
+        let s = &self.reader.status;
+        let speed = if self.reader.preferred_speed != 0 {
+            Some(self.reader.preferred_speed)
+        } else if s.speed_milli == 0 {
+            None
+        } else {
+            Some(s.speed_milli)
+        };
+        div()
+            .w_full()
+            .min_w_0()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .border_l_1()
+            .border_color(rgb(LINE))
+            .bg(rgb(BG))
+            .child(
+                div()
+                    .h(px(62.))
+                    .px_5()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .border_b_1()
+                    .border_color(rgb(LINE))
+                    .child(
+                        div()
+                            .text_lg()
+                            .text_color(rgb(TEXT))
+                            .child("Playback settings"),
+                    )
+                    .child(
+                        Button::new("reader-settings-close")
+                            .icon(IconName::Close)
+                            .small()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.right_open = false;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .px_5()
+                    .py_5()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(MUTED))
+                            .child("Listening speed"),
+                    )
+                    .child(
+                        div().flex().flex_wrap().gap_2().children(
+                            [
+                                (850u16, "0.85×"),
+                                (1000, "1×"),
+                                (1150, "1.15×"),
+                                (1300, "1.3×"),
+                            ]
+                            .into_iter()
+                            .map(|(milli, label)| {
+                                Button::new(("reader-speed", u32::from(milli)))
+                                    .label(label)
+                                    .small()
+                                    .when(speed == Some(milli), |b| b.primary())
+                                    .when(speed != Some(milli), |b| b.ghost())
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.reader.preferred_speed = milli;
+                                        this.reader.status.speed_milli = milli;
+                                        this.reader_command(Command::Speed(milli), cx);
+                                    }))
+                            }),
+                        ),
+                    )
+                    .when(speed.is_none(), |view| {
+                        view.child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(MUTED))
+                                .child("Saved listening speed loads when you press Listen."),
+                        )
+                    })
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(MUTED))
+                            .child("Pitch stays natural; cached narration remains unchanged."),
+                    )
+                    .child(div().h(px(1.)).bg(rgb(LINE)))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(ACCENT))
+                            .child("Playback details"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(TEXT))
+                            .child(s.message.clone()),
+                    )
+                    .child(div().text_sm().text_color(rgb(MUTED)).child(format!(
+                        "{}s buffered · {} rebufferings · {} device gaps",
+                        s.buffered_seconds, s.rebufferings, s.device_starvations
+                    )))
+                    .child(div().text_sm().text_color(rgb(MUTED)).child(format!(
+                        "Target {}s · synthesis RTF {:.2} · {} segments generated while playing",
+                        s.target_seconds, s.synthesis_rtf, s.generated_during_playback
+                    )))
+                    .child(
+                        Button::new("reader-settings-voices")
+                            .label("Voices and casting")
+                            .small()
+                            .ghost()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_reader_sidebar(false, cx);
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    pub(in crate::shell) fn render_reader_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.reader.settings {
+            return self.render_reader_settings(cx);
+        }
         let s = &self.reader.status;
         let available = self.reader.lease.is_some() && !s.finished && s.segments > 0;
         div().w_full().min_w_0().flex_1().min_h_0().flex().flex_col()
@@ -191,5 +324,6 @@ impl PhoenixShell {
                 .child(Button::new("reader-back-editor").label("Return to editor")
                     .icon(IconName::ArrowLeft).small().ghost()
                     .on_click(cx.listener(|this, _, _, cx| this.close_reader(cx)))))
+            .into_any_element()
     }
 }

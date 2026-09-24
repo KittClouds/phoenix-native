@@ -11,10 +11,14 @@ are outside this cut.
 | Active note authority | Full Reader playback uses the open saved note's document lease. Edits invalidate playback; a dirty note is saved before narration. | Live switch from excerpt to the open `Welcome` note reached saved revision 1 and advanced to chapter 1, passage 7. | Passed in the review workspace |
 | Long excerpt bounds | A selection longer than one TTS request is split at sentence or word boundaries without dropping source text or breaking UTF-8. | `long_selected_prose_is_bounded_without_omitting_words` passes. | Passed |
 | Playback continuity | Audio quality settings are unchanged. During live playback, rebufferings and device gaps remain zero; generation proceeds while audio plays. | Selected excerpt: 0 rebufferings, 0 device gaps. Earlier full-note policies rebuffered twice by passage 20 and once by passage 36. The final bounded reservoir resumed the saved note at passage 45 and reached passage 99 in roughly four minutes of observation, with 0 rebufferings, 0 device gaps, 44 seconds buffered, synthesis RTF about 0.7, and generation during playback. | Passed for this short 1x run; extended and faster-speed runs pending |
+| Playback menu and speed | The dock kebab opens a distinct settings panel. Speeds 0.85×, 1×, 1.15×, and 1.3× change tempo without changing the cached voice PCM, pitch, or saved source-frame position. | Runtime test verifies queue flush and source-frame position across a live speed change; a sine test verifies shorter duration with stable pitch. In the review app, the menu opened, 1.3× resumed from passage 99 and reached 112 with 0 rebufferings and 0 device gaps. An in-flight switch to 0.85× retained those counters. After a restart, the saved note resumed at passage 120 with 0.85× restored, then reached passage 157 with 0 rebufferings and 0 device gaps. The final executable restored 0.85× and reached passage 159, again with zero counters. Acoustic listening quality remains for the user to judge. | Function passed; acoustic qualification pending |
 | Freeze listening | Long-form Breeze and Supertonic listening, cold and cached starts, repeated pause/resume, voice continuity, and the seven-day listening gate. | No new long-form or seven-day run in this cut. | Pending |
 
 The Reader is not frozen. The final build passed the scoped interaction checks
 and a short uninterrupted 1x playback run. The longer Breeze and Supertonic
-listening pass, faster playback speeds, and the seven-day listening gate remain
+listening pass, sustained faster-speed playback, and the seven-day listening gate remain
 open. A clean build and a short live pass do not establish acoustic quality or
 long-form continuity.
+
+Final review executable: `C:\phoenix-bin\phoenix-reader-closeout-v10-20260923\release\phoenix-shell.exe`.
+External SHA-256: `959344207A5B38A07A19FCE71E29ED8CCD43B6AAF85841A2CF867B7B1488AA6A`.

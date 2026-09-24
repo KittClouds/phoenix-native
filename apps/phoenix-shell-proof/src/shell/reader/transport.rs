@@ -101,8 +101,21 @@ impl PhoenixShell {
     pub(super) fn show_reader_sidebar(&mut self, details: bool, cx: &mut Context<Self>) {
         self.right_sidebar_width = self.right_sidebar_width.max(440.);
         self.reader.sidebar = true;
+        self.reader.settings = false;
         self.reader.details = details;
         self.right_open = true;
+        cx.notify();
+    }
+
+    pub(super) fn show_reader_settings(&mut self, cx: &mut Context<Self>) {
+        if self.right_open && self.reader.settings {
+            self.right_open = false;
+        } else {
+            self.right_sidebar_width = self.right_sidebar_width.max(440.);
+            self.reader.sidebar = true;
+            self.reader.settings = true;
+            self.right_open = true;
+        }
         cx.notify();
     }
 
@@ -289,9 +302,9 @@ impl PhoenixShell {
                                     .icon(IconName::Ellipsis)
                                     .ghost()
                                     .tooltip("Playback details and options")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.show_reader_sidebar(true, cx)
-                                    })),
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.show_reader_settings(cx)),
+                                    ),
                             ),
                     ),
             )

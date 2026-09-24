@@ -15,6 +15,8 @@ pub(super) struct ReaderPanel {
     retiring: bool,
     pending_listen: bool,
     pub(in crate::shell) selection_mode: bool,
+    pub(in crate::shell) settings: bool,
+    pub(in crate::shell) preferred_speed: u16,
     selection_request: u64,
     bridge: Option<Bridge>,
     status: Status,
@@ -147,6 +149,9 @@ impl PhoenixShell {
             plain,
             self.reader.selected_voice,
         ));
+        if self.reader.preferred_speed != 0 {
+            self.reader_command(Command::Speed(self.reader.preferred_speed), cx);
+        }
         cx.notify();
     }
 
@@ -235,6 +240,9 @@ impl PhoenixShell {
                 this.reader.bridge = Some(worker::start_selection_with_voice(
                     workspace, selection, voice,
                 ));
+                if this.reader.preferred_speed != 0 {
+                    this.reader_command(Command::Speed(this.reader.preferred_speed), cx);
+                }
                 this.reader_command(Command::Play, cx);
             });
         })

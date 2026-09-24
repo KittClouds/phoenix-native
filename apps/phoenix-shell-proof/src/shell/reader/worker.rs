@@ -37,6 +37,7 @@ pub enum Command {
     Next,
     Bookmark,
     ReturnBookmark,
+    Speed(u16),
 }
 #[derive(Clone, Default, PartialEq)]
 pub struct Status {
@@ -55,6 +56,7 @@ pub struct Status {
     pub buffered_seconds: u64,
     pub target_seconds: u64,
     pub synthesis_rtf: f32,
+    pub speed_milli: u16,
     pub rebufferings: u32,
     pub generated_during_playback: u32,
     pub device_starvations: u32,
@@ -360,6 +362,23 @@ fn run(
                         selected = Some((p.segment, p.source_frame));
                     }
                 }
+                Command::Speed(speed_milli) => {
+                    if runtime.speed_milli() != speed_milli {
+                        generation_epoch = generation_epoch
+                            .checked_add(1)
+                            .ok_or_else(|| anyhow::anyhow!("generation epoch exhausted"))?;
+                        generator.cancel();
+                        runtime.set_speed(speed_milli)?;
+                        priming = true;
+                        if !selection {
+                            runtime.checkpoint(
+                                &mut sessions,
+                                clock.elapsed().as_millis() as u64,
+                                true,
+                            )?;
+                        }
+                    }
+                }
                 Command::Previous | Command::Next => {
                     let plan = runtime.plan();
                     let current = plan.segment(runtime.session().position().segment)?.chapter;
@@ -424,9 +443,14 @@ fn run(
         // bursts slower than real time even when its average is near 1x.
         // A bounded, larger reservoir absorbs those bursts without changing
         // model precision, voice identity, or the PCM delivered to the device.
+        let speed = runtime.speed_milli() as f64 / 1000.0;
         let target_seconds = (12.0 + rtf * 24.0).clamp(45.0, 75.0);
-        let target = (target_seconds * 24000.0) as u64;
-        let start_target = if started { target } else { 24 * 24000 };
+        let target = (target_seconds * speed * 24000.0) as u64;
+        let start_target = if started {
+            target
+        } else {
+            (24.0 * speed * 24000.0) as u64
+        };
         let end = runtime.plan().spec().segments.len() as u32;
         if active
             && priming
@@ -516,7 +540,10 @@ fn run(
                         _ => Phase::Stopped,
                     }
                 },
-                message: format!("{label} · saved revision {} · 1×", lease.revision.0),
+                message: format!(
+                    "{label} · saved revision {} · {:.2}×",
+                    lease.revision.0, speed
+                ),
                 voice_name: voices[usize::from(slots[p.segment as usize])].name.clone(),
                 source_ranges: Arc::clone(&source_ranges),
                 segment: p.segment,
@@ -527,9 +554,10 @@ fn run(
                 playing: runtime.state() == PlaybackState::Playing,
                 finished: false,
                 requested: active && runtime.state() != PlaybackState::Completed,
-                buffered_seconds: runtime.buffered_frames() / 24000,
+                buffered_seconds: (runtime.buffered_frames() as f64 / (24000.0 * speed)) as u64,
                 target_seconds: target_seconds as u64,
                 synthesis_rtf: rtf as f32,
+                speed_milli: runtime.speed_milli(),
                 rebufferings,
                 generated_during_playback,
                 device_starvations: runtime.device_starvations(),

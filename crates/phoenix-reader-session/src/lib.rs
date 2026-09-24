@@ -9,6 +9,7 @@ mod planner;
 mod runtime;
 mod session;
 mod storage;
+mod tempo;
 pub use cache::*;
 pub use mapping::*;
 pub use phoenix_tts_contract::{Digest, Error as ContractError};

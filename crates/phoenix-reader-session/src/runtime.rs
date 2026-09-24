@@ -1,5 +1,6 @@
 //! Completed-cache playback coordinator. A cache miss is explicit; regeneration
 //! and incomplete provider audio cannot silently substitute a resume artifact.
+use crate::tempo::PlaybackAudio;
 use crate::{CachedAudio, Digest, Error, NarrationPlan, ReaderSession, Result, SessionStore};
 use phoenix_audio::device::PlaybackDevice;
 use phoenix_tts_contract::{SynthesisIdentity, BLOCK_FRAMES};
@@ -7,7 +8,7 @@ use std::collections::VecDeque;
 
 pub const PREFETCH_SEGMENTS: usize = 8;
 struct Ahead {
-    audio: CachedAudio,
+    audio: PlaybackAudio,
     queued: u64,
 }
 
@@ -26,7 +27,7 @@ pub struct ReaderRuntime<D: PlaybackDevice> {
     session: ReaderSession,
     identity: SynthesisIdentity,
     voices: Option<crate::UtteranceVoices>,
-    audio: Option<CachedAudio>,
+    audio: Option<PlaybackAudio>,
     state: PlaybackState,
     epoch: u64,
     segment: u32,
@@ -67,9 +68,6 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
         identity: SynthesisIdentity,
     ) -> Result<Self> {
         session.validate(&plan)?;
-        if session.speed_milli() != 1000 {
-            return Err(Error::Invalid("runtime supports 1x only"));
-        }
         device.reset()?;
         let segment = session.position().segment;
         Ok(Self {
@@ -101,6 +99,9 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
     pub fn session(&self) -> &ReaderSession {
         &self.session
     }
+    pub fn speed_milli(&self) -> u16 {
+        self.session.speed_milli()
+    }
     pub fn plan(&self) -> &NarrationPlan {
         &self.plan
     }
@@ -114,14 +115,13 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
         self.starvations
     }
     pub fn buffered_frames(&self) -> u64 {
-        self.audio
-            .as_ref()
-            .map_or(0, |a| a.manifest().frames - self.presented)
-            + self
-                .ahead
-                .iter()
-                .map(|a| a.audio.manifest().frames)
-                .sum::<u64>()
+        self.audio.as_ref().map_or(0, |a| {
+            a.cached().manifest().frames - a.source_at(self.presented)
+        }) + self
+            .ahead
+            .iter()
+            .map(|a| a.audio.cached().manifest().frames)
+            .sum::<u64>()
     }
     /// Only sequential completed artifacts in the current playback epoch may queue.
     pub fn enqueue(&mut self, epoch: u64, segment: u32, audio: CachedAudio) -> Result<()> {
@@ -133,7 +133,10 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
         {
             return Err(Error::Invalid("stale, nonsequential or excessive prefetch"));
         }
-        self.ahead.push_back(Ahead { audio, queued: 0 });
+        self.ahead.push_back(Ahead {
+            audio: PlaybackAudio::new(audio, self.speed_milli())?,
+            queued: 0,
+        });
         Ok(())
     }
     pub fn required_key(&self, segment: u32) -> Result<Digest> {
@@ -196,10 +199,12 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
         self.flush()?;
         self.session = candidate;
         self.segment = segment;
-        self.start = frame;
-        self.queued = frame;
-        self.presented = frame;
-        self.audio = Some(audio);
+        let playback = PlaybackAudio::new(audio, self.speed_milli())?;
+        let output_frame = playback.output_at(frame);
+        self.start = output_frame;
+        self.queued = output_frame;
+        self.presented = output_frame;
+        self.audio = Some(playback);
         self.state = PlaybackState::Playing;
         if let Err(e) = self.device.pause(false) {
             self.state = PlaybackState::Failed;
@@ -242,7 +247,7 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
             .audio
             .as_ref()
             .ok_or(Error::Invalid("missing active audio"))?;
-        let frames = audio.manifest().frames;
+        let frames = audio.output_frames();
         if self.presented == self.queued && self.queued > self.start && self.queued < frames {
             self.starvations = self.starvations.saturating_add(1);
         }
@@ -265,20 +270,14 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
             } else if let Some(next) = self
                 .ahead
                 .iter_mut()
-                .find(|a| a.queued < a.audio.manifest().frames)
+                .find(|a| a.queued < a.audio.output_frames())
             {
                 (&next.audio, &mut next.queued)
             } else {
                 break;
             };
-            let count = (audio.manifest().frames - *queued).min(BLOCK_FRAMES as u64) as usize;
-            let offset = *queued as usize * 2;
-            for (out, bytes) in self.scratch[..count]
-                .iter_mut()
-                .zip(audio.pcm()[offset..offset + count * 2].chunks_exact(2))
-            {
-                *out = i16::from_le_bytes([bytes[0], bytes[1]]);
-            }
+            let count = (audio.output_frames() - *queued).min(BLOCK_FRAMES as u64) as usize;
+            audio.copy_samples(*queued, &mut self.scratch[..count]);
             self.device.submit(&self.scratch[..count])?;
             *queued += count as u64;
         }
@@ -292,7 +291,7 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
             .ok_or(Error::Invalid("device clock overflow"))?;
         // Advance highlighting only when the device actually crosses the boundary.
         while let Some(audio) = &self.audio {
-            let frames = audio.manifest().frames;
+            let frames = audio.output_frames();
             if frame < frames || self.ahead.is_empty() {
                 break;
             }
@@ -311,7 +310,7 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
                 &self.plan,
                 self.segment,
                 0,
-                self.audio.as_ref().unwrap(),
+                self.audio.as_ref().unwrap().cached(),
                 self.voices.as_ref(),
             )?;
         }
@@ -322,10 +321,11 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
             self.session.set_position_with_voices(
                 &self.plan,
                 self.segment,
-                frame,
+                self.audio.as_ref().unwrap().source_at(frame),
                 self.audio
                     .as_ref()
-                    .ok_or(Error::Invalid("missing active audio"))?,
+                    .ok_or(Error::Invalid("missing active audio"))?
+                    .cached(),
                 self.voices.as_ref(),
             )?;
             self.presented = frame;
@@ -351,6 +351,36 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
         } else {
             PlaybackState::Playing
         };
+        Ok(())
+    }
+    /// Change tempo at an exact source-frame boundary. Discard queued output,
+    /// then render the current completed artifact at the new tempo. The worker
+    /// refills ahead audio before resuming, so no old-speed tail can leak through.
+    pub fn set_speed(&mut self, speed_milli: u16) -> Result<()> {
+        if !matches!(speed_milli, 850 | 1000 | 1150 | 1300) {
+            return Err(Error::Invalid("unsupported Reader speed"));
+        }
+        if self.speed_milli() == speed_milli {
+            return Ok(());
+        }
+        if matches!(self.state, PlaybackState::Playing | PlaybackState::Paused) {
+            self.device.pause(true)?;
+            self.observe()?;
+        }
+        let frame = self.session.position().source_frame;
+        let audio = self.audio.take().map(PlaybackAudio::into_cached);
+        self.flush()?;
+        self.session.set_speed(speed_milli)?;
+        if let Some(audio) = audio {
+            let playback = PlaybackAudio::new(audio, speed_milli)?;
+            let output_frame = playback.output_at(frame);
+            self.start = output_frame;
+            self.queued = output_frame;
+            self.presented = output_frame;
+            self.audio = Some(playback);
+            self.state = PlaybackState::Paused;
+            self.device.pause(true)?;
+        }
         Ok(())
     }
     pub fn cancel(&mut self) -> Result<()> {

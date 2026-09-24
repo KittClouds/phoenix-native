@@ -21,6 +21,7 @@ uuid.workspace = true
 windows.workspace = true
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 unicode-segmentation = "=1.13.3"
+wsola = "=0.1.0"
 
 [dev-dependencies]
 tempfile = "3"
