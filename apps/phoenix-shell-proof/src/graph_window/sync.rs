@@ -1,7 +1,7 @@
 use super::{EmbeddedGraphApp, PendingManifoldSwitch};
 use anyhow::{anyhow, Context, Result};
 use graph_model::{GraphRevision, NodeId};
-use phoenix_app_core::GraphSelectionOrigin;
+use phoenix_app_core::{GraphSelectionOrigin, SourceScopeResolution};
 use phoenix_scene_archive::{PageKey, PageKind};
 use std::sync::Arc;
 use std::time::Instant;
@@ -185,6 +185,24 @@ impl EmbeddedGraphApp {
                 .context("synchronize kernel graph selection")?;
             self.loaded_selection_revision = snapshot.graph_selection.revision;
         }
+        // Source-local scope is resolved from stored provenance on every sync
+        // so a selection change can never leak the previous anchor's scope.
+        // Unavailable anchors leave the graph unghosted.
+        let source_scope = if snapshot.graph_view.source_local {
+            match self.source_scope_cache.resolve(
+                snapshot.graph_generation_v2.as_deref(),
+                snapshot.graph_selection.node_id,
+            ) {
+                SourceScopeResolution::Scoped(scope) => Some(graph_render_wgpu::SourceScopeMask {
+                    anchor: NodeId(scope.anchor),
+                    members: scope.members,
+                }),
+                SourceScopeResolution::Unavailable(_) => None,
+            }
+        } else {
+            None
+        };
+        renderer.set_source_scope(source_scope);
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }

@@ -43,7 +43,7 @@ struct NodeProductGpu {
     review_mask: u32,
     enabled: u32,
     context_visible: u32,
-    _padding: u32,
+    source_scope: u32,
 };
 
 struct GraphLensUniform {
@@ -76,7 +76,21 @@ struct VertexOutput {
     @location(4) progress: f32,
     @location(5) @interpolate(flat) emphasis_match: u32,
     @location(6) @interpolate(flat) navigation_flags: u32,
+    @location(7) @interpolate(flat) source_state: u32,
 };
+
+// Source-local edge state derived from its endpoints: 0 = mode off,
+// 1 = ghosted, 2 = both endpoints are in the verified source scope.
+fn source_state(edge: EdgeGpu) -> u32 {
+    let from_scope = node_products[edge.source_slot].source_scope;
+    let to_scope = node_products[edge.target_slot].source_scope;
+    if ((from_scope & 1u) == 0u) {
+        return 0u;
+    }
+    return select(1u, 2u, (from_scope & 2u) != 0u && (to_scope & 2u) != 0u);
+}
+
+const SOURCE_GHOST_EDGE_OPACITY: f32 = 0.035;
 
 // Line width is relative to the smallest ordinary node, never to either endpoint.
 // This keeps edges stable when degree makes centroids or medoids much larger.
@@ -204,6 +218,7 @@ fn vs_main(
     output.side = side;
     output.emphasis_match = select(0u, 1u, emphasis_matches(primary_edge_family(edge_products[instance_index])));
     output.navigation_flags = edge._padding0;
+    output.source_state = source_state(edge);
     output.visible = select(0u, 1u, is_visible);
     output.flags = edge.kind_flags & 0xffffu;
     output.progress = progress;
@@ -230,7 +245,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if ((input.flags & 16384u) != 0u) {
         color.a = max(color.a, 0.42);
     }
-    if (lens.focus_active != 0u
+    if (input.source_state == 1u) {
+        color.a *= SOURCE_GHOST_EDGE_OPACITY;
+    } else if (input.source_state == 2u) {
+        // In-scope edges keep normal rendering while the anchor is focused.
+    } else if (lens.focus_active != 0u
         && (input.flags & 32768u) == 0u
         && (input.flags & 16384u) == 0u) {
         color.a *= lens.dimmed_edge_opacity;

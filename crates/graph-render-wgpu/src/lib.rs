@@ -31,7 +31,10 @@ pub use gpu_scene::{
 pub use interaction::{
     logical_to_physical, GraphEvent, GraphInput, PhysicalPointer, PointerButton,
 };
-pub use lens::{EdgeProductGpu, GraphLensUniform, NodeProductGpu};
+pub use lens::{
+    EdgeProductGpu, GraphLensUniform, NodeProductGpu, SourceScopeMask, SOURCE_SCOPE_ACTIVE,
+    SOURCE_SCOPE_ANCHOR, SOURCE_SCOPE_MEMBER,
+};
 pub use path_layer::PreparedGeometryMetrics;
 pub use renderer::GraphRenderer;
 pub use renderer_metrics::{FrameMetrics, LensUpdateMetrics};

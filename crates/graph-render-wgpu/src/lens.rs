@@ -12,7 +12,9 @@ pub struct NodeProductGpu {
     /// Set by the CPU visibility closure when a selected edge needs this node
     /// as a muted endpoint even though its primary lane is hidden.
     pub context_visible: u32,
-    pub _padding: u32,
+    /// Source-local display bits (`SOURCE_SCOPE_*`). Zero when the mode is
+    /// off, so the word never changes admission or graph authority.
+    pub source_scope: u32,
 }
 
 impl NodeProductGpu {
@@ -22,7 +24,7 @@ impl NodeProductGpu {
         review_mask: u32::MAX,
         enabled: 1,
         context_visible: 0,
-        _padding: 0,
+        source_scope: 0,
     };
 }
 
@@ -34,8 +36,38 @@ impl From<&NodeProductRecord> for NodeProductGpu {
             review_mask: record.review_mask,
             enabled: 1,
             context_visible: 0,
-            _padding: 0,
+            source_scope: 0,
         }
+    }
+}
+
+/// Source-local mode is active for this frame.
+pub const SOURCE_SCOPE_ACTIVE: u32 = 1;
+/// The node is explicitly bound to the anchor's verified source passages.
+pub const SOURCE_SCOPE_MEMBER: u32 = 2;
+/// The node is the source-local anchor.
+pub const SOURCE_SCOPE_ANCHOR: u32 = 4;
+
+/// Display-only source-local scope: node ids resolved from stored provenance.
+/// Nodes outside `members` stay resident and are ghosted, never removed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceScopeMask {
+    pub anchor: graph_model::NodeId,
+    /// Sorted, de-duplicated node ids.
+    pub members: std::sync::Arc<[u64]>,
+}
+
+impl SourceScopeMask {
+    #[must_use]
+    pub fn flags_for(&self, node: graph_model::NodeId) -> u32 {
+        let mut flags = SOURCE_SCOPE_ACTIVE;
+        if self.members.binary_search(&node.0).is_ok() {
+            flags |= SOURCE_SCOPE_MEMBER;
+        }
+        if node == self.anchor {
+            flags |= SOURCE_SCOPE_ANCHOR | SOURCE_SCOPE_MEMBER;
+        }
+        flags
     }
 }
 

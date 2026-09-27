@@ -40,7 +40,7 @@ struct NodeProductGpu {
     review_mask: u32,
     enabled: u32,
     context_visible: u32,
-    _padding: u32,
+    source_scope: u32,
 };
 
 struct EdgeGpu {
@@ -87,7 +87,21 @@ struct VertexOutput {
     @location(5) progress: f32,
     @location(6) @interpolate(flat) emphasis_match: u32,
     @location(7) @interpolate(flat) navigation_flags: u32,
+    @location(8) @interpolate(flat) source_state: u32,
 };
+
+// Source-local edge state derived from its endpoints: 0 = mode off,
+// 1 = ghosted, 2 = both endpoints are in the verified source scope.
+fn source_state(edge: EdgeGpu) -> u32 {
+    let from_scope = node_products[edge.source_slot].source_scope;
+    let to_scope = node_products[edge.target_slot].source_scope;
+    if ((from_scope & 1u) == 0u) {
+        return 0u;
+    }
+    return select(1u, 2u, (from_scope & 2u) != 0u && (to_scope & 2u) != 0u);
+}
+
+const SOURCE_GHOST_EDGE_OPACITY: f32 = 0.035;
 
 // Prepared paths and direct edges share the same bounded screen-space width.
 // The reference is an ordinary node, so semantic node growth cannot widen lines.
@@ -234,6 +248,11 @@ fn vs_main(
     }
     output.emphasis_match = emphasis_match;
     output.navigation_flags = navigation_flags;
+    var path_source_state = 0u;
+    if ((segment.flags & 1u) == 0u) {
+        path_source_state = source_state(edges[segment.edge_slot]);
+    }
+    output.source_state = path_source_state;
     output.segment_flags = segment.flags;
     output.progress = progress;
     return output;
@@ -262,7 +281,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         } else if ((runtime_flags & 16384u) != 0u) {
             color.a = max(color.a, 0.42);
         }
-        if (lens.focus_active != 0u
+        if (input.source_state == 1u) {
+            color.a *= SOURCE_GHOST_EDGE_OPACITY;
+        } else if (input.source_state == 2u) {
+            // In-scope paths keep normal rendering while the anchor is focused.
+        } else if (lens.focus_active != 0u
             && (runtime_flags & 32768u) == 0u
             && (runtime_flags & 16384u) == 0u) {
             color.a *= lens.dimmed_edge_opacity;

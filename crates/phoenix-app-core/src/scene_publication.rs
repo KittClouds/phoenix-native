@@ -35,6 +35,7 @@ fn reconcile_published_graph_view(
     published.edge_presentation = previous.edge_presentation;
     published.topology_emphasis = previous.topology_emphasis;
     published.navigation_overlay = previous.navigation_overlay;
+    published.source_local = previous.source_local;
     if previous_was_full {
         published.surface = previous.surface;
         published.families = previous.families;

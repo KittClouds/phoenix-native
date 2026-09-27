@@ -23,7 +23,7 @@ struct NodeProductGpu {
     review_mask: u32,
     enabled: u32,
     context_visible: u32,
-    _padding: u32,
+    source_scope: u32,
 };
 
 struct GraphLensUniform {
@@ -54,7 +54,11 @@ struct VertexOutput {
     @location(4) @interpolate(flat) kind: u32,
     @location(5) @interpolate(flat) context_only: u32,
     @location(6) @interpolate(flat) emphasis_match: u32,
+    @location(7) @interpolate(flat) source_scope: u32,
 };
+
+// Source-local display: out-of-scope nodes stay resident but recede.
+const SOURCE_GHOST_NODE_OPACITY: f32 = 0.09;
 
 // Screen-space geometry contract. Semantic radius may grow for hubs, centroids,
 // and medoids, but line width is governed independently in the edge shaders.
@@ -250,6 +254,7 @@ fn vs_main(
     output.visible = select(0u, 1u, is_visible);
     output.context_only = select(1u, 0u, is_primary);
     output.emphasis_match = select(0u, 1u, emphasized);
+    output.source_scope = product.source_scope;
     var kind = node.kind_flags >> 16u;
     // An unfiltered renderer uses the sentinel all-ones product page.  Do
     // not interpret that sentinel as a character lane; only an installed,
@@ -289,7 +294,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let aura = 1.0 - smoothstep(0.92, 1.52, distance);
     let role = visual_role(input.flags);
     let hovered = (input.flags & 4096u) != 0u;
-    let selected = (input.flags & 8192u) != 0u;
+    let source_active = (input.source_scope & 1u) != 0u;
+    let source_member = (input.source_scope & 2u) != 0u;
+    let selected = (input.flags & 8192u) != 0u || (input.source_scope & 4u) != 0u;
     let neighbor = (input.flags & 16384u) != 0u;
     let route = (input.flags & 32768u) != 0u;
     if (circle <= 0.001 && aura <= 0.001 && !hovered && !selected) {
@@ -329,7 +336,13 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (neighbor) {
         color = mix(color, vec4<f32>(0.064, 0.749, 0.477, color.a), 0.32);
     }
-    if (lens.focus_active != 0u && !hovered && !selected && !neighbor && !route) {
+    if (source_active) {
+        // Scope comes from stored provenance; in-scope nodes keep normal
+        // rendering even while the anchor is focused.
+        if (!source_member && !hovered) {
+            color.a *= SOURCE_GHOST_NODE_OPACITY;
+        }
+    } else if (lens.focus_active != 0u && !hovered && !selected && !neighbor && !route) {
         color.a *= lens.dimmed_node_opacity;
     } else if (lens.focus_active == 0u && lens.topology_emphasis != 0u
         && input.emphasis_match == 0u && !hovered && !selected && !neighbor && !route) {

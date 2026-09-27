@@ -18,6 +18,7 @@ mod scene_compiler_authority;
 mod scene_compiler_authority_v3;
 mod scene_publication;
 mod scene_rebuild;
+mod source_scope;
 mod state;
 
 pub use analysis::{
@@ -62,6 +63,10 @@ pub use resident_memory::{
     ResidentRecallIndexes, VerifiedMemoryPublication,
 };
 pub use scene_rebuild::NativeScenePublishCommand;
+pub use source_scope::{
+    SourceAnchorKind, SourceBinding, SourceScope, SourceScopeCache, SourceScopeIndex,
+    SourceScopeResolution, SourceUnavailable,
+};
 use state::*;
 
 use phoenix_analysis_contract::{

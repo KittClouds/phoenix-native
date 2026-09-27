@@ -445,6 +445,18 @@ impl GraphRenderer {
         Ok(metrics)
     }
 
+    /// Installs or clears the display-only source-local mask resolved from
+    /// stored provenance. Returns the bytes uploaded; zero when unchanged.
+    pub fn set_source_scope(&mut self, scope: Option<crate::SourceScopeMask>) -> usize {
+        if self.scene.source_scope() == scope.as_ref() {
+            return 0;
+        }
+        let bytes = self.scene.set_source_scope(scope, &self.queue);
+        self.labels.mark_dirty();
+        self.redraw_requested = true;
+        bytes
+    }
+
     pub fn set_graph_view(
         &mut self,
         view: GraphViewState,
@@ -984,6 +996,10 @@ impl GraphRenderer {
             LabelFocus {
                 hover: self.scene.hover_node(),
                 selected: self.scene.selected_node(),
+                source_members: self
+                    .scene
+                    .source_scope()
+                    .map(|scope| scope.members.clone()),
             },
         )?;
         {

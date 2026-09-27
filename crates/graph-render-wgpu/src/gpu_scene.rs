@@ -5,7 +5,10 @@ use crate::gpu_scene_support::{
     mark_edge, mark_node, metrics_from_changes, reserve_slots, write_dirty_ranges,
 };
 use crate::interaction_index::InteractionIndex;
-use crate::{EdgeProductGpu, NodeProductGpu, RenderError, SceneChanges, SceneState};
+use crate::{
+    EdgeProductGpu, NodeProductGpu, RenderError, SceneChanges, SceneState, SourceScopeMask,
+    SOURCE_SCOPE_ACTIVE,
+};
 use graph_model::{EdgeId, GraphDiff, GraphRevision, GraphSnapshot, NodeId};
 use phoenix_scene_archive::{ManifoldPageSet, PositionRecord};
 use phoenix_scene_contract::{
@@ -110,6 +113,7 @@ pub struct GpuScene {
     interaction_edge_dirty: Vec<u32>,
     context_node_slots: Vec<u32>,
     context_node_dirty: Vec<u32>,
+    source_scope: Option<SourceScopeMask>,
 }
 
 impl GpuScene {
@@ -157,7 +161,47 @@ impl GpuScene {
             interaction_edge_dirty: Vec::new(),
             context_node_slots: Vec::new(),
             context_node_dirty: Vec::new(),
+            source_scope: None,
         })
+    }
+
+    #[must_use]
+    pub fn source_scope(&self) -> Option<&SourceScopeMask> {
+        self.source_scope.as_ref()
+    }
+
+    /// Installs or clears the display-only source-local mask. Only the
+    /// packed product word changes; topology, products, and positions stay
+    /// exactly as published, so clearing restores the prior view.
+    pub fn set_source_scope(
+        &mut self,
+        scope: Option<SourceScopeMask>,
+        queue: &wgpu::Queue,
+    ) -> usize {
+        if self.source_scope == scope {
+            return 0;
+        }
+        self.source_scope = scope;
+        self.stamp_source_scope();
+        if self.node_product_data.is_empty() {
+            return 0;
+        }
+        self.node_product_buffer
+            .write(queue, 0, &self.node_product_data);
+        self.node_product_data
+            .len()
+            .saturating_mul(size_of::<NodeProductGpu>())
+    }
+
+    fn stamp_source_scope(&mut self) {
+        for (slot, product) in self.node_product_data.iter_mut().enumerate() {
+            product.source_scope = match (&self.source_scope, self.state.node_at_slot(slot as u32))
+            {
+                (Some(scope), Some(node)) => scope.flags_for(node.id),
+                (Some(_), None) => SOURCE_SCOPE_ACTIVE,
+                (None, _) => 0,
+            };
+        }
     }
 
     #[must_use]
@@ -414,6 +458,7 @@ impl GpuScene {
         self.node_product_data.clear();
         self.node_product_data
             .extend(index.nodes().iter().map(NodeProductGpu::from));
+        self.stamp_source_scope();
         self.edge_product_data.clear();
         self.edge_product_data
             .extend(index.edges().iter().map(EdgeProductGpu::from));
@@ -634,6 +679,8 @@ impl GpuScene {
             self.edge_product_data[slot as usize] = EdgeProductGpu::UNFILTERED;
         }
         self.bound_product_hash = None;
+        self.source_scope = None;
+        self.stamp_source_scope();
         self.context_node_slots.clear();
         self.context_node_dirty.clear();
 
@@ -1017,6 +1064,7 @@ impl GpuScene {
         self.edge_product_data.clear();
         self.edge_product_data
             .resize(self.edge_gpu_data.len(), EdgeProductGpu::UNFILTERED);
+        self.source_scope = None;
         let node_product_reallocated = self
             .node_product_buffer
             .ensure_capacity(device, self.node_product_data.len())?;
@@ -1207,7 +1255,41 @@ mod visibility_tests {
             review_mask: ReviewMask::ACCEPTED.0,
             enabled: 1,
             context_visible: 0,
-            _padding: 0,
+            source_scope: 0,
+        }
+    }
+
+    #[test]
+    fn source_scope_bits_ghost_without_changing_admission_and_mark_the_anchor() {
+        use crate::{SOURCE_SCOPE_ANCHOR, SOURCE_SCOPE_MEMBER};
+        let scope = SourceScopeMask {
+            anchor: NodeId(20),
+            members: std::sync::Arc::from([10_u64, 20, 30]),
+        };
+        assert_eq!(
+            scope.flags_for(NodeId(20)),
+            SOURCE_SCOPE_ACTIVE | SOURCE_SCOPE_MEMBER | SOURCE_SCOPE_ANCHOR
+        );
+        assert_eq!(
+            scope.flags_for(NodeId(30)),
+            SOURCE_SCOPE_ACTIVE | SOURCE_SCOPE_MEMBER
+        );
+        assert_eq!(scope.flags_for(NodeId(40)), SOURCE_SCOPE_ACTIVE);
+        let view = GraphViewState {
+            surface: GraphSurface::Atlas,
+            families: FamilyMask::ALL,
+            ..GraphViewState::unavailable()
+        };
+        let plain = node(FamilyMask::STRUCTURE);
+        for bits in [0, SOURCE_SCOPE_ACTIVE, scope.flags_for(NodeId(20))] {
+            let stamped = NodeProductGpu {
+                source_scope: bits,
+                ..plain
+            };
+            assert_eq!(
+                node_product_visible(&stamped, view),
+                node_product_visible(&plain, view)
+            );
         }
     }
 

@@ -197,6 +197,7 @@ fn encode_nonempty_label_overlay(
             LabelFocus {
                 hover: Some(NodeId(1)),
                 selected: None,
+                source_members: None,
             },
         )
         .unwrap_or_else(|error| panic!("{error}"));

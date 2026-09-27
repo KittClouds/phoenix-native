@@ -454,6 +454,11 @@ pub struct GraphViewState {
     /// Transient navigation display analysis over the current visible graph.
     #[serde(default)]
     pub navigation_overlay: GraphNavigationOverlay,
+    /// Source-local presentation: ghost everything that is not explicitly
+    /// bound to the selected object's verified source passages. The scope is
+    /// resolved from stored provenance and never alters graph authority.
+    #[serde(default)]
+    pub source_local: bool,
     /// Combined topology lanes selected by the Style Hub.
     ///
     /// `lens` remains as a compatibility name for a preferred lane, but it no
@@ -488,6 +493,7 @@ impl GraphViewState {
             edge_presentation: GraphEdgePresentation::Manifold,
             topology_emphasis: GraphTopologyEmphasis::Off,
             navigation_overlay: GraphNavigationOverlay::Off,
+            source_local: false,
             families: FamilyMask::ALL,
             entity_families: FamilyMask::ENTITY_LANES,
             topology_families: FamilyMask::TOPOLOGY_LANES,

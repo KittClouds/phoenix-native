@@ -41,6 +41,9 @@ impl PhoenixShell {
                 controls.child(self.render_primary_controls(view, cx))
             })
             .child(self.render_secondary_controls(view, cx))
+            .when(view.source_local, |controls| {
+                controls.child(self.render_source_local_strip(cx))
+            })
             .when(view.manifold == Manifold::Caps, |row| {
                 row.child(self.render_caps_space(cx))
             })
@@ -141,7 +144,7 @@ impl PhoenixShell {
                         .child(navigation_overlay_control(view.navigation_overlay, cx))
                 })
                 .child(canvas_toggle(view.canvas, cx))
-                .child(self.provenance_popover(cx))
+                .child(super::source_local::source_local_toggle(view.source_local, cx))
                 .child(action_button(
                     "graph-fit",
                     if view.manifold == Manifold::Hybrid {
@@ -295,14 +298,14 @@ impl PhoenixShell {
             })
     }
 
-    fn provenance_popover(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn provenance_popover(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let publication = self.graph_provenance;
         Popover::new("graph-provenance-popover")
             .anchor(Corner::BottomRight)
             .appearance(false)
             .trigger(
                 Button::new("graph-provenance-trigger")
-                    .label("SOURCE")
+                    .label("Provenance")
                     .small()
                     .ghost()
                     .on_click(cx.listener(|this, _, _, cx| {

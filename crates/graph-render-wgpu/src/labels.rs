@@ -19,10 +19,13 @@ const LABEL_LINE_HEIGHT: f32 = 18.0;
 const COLLISION_CELL_WIDTH: f32 = 92.0;
 const COLLISION_CELL_HEIGHT: f32 = 24.0;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct LabelFocus {
     pub(crate) hover: Option<NodeId>,
     pub(crate) selected: Option<NodeId>,
+    /// Sorted source-local members. When present, the bounded secondary
+    /// pass labels in-scope nodes instead of the topology emphasis lane.
+    pub(crate) source_members: Option<std::sync::Arc<[u64]>>,
 }
 
 struct LabelEntry {
@@ -211,8 +214,13 @@ impl LabelLayer {
             for (entry_index, entry) in self.entries.iter().enumerate() {
                 let focused =
                     Some(entry.node_slot) == hover_slot || Some(entry.node_slot) == selected_slot;
-                if focused_only != focused || (!focused && entry.family_mask & emphasis_family == 0)
-                {
+                let secondary = match focus.source_members.as_deref() {
+                    Some(members) => scene
+                        .node_at_slot(entry.node_slot)
+                        .is_some_and(|node| members.binary_search(&node.id.0).is_ok()),
+                    None => entry.family_mask & emphasis_family != 0,
+                };
+                if focused_only != focused || (!focused && !secondary) {
                     continue;
                 }
                 if !focused && emphasized_count >= MAX_EMPHASIZED_LABELS {
