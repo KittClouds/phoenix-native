@@ -206,6 +206,7 @@ fn run(
         &std::fs::read(&config_path)
             .map_err(|e| anyhow::anyhow!("Configure {}: {e}", config_path.display()))?,
     )?;
+    let stage = StageClock::new();
     let workspace_id = *blake3::hash(workspace.to_string_lossy().as_bytes()).as_bytes();
     let plan = if plain {
         plan_plain_chapter(
@@ -231,11 +232,15 @@ fn run(
     {
         anyhow::bail!("Paragraph too long; split the saved document into shorter paragraphs");
     }
+    stage.mark("plan");
     let snapshots = SnapshotStore::open(config.storage.join("snapshots"))?;
     snapshots.retain(&lease)?;
     snapshots.retain_plan(&plan)?;
     shared.lock().unwrap().message = "Verifying local narrator files…".into();
+    stage.mark("snapshots");
+    phoenix_tts_native::use_digest_memo(config.storage.join("pinned-digests.memo"));
     config.load_voices()?;
+    stage.mark("voices");
     if selection {
         config.cast = None;
     }
@@ -243,7 +248,9 @@ fn run(
         config.cast =
             VoiceLibrary::open(config.storage.join("voices"))?.load_cast(&lease.content, &plan)?;
     }
+    stage.mark("cast");
     let bundle = engines::Bundles::for_plan(&config, &plan, selected_voice, cancel)?;
+    stage.mark("bundles");
     let voices::PreparedVoices {
         voices,
         slots,
@@ -256,6 +263,7 @@ fn run(
         &plan,
         &bundle,
     )?;
+    stage.mark("prepare");
     let identity = table.identity(0)?.clone();
     let voice_binding = table.fingerprint();
     let mut id = blake3::Hasher::new();
@@ -295,6 +303,7 @@ fn run(
     if restart_segment.is_some() {
         runtime.checkpoint(&mut sessions, 0, true)?;
     }
+    stage.mark("runtime");
     let mut generator = Generator::new(provider, cache);
     let mut active = false;
     let mut priming = true;
@@ -483,6 +492,7 @@ fn run(
             runtime.pause(false)?;
             priming = false;
             started = true;
+            stage.mark("first-audio");
         }
         if active && !priming {
             runtime.tick()?;
@@ -596,4 +606,31 @@ fn run(
     }
     // Generator drop cancels and joins its owned request before stores close.
     Ok(())
+}
+
+/// Logs Reader startup stages to stderr (`PHOENIX_READER_STAGE`) so slow
+/// preparation can be attributed from the product log.
+struct StageClock {
+    start: Instant,
+    last: std::cell::Cell<Instant>,
+}
+
+impl StageClock {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            start: now,
+            last: std::cell::Cell::new(now),
+        }
+    }
+
+    fn mark(&self, stage: &str) {
+        let now = Instant::now();
+        eprintln!(
+            "PHOENIX_READER_STAGE {stage} ms={} total_ms={}",
+            now.duration_since(self.last.get()).as_millis(),
+            now.duration_since(self.start).as_millis()
+        );
+        self.last.set(now);
+    }
 }
