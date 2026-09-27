@@ -37,13 +37,13 @@ pub use interaction::{
 pub use lens::{
     EdgeProductGpu, GraphLensUniform, NodeProductGpu, SourceScopeMask, SOURCE_SCOPE_ACTIVE,
     SOURCE_SCOPE_ANCHOR, SOURCE_SCOPE_MEMBER, WALK_ACTIVE, WALK_CURRENT, WALK_GLOW_SHIFT,
-    WALK_NEXT, WALK_ROUTE, WALK_VISITED,
+    WALK_NEXT, WALK_ROUTE, WALK_VISITED, READER_GLOW, READER_INTENSITY_SHIFT,
 };
 pub use route_walk::{
     FlowStatus, RouteWalkCommand, RouteWalkNotice, RouteWalkPlayback, RouteWalkStatus,
 };
 pub use path_layer::PreparedGeometryMetrics;
-pub use renderer::GraphRenderer;
+pub use renderer::{GraphRenderer, ReaderGlowFrame};
 pub use renderer_metrics::{FrameMetrics, LensUpdateMetrics};
 pub use scene_state::{SceneChanges, SceneState};
 

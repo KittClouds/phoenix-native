@@ -93,6 +93,7 @@ pub struct GraphRenderer {
     frame_count: u64,
     walk: Option<walk::ActiveWalk>,
     flow: Option<flow::ActiveFlow>,
+    reader_glow: reader_glow::ReaderGlow,
     walk_status: crate::RouteWalkStatus,
     particles: crate::particles::ParticleLayer,
     particle_scratch: Vec<crate::particles::ParticleGpu>,
@@ -293,6 +294,7 @@ impl GraphRenderer {
             frame_count: 0,
             walk: None,
             flow: None,
+            reader_glow: reader_glow::ReaderGlow::default(),
             walk_status: crate::RouteWalkStatus::default(),
             particles,
             particle_scratch: Vec::with_capacity(crate::particles::MAX_PARTICLES),
@@ -346,6 +348,7 @@ impl GraphRenderer {
         self.redraw_requested = true;
         self.end_document_flow();
         self.revalidate_route_walk(true);
+        self.refresh_reader_glow();
         tracing::info!(
             nodes = metrics.node_count,
             edges = metrics.edge_count,
@@ -592,6 +595,7 @@ impl GraphRenderer {
         self.redraw_requested = true;
         self.end_document_flow();
         self.revalidate_route_walk(false);
+        self.refresh_reader_glow();
         tracing::debug!(
             nodes_added = metrics.nodes_added,
             nodes_updated = metrics.nodes_updated,
@@ -844,6 +848,7 @@ impl GraphRenderer {
     pub fn update(&mut self, elapsed: Duration) {
         self.advance_route_walk(elapsed.as_secs_f32());
         self.advance_document_flow(elapsed.as_secs_f32());
+        self.advance_reader_glow(elapsed.as_secs_f32());
         if let Some(result) = self.picking.poll(&self.device, &self.scene) {
             match result.intent {
                 PickIntent::Hover if self.scene.hover_node() != result.node => {
@@ -1008,6 +1013,7 @@ impl GraphRenderer {
             || self.picking.has_work()
             || self.walk_animating()
             || self.flow_animating()
+            || self.reader_glow_animating()
     }
 
     pub fn render(&mut self) -> Result<FrameMetrics, RenderError> {
@@ -1364,4 +1370,6 @@ mod view_delta_tests {
 }
 mod flow;
 mod geometry;
+mod reader_glow;
 mod walk;
+pub use reader_glow::ReaderGlowFrame;

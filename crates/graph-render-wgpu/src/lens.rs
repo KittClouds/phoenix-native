@@ -59,6 +59,10 @@ pub const WALK_CURRENT: u32 = 64;
 /// Destination of the traversal in flight.
 pub const WALK_NEXT: u32 = 128;
 pub const WALK_GLOW_SHIFT: u32 = 16;
+/// The Reader is speaking an object bound to this node (4B).
+pub const READER_GLOW: u32 = 256;
+/// Reader glow intensity lives in bits 24..32.
+pub const READER_INTENSITY_SHIFT: u32 = 24;
 
 /// Display-only source-local scope: node ids resolved from stored provenance.
 /// Nodes outside `members` stay resident and are ghosted, never removed.

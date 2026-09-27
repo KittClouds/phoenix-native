@@ -19,7 +19,68 @@ impl PhoenixShell {
             .update(cx, |editor, cx| editor.clear_narration_highlights(cx));
     }
 
+    /// Sends the spoken segment to the atlas (4B). The glow runs only when
+    /// the Reader's saved revision matches the verified graph, using the same
+    /// comparison as the graph revision chip; otherwise it is paused.
+    pub(in crate::shell) fn sync_reader_glow(&mut self) {
+        use super::worker::presentation::Phase;
+        let s = &self.reader.status;
+        let speaking = !s.finished
+            && s.segments > 0
+            && !s.source_ranges.is_empty()
+            && matches!(s.phase, Phase::Playing | Phase::Paused | Phase::Buffering);
+        let lease = self.reader.lease.clone().filter(|_| speaking);
+        let current = lease.as_ref().is_some_and(|lease| {
+            let graph = self
+                .kernel_snapshot()
+                .and_then(|snapshot| snapshot.graph_generation_v2)
+                .map(|generation| {
+                    let header = generation.header();
+                    (
+                        header.native_document_id,
+                        header.document_revision,
+                        header.content_hash,
+                    )
+                });
+            matches!(
+                crate::shell::graph_toolbar::classify_currency(
+                    graph,
+                    Some((lease.entry_id.0, lease.revision.0, lease.content_hash.0)),
+                ),
+                crate::shell::graph_toolbar::GraphCurrency::Current { .. }
+            )
+        });
+        self.reader.glow_stale = lease.is_some() && !current;
+        let follow = self.reader.glow_follow;
+        let key = lease
+            .filter(|_| current)
+            .map(|lease| (lease.revision.0, s.segment, s.playing, follow));
+        if key == self.reader.glow_sent {
+            return;
+        }
+        let request = key.map(|_| crate::graph_window::ReaderGlowRequest {
+            segment: s.segment,
+            ranges: s
+                .source_ranges
+                .iter()
+                .map(|range| (range.start, range.end))
+                .collect(),
+            playing: s.playing,
+            follow,
+            observed_at: std::time::Instant::now(),
+        });
+        let sent = self
+            .graph
+            .borrow()
+            .as_ref()
+            .map(|graph| graph.reader_glow(request));
+        if matches!(sent, Some(Ok(()))) {
+            self.reader.glow_sent = key;
+        }
+    }
+
     pub(super) fn refresh_reader_highlight(&mut self, cx: &mut Context<Self>) {
+        self.sync_reader_glow();
         if self.reader.selection_mode {
             return;
         }

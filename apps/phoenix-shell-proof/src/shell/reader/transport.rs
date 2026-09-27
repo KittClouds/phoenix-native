@@ -2,7 +2,7 @@ use super::{worker::presentation::Phase, Command, PhoenixShell};
 use gpui::{div, prelude::*, px, relative, rgb, Context, IntoElement};
 use gpui_component::{
     button::{Button, ButtonVariants},
-    Disableable, IconName, Sizable,
+    Disableable, IconName, Selectable, Sizable,
 };
 
 impl PhoenixShell {
@@ -143,6 +143,11 @@ impl PhoenixShell {
                 s.segments
             )
         };
+        let location = if self.reader.glow_stale {
+            format!("{location} \u{b7} Graph is behind the note \u{b7} glow paused")
+        } else {
+            location
+        };
         let voice = if s.voice_name.is_empty() || self.reader.lease.is_none() {
             self.reader
                 .voice_choices
@@ -274,6 +279,25 @@ impl PhoenixShell {
                             .flex_1()
                             .flex_basis(px(0.))
                             .justify_end()
+                            // Clip rather than spill over the play controls
+                            // when a side panel narrows the dock.
+                            .overflow_hidden()
+                            .child(
+                                Button::new("reader-glow-follow")
+                                    .icon(IconName::Eye)
+                                    .ghost()
+                                    .selected(self.reader.glow_follow)
+                                    .tooltip(if self.reader.glow_follow {
+                                        "Atlas follows the passage · click to stop"
+                                    } else {
+                                        "Follow the passage on the atlas"
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.reader.glow_follow = !this.reader.glow_follow;
+                                        this.sync_reader_glow();
+                                        cx.notify();
+                                    })),
+                            )
                             .child(
                                 Button::new("reader-cast-badge")
                                     .label("CAST")

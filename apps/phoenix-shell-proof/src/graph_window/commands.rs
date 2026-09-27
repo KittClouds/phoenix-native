@@ -13,6 +13,7 @@ pub(super) enum GraphWindowCommand {
     ResetCamera,
     ResetSwitchTelemetry,
     RouteWalk(RouteWalkRequest),
+    ReaderGlow(Option<ReaderGlowRequest>),
     StressInteraction(SyncSender<Result<InteractionStressProof, String>>),
     PickProbePoint(SyncSender<Option<(u32, u32)>>),
     RecoverRenderer(SyncSender<Result<(), String>>),
@@ -20,6 +21,17 @@ pub(super) enum GraphWindowCommand {
     Barrier(SyncSender<()>),
     Telemetry(SyncSender<GraphGpuTelemetry>),
     Shutdown,
+}
+
+/// The Reader's current segment as spoken byte ranges in its saved
+/// revision. The graph thread resolves them through stored bindings.
+#[derive(Clone, Debug)]
+pub struct ReaderGlowRequest {
+    pub segment: u32,
+    pub ranges: std::sync::Arc<[(u32, u32)]>,
+    pub playing: bool,
+    pub follow: bool,
+    pub observed_at: std::time::Instant,
 }
 
 /// Shell requests for the guided route walk. The renderer owns the frozen

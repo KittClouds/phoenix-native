@@ -237,6 +237,18 @@ impl Camera {
         self.pitch = pitch.clamp(-1.35, 1.35);
     }
 
+    /// Moves the orbit center a fraction of the way toward `goal`; returns
+    /// true once it has arrived. Arrival is relative to the view distance
+    /// (well under a pixel), so the ease stops redrawing promptly.
+    pub fn ease_focus(&mut self, goal: [f32; 3], amount: f32) -> bool {
+        let goal = Vec3::from_array(goal);
+        let next = self.orbit_center.lerp(goal, amount.clamp(0.0, 1.0));
+        let arrived = next.distance(goal) < (self.distance * 0.002).max(0.01);
+        self.orbit_center = if arrived { goal } else { next };
+        self.target = self.orbit_center;
+        arrived
+    }
+
     pub fn focus(&mut self, position: [f32; 3]) {
         self.orbit_center = Vec3::from_array(position);
         self.target = self.orbit_center;

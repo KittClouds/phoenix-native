@@ -36,6 +36,11 @@ pub(super) struct ReaderPanel {
     audition: Option<audition::Audition>,
     audition_then_listen: bool,
     enrollment: Option<enrollment::Enrollment>,
+    /// Last glow sent to the atlas: (revision, segment, playing, follow).
+    glow_sent: Option<(u64, u32, bool, bool)>,
+    pub(in crate::shell) glow_follow: bool,
+    /// The Reader is speaking but the graph is behind its revision.
+    pub(in crate::shell) glow_stale: bool,
 }
 impl PhoenixShell {
     pub(super) fn take_reader_for_shutdown(&mut self) -> Option<Bridge> {

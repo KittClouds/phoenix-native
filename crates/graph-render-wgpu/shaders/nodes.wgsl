@@ -78,6 +78,16 @@ fn walk_glow(bits: u32) -> f32 {
     return f32((bits >> 16u) & 255u) / 255.0;
 }
 
+// Reader glow (4B): additive light on objects bound to the spoken segment.
+const READER_GLOW: u32 = 256u;
+
+fn reader_glow(bits: u32) -> f32 {
+    if ((bits & READER_GLOW) == 0u) {
+        return 0.0;
+    }
+    return f32((bits >> 24u) & 255u) / 255.0;
+}
+
 // Screen-space geometry contract. Semantic radius may grow for hubs, centroids,
 // and medoids, but line width is governed independently in the edge shaders.
 const NODE_SCREEN_SCALE: f32 = 1.3662;
@@ -240,7 +250,8 @@ fn vs_main(
     let walk_bits = product.overlay_flags;
     let lit = walk_lit(walk_bits);
     // Route members get a wider quad so their bloom halo is never clipped.
-    let uv = corners[vertex_index] * select(1.24, 2.6, lit);
+    let spoken = reader_glow(walk_bits);
+    let uv = corners[vertex_index] * select(1.24, 2.6, lit || spoken > 0.0);
     var walk_scale = 1.0;
     if (lit && (walk_bits & WALK_CURRENT) != 0u) {
         walk_scale = 1.3 + 0.45 * walk_glow(walk_bits);
@@ -250,11 +261,19 @@ fn vs_main(
     let flags = node.kind_flags & 0xffffu;
     let role = visual_role(flags);
     let emphasized = emphasis_matches(primary_node_family(product.family_mask));
-    let diameter_pixels = clamp(
+    var diameter_pixels = clamp(
         node.position_radius.w * NODE_DIAMETER_SCALE * role_scale(role),
         NODE_MIN_DIAMETER_PX,
         NODE_MAX_DIAMETER_PX,
     ) * NODE_SCREEN_SCALE * walk_scale;
+    if (!lit && spoken > 0.0 && (walk_bits & WALK_ACTIVE) == 0u) {
+        // Spoken nodes get a floor on screen size so they read at full-graph
+        // density, where ordinary dots are only a few pixels wide.
+        diameter_pixels = max(
+            diameter_pixels * (1.0 + 0.6 * spoken),
+            (6.0 + 10.0 * spoken) * NODE_SCREEN_SCALE,
+        );
+    }
     let view_back = cross(camera.view_right.xyz, camera.view_up.xyz);
     let view_depth = max(
         dot(camera.eye_position.xyz - node.position_radius.xyz, view_back),
@@ -385,7 +404,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let route = (input.flags & 32768u) != 0u;
     let walk_active = (input.overlay_flags & WALK_ACTIVE) != 0u;
     let walking_member = walk_lit(input.overlay_flags);
-    if (circle <= 0.001 && aura <= 0.001 && !hovered && !selected && !walking_member) {
+    if (circle <= 0.001 && aura <= 0.001 && !hovered && !selected && !walking_member
+        && reader_glow(input.overlay_flags) <= 0.0) {
         discard;
     }
 
@@ -436,6 +456,16 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (lens.focus_active == 0u && lens.topology_emphasis != 0u
         && input.emphasis_match == 0u && !hovered && !selected && !neighbor && !route) {
         color.a *= 0.58;
+    }
+    let spoken = reader_glow(input.overlay_flags);
+    if (spoken > 0.0) {
+        // Additive only: brighten the body and add a halo; never dim.
+        let strength = spoken * select(1.0, 0.3, source_active && !source_member);
+        let outside = max(distance - 1.0, 0.0);
+        let halo = exp(-outside * outside * 1.4) * (1.0 - circle) * 0.85 * strength;
+        let body = min(color.rgb + (vec3<f32>(1.0) - color.rgb) * 0.3 * strength, vec3<f32>(1.0));
+        let halo_rgb = mix(input.color.rgb, vec3<f32>(1.0), 0.3);
+        color = vec4<f32>(mix(halo_rgb, body, circle), max(color.a, halo));
     }
     return color;
 }

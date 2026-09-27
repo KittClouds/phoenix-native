@@ -251,6 +251,38 @@ impl SourceScopeIndex {
         })
     }
 
+    /// Objects whose stored spans overlap any of `ranges` (half-open byte
+    /// ranges in this generation's document revision): the passages that
+    /// overlap, evidence whose exact span overlaps, and those evidence
+    /// records' entities. Nothing is inferred from proximity or structure.
+    #[must_use]
+    pub fn bound_to_ranges(&self, ranges: &[(u32, u32)]) -> RangeBinding {
+        let overlaps = |start: u32, end: u32| {
+            ranges
+                .iter()
+                .any(|&(from, to)| from < to && start < to && from < end)
+        };
+        let mut passages: Vec<u64> = self
+            .chunks
+            .iter()
+            .filter(|(_, &(start, end))| overlaps(start, end))
+            .map(|(&id, _)| id)
+            .collect();
+        passages.sort_unstable();
+        let mut members = BTreeSet::new();
+        members.extend(passages.iter().copied());
+        for binding in self.evidence.values() {
+            if overlaps(binding.start, binding.end) {
+                members.insert(binding.id);
+                members.insert(binding.entity);
+            }
+        }
+        RangeBinding {
+            passages: passages.into(),
+            members: members.into_iter().collect(),
+        }
+    }
+
     fn binding(&self, start: u32, end: u32) -> SourceBinding {
         SourceBinding {
             document_id: self.document_id,
@@ -262,6 +294,16 @@ impl SourceScopeIndex {
     }
 }
 
+/// Graph objects bound to a set of byte ranges; see
+/// [`SourceScopeIndex::bound_to_ranges`].
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RangeBinding {
+    /// Sorted passage (chunk) node ids that overlap the ranges.
+    pub passages: Arc<[u64]>,
+    /// Sorted node ids: passages, overlapping evidence, and their entities.
+    pub members: Arc<[u64]>,
+}
+
 /// Caches one index per verified generation so repeated selection changes
 /// reuse the same lookup tables.
 #[derive(Debug, Default)]
@@ -270,6 +312,23 @@ pub struct SourceScopeCache {
 }
 
 impl SourceScopeCache {
+    /// The index for `generation`, rebuilt only when the generation changes.
+    pub fn index(
+        &mut self,
+        generation: Option<&VerifiedGraphGenerationV2>,
+    ) -> Option<Arc<SourceScopeIndex>> {
+        let generation = generation?;
+        let hash = generation.header().generation_hash;
+        if self
+            .index
+            .as_ref()
+            .is_none_or(|index| index.generation_hash() != hash)
+        {
+            self.index = SourceScopeIndex::build(generation).map(Arc::new);
+        }
+        self.index.clone()
+    }
+
     /// Resolves the current selection. `None` for the generation means the
     /// scene has no verified source authority.
     pub fn resolve(
@@ -405,6 +464,24 @@ mod tests {
         let scope = scoped(first);
         assert!(!scope.members.contains(&300));
         assert!(!scope.members.contains(&2));
+    }
+
+    #[test]
+    fn spoken_ranges_bind_only_overlapping_passages_evidence_and_entities() {
+        let index = index();
+        // A sentence inside the first passage covering evidence 10 only.
+        let bound = index.bound_to_ranges(&[(4, 12)]);
+        assert_eq!(&*bound.passages, &[1]);
+        assert_eq!(&*bound.members, &[1, 10, 100]);
+        // Touching a boundary is not an overlap; empty ranges bind nothing.
+        assert!(index.bound_to_ranges(&[(10, 11)]).members.iter().all(|id| *id != 10));
+        assert!(index.bound_to_ranges(&[(50, 50)]).members.is_empty());
+        // The same ranges always bind the same objects.
+        assert_eq!(index.bound_to_ranges(&[(4, 12)]), bound);
+        // Ranges spanning two passages bind both and their evidence.
+        let wide = index.bound_to_ranges(&[(90, 112)]);
+        assert_eq!(&*wide.passages, &[1, 2]);
+        assert!(wide.members.contains(&12) && wide.members.contains(&100));
     }
 
     #[test]

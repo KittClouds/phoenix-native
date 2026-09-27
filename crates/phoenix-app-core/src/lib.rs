@@ -64,7 +64,7 @@ pub use resident_memory::{
 };
 pub use scene_rebuild::NativeScenePublishCommand;
 pub use source_scope::{
-    SourceAnchorKind, SourceBinding, SourceScope, SourceScopeCache, SourceScopeIndex,
+    RangeBinding, SourceAnchorKind, SourceBinding, SourceScope, SourceScopeCache, SourceScopeIndex,
     SourceScopeResolution, SourceUnavailable,
 };
 use state::*;

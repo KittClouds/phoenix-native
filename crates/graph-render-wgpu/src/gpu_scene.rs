@@ -118,6 +118,8 @@ pub struct GpuScene {
     /// Route-walk bits per node slot, sorted by slot.
     walk_entries: Vec<(u32, u32)>,
     walk_dirty: Vec<u32>,
+    /// Reader glow bits per node slot, sorted by slot.
+    reader_entries: Vec<(u32, u32)>,
 }
 
 impl GpuScene {
@@ -169,6 +171,7 @@ impl GpuScene {
             walk_active: false,
             walk_entries: Vec::new(),
             walk_dirty: Vec::new(),
+            reader_entries: Vec::new(),
         })
     }
 
@@ -311,6 +314,37 @@ impl GpuScene {
         bytes
     }
 
+    /// Installs Reader glow bits; only slots whose word changed upload.
+    pub fn set_reader_overlay(&mut self, mut entries: Vec<(u32, u32)>, queue: &wgpu::Queue) -> usize {
+        entries.sort_unstable_by_key(|entry| entry.0);
+        entries.dedup_by_key(|entry| entry.0);
+        if entries == self.reader_entries {
+            return 0;
+        }
+        let mut dirty: Vec<u32> = self
+            .reader_entries
+            .iter()
+            .chain(entries.iter())
+            .map(|entry| entry.0)
+            .collect();
+        dirty.sort_unstable();
+        dirty.dedup();
+        self.reader_entries = entries;
+        for &slot in &dirty {
+            let word = self.overlay_word(slot);
+            if let Some(product) = self.node_product_data.get_mut(slot as usize) {
+                product.overlay_flags = word;
+            }
+        }
+        write_dirty_ranges(
+            &self.node_product_buffer,
+            queue,
+            &self.node_product_data,
+            &dirty,
+        );
+        dirty.len().saturating_mul(size_of::<NodeProductGpu>())
+    }
+
     fn overlay_word(&self, slot: u32) -> u32 {
         let source = match (&self.source_scope, self.state.node_at_slot(slot)) {
             (Some(scope), Some(node)) => scope.flags_for(node.id),
@@ -326,7 +360,11 @@ impl GpuScene {
         } else {
             0
         };
-        source | walk
+        let reader = self
+            .reader_entries
+            .binary_search_by_key(&slot, |entry| entry.0)
+            .map_or(0, |index| self.reader_entries[index].1);
+        source | walk | reader
     }
 
     fn stamp_overlays(&mut self) {
@@ -814,6 +852,7 @@ impl GpuScene {
         self.source_scope = None;
         self.walk_active = false;
         self.walk_entries.clear();
+        self.reader_entries.clear();
         self.stamp_overlays();
         self.context_node_slots.clear();
         self.context_node_dirty.clear();
@@ -1201,6 +1240,7 @@ impl GpuScene {
         self.source_scope = None;
         self.walk_active = false;
         self.walk_entries.clear();
+        self.reader_entries.clear();
         let node_product_reallocated = self
             .node_product_buffer
             .ensure_capacity(device, self.node_product_data.len())?;

@@ -27,7 +27,7 @@ use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::window::{Window, WindowId};
 
 use commands::{GraphQueueMetrics, GraphWake, GraphWindowCommand};
-pub use commands::RouteWalkRequest;
+pub use commands::{ReaderGlowRequest, RouteWalkRequest};
 use manifold::{FixedSamples, PendingManifoldSwitch};
 pub use manifold::{GraphGpuTelemetry, ManifoldSwitchReceipt};
 use proof::ProjectionIdentity;
@@ -182,6 +182,11 @@ impl GraphWindow {
     pub fn route_walk(&self, request: RouteWalkRequest) -> Result<()> {
         self.proof_handle()
             .send(GraphWindowCommand::RouteWalk(request))
+    }
+
+    pub fn reader_glow(&self, request: Option<ReaderGlowRequest>) -> Result<()> {
+        self.proof_handle()
+            .send(GraphWindowCommand::ReaderGlow(request))
     }
 
     pub fn route_walk_status(&self) -> graph_render_wgpu::RouteWalkStatus {
@@ -344,6 +349,35 @@ impl EmbeddedGraphApp {
             walk_status: signals.walk_status,
             published_walk_revision: 0,
         }
+    }
+
+    /// Resolves spoken ranges to bound graph objects with the verified
+    /// generation's source index. The shell has already checked that the
+    /// Reader's revision matches the graph.
+    fn resolve_reader_glow(
+        &mut self,
+        request: ReaderGlowRequest,
+    ) -> Option<graph_render_wgpu::ReaderGlowFrame> {
+        let snapshot = self.kernel.snapshot().ok()?;
+        let index = self
+            .source_scope_cache
+            .index(snapshot.graph_generation_v2.as_deref())?;
+        let binding = index.bound_to_ranges(&request.ranges);
+        eprintln!(
+            "PHOENIX_READER_GLOW_BIND segment={} ranges={} passages={} members={}",
+            request.segment,
+            request.ranges.len(),
+            binding.passages.len(),
+            binding.members.len()
+        );
+        Some(graph_render_wgpu::ReaderGlowFrame {
+            segment: request.segment,
+            members: binding.members,
+            passages: binding.passages,
+            playing: request.playing,
+            follow: request.follow,
+            observed_at: request.observed_at,
+        })
     }
 
     /// Mirrors the renderer's walk status to the shell when it changed and
@@ -662,6 +696,13 @@ impl EmbeddedGraphApp {
                     depth,
                     cutaway,
                 }),
+                GraphWindowCommand::ReaderGlow(request) => {
+                    let frame = request.and_then(|request| self.resolve_reader_glow(request));
+                    if let Some(renderer) = self.renderer.as_mut() {
+                        renderer.set_reader_glow(frame);
+                    }
+                    window.request_redraw();
+                }
                 GraphWindowCommand::RouteWalk(request) => {
                     if let Some(renderer) = self.renderer.as_mut() {
                         match request {
@@ -997,6 +1038,16 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
                     match renderer.render() {
                         Ok(metrics) if metrics.frame_number != 0 => {
                             lifecycle::frame_presented();
+                            if let Some((segment, latency)) = self
+                                .renderer
+                                .as_mut()
+                                .and_then(GraphRenderer::take_reader_glow_latency)
+                            {
+                                eprintln!(
+                                    "PHOENIX_READER_GLOW_LATENCY segment={segment} us={}",
+                                    latency.as_micros()
+                                );
+                            }
                             if self.presented_generation != self.loaded_generation {
                                 if let Some(generation) = self.loaded_generation {
                                     crate::pipeline_timing::mark(

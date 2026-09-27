@@ -499,17 +499,9 @@ impl PhoenixShell {
 impl Render for PhoenixShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.schedule_proof(window, cx);
-        let center = if self.reader.open {
-            div()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .child(self.render_editor_surface(cx))
-                .child(self.render_reader(cx))
-                .into_any_element()
-        } else if self.drawer_layout.is_full_page() {
+        // The Reader dock sits under whatever is open, so the atlas can glow
+        // with the narration (4B) while the editor and Reader stay in view.
+        let body = if self.drawer_layout.is_full_page() {
             self.render_drawer_surface(true, window, cx)
                 .into_any_element()
         } else if self.drawer_layout.is_open() {
@@ -539,6 +531,19 @@ impl Render for PhoenixShell {
                 .into_any_element()
         } else {
             self.render_editor_surface(cx).into_any_element()
+        };
+        let center = if self.reader.open {
+            div()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(div().flex_1().min_h_0().min_w_0().flex().flex_col().child(body))
+                .child(self.render_reader(cx))
+                .into_any_element()
+        } else {
+            body
         };
         let panel_group_id = match (self.left_open, self.right_open) {
             (true, true) => "shell-panels-both",
