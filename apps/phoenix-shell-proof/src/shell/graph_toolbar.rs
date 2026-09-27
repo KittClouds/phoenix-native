@@ -95,6 +95,16 @@ pub(super) fn classify_currency(
 }
 
 impl GraphCurrency {
+    /// Reader glow (4B) pauses with "Graph is behind the note" only when the
+    /// graph is an older view of the note being read; another note's graph
+    /// simply has nothing to glow.
+    pub(super) const fn reader_glow_behind(&self) -> bool {
+        matches!(
+            self,
+            GraphCurrency::Behind { .. } | GraphCurrency::ContentChanged { .. }
+        )
+    }
+
     pub(super) const fn needs_rebuild(&self) -> bool {
         matches!(
             self,
@@ -824,6 +834,16 @@ mod tests {
             classify_currency(Some((4, 2, HASH)), Some((3, 2, HASH))),
             GraphCurrency::OtherNote { graph_document: 4 }
         );
+    }
+
+    #[test]
+    fn reader_glow_is_behind_only_for_an_older_view_of_the_same_note() {
+        let behind = |graph, note| classify_currency(Some(graph), Some(note)).reader_glow_behind();
+        assert!(!behind((3, 2, HASH), (3, 2, HASH)));
+        assert!(behind((3, 1, HASH), (3, 2, [2; 32])));
+        assert!(behind((3, 2, HASH), (3, 2, [2; 32])));
+        assert!(!behind((4, 2, HASH), (3, 2, HASH)));
+        assert!(!classify_currency(None, Some((3, 2, HASH))).reader_glow_behind());
     }
 
     #[test]

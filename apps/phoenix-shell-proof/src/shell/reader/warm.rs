@@ -6,7 +6,7 @@
 //! end. It is released after `IDLE_RELEASE` without work, or when the Reader
 //! closes, so the GPU memory returns to the graph and analysis.
 use super::Config;
-use phoenix_reader_session::AudioCache;
+use phoenix_reader_session::{AudioCache, VoiceChoice};
 use phoenix_tts_native::{Bundle, Cancellation, NativeProvider, Request};
 use std::{
     path::PathBuf,
@@ -47,8 +47,9 @@ fn state() -> std::sync::MutexGuard<'static, State> {
 }
 
 /// Starts warming a worker in the background unless one is parked, warming
-/// or already serving a session.
-pub fn prewarm(workspace: PathBuf) {
+/// or already serving a session. A CPU (Supertonic) narrator needs no Breeze
+/// worker, so none is started for it.
+pub fn prewarm(workspace: PathBuf, narrator: Option<VoiceChoice>) {
     {
         let mut s = state();
         s.wanted = true;
@@ -58,7 +59,7 @@ pub fn prewarm(workspace: PathBuf) {
         s.warming = true;
     }
     thread::spawn(move || {
-        let warmed = warm_up(workspace);
+        let warmed = warm_up(workspace, narrator);
         if let Err(error) = &warmed {
             eprintln!("PHOENIX_READER_WARM skipped: {error:#}");
         }
@@ -160,11 +161,24 @@ fn schedule_release(s: &mut State) {
     });
 }
 
-fn warm_up(workspace: PathBuf) -> anyhow::Result<NativeProvider> {
-    let config = Config::read(&workspace)?;
+fn warm_up(workspace: PathBuf, narrator: Option<VoiceChoice>) -> anyhow::Result<NativeProvider> {
+    let mut config = Config::read(&workspace)?;
     anyhow::ensure!(
         !config.worker.as_os_str().is_empty() && !config.model.as_os_str().is_empty(),
         "no Breeze runtime configured"
+    );
+    config.load_voices()?;
+    let narrator = narrator.or_else(|| config.cast.as_ref().map(|cast| cast.narrator));
+    let spec = match narrator {
+        Some(choice) => config
+            .voices
+            .iter()
+            .find(|voice| VoiceChoice::of(&voice.profile).ok() == Some(choice)),
+        None => config.voices.first(),
+    };
+    anyhow::ensure!(
+        spec.is_some_and(|voice| voice.supertonic_style.is_none()),
+        "the narrator is not a Breeze voice"
     );
     phoenix_tts_native::use_digest_memo(config.storage.join("pinned-digests.memo"));
     let cancel = Cancellation::default();

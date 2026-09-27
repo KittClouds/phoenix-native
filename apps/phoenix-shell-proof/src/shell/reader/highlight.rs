@@ -30,7 +30,7 @@ impl PhoenixShell {
             && !s.source_ranges.is_empty()
             && matches!(s.phase, Phase::Playing | Phase::Paused | Phase::Buffering);
         let lease = self.reader.lease.clone().filter(|_| speaking);
-        let current = lease.as_ref().is_some_and(|lease| {
+        let currency = lease.as_ref().map(|lease| {
             let graph = self
                 .kernel_snapshot()
                 .and_then(|snapshot| snapshot.graph_generation_v2)
@@ -42,15 +42,16 @@ impl PhoenixShell {
                         header.content_hash,
                     )
                 });
-            matches!(
-                crate::shell::graph_toolbar::classify_currency(
-                    graph,
-                    Some((lease.entry_id.0, lease.revision.0, lease.content_hash.0)),
-                ),
-                crate::shell::graph_toolbar::GraphCurrency::Current { .. }
+            crate::shell::graph_toolbar::classify_currency(
+                graph,
+                Some((lease.entry_id.0, lease.revision.0, lease.content_hash.0)),
             )
         });
-        self.reader.glow_stale = lease.is_some() && !current;
+        let current = matches!(
+            currency,
+            Some(crate::shell::graph_toolbar::GraphCurrency::Current { .. })
+        );
+        self.reader.glow_stale = currency.is_some_and(|c| c.reader_glow_behind());
         let follow = self.reader.glow_follow;
         let key = lease
             .filter(|_| current)

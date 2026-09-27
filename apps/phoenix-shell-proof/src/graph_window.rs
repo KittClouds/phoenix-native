@@ -363,13 +363,6 @@ impl EmbeddedGraphApp {
             .source_scope_cache
             .index(snapshot.graph_generation_v2.as_deref())?;
         let binding = index.bound_to_ranges(&request.ranges);
-        eprintln!(
-            "PHOENIX_READER_GLOW_BIND segment={} ranges={} passages={} members={}",
-            request.segment,
-            request.ranges.len(),
-            binding.passages.len(),
-            binding.members.len()
-        );
         Some(graph_render_wgpu::ReaderGlowFrame {
             segment: request.segment,
             members: binding.members,

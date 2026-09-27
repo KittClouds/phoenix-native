@@ -67,7 +67,6 @@ impl PhoenixShell {
             self.reader.sidebar = true;
         }
         self.reader.open = true;
-        worker::warm::prewarm(self.kernel.workspace_path().to_path_buf());
         self.editor.update(cx, |editor, cx| {
             editor.set_selection_toolbar_requires_selection(true, cx)
         });
@@ -75,6 +74,10 @@ impl PhoenixShell {
             self.reader.status.phase = worker::presentation::Phase::Failed;
             self.reader.status.message = format!("Voice library: {error:#}");
         }
+        worker::warm::prewarm(
+            self.kernel.workspace_path().to_path_buf(),
+            self.reader.selected_voice,
+        );
         if self.reader.task.is_none() {
             self.reader.task = Some(cx.spawn(async move |shell, cx| loop {
                 Timer::after(Duration::from_millis(100)).await;

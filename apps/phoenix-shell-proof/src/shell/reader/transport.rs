@@ -280,8 +280,20 @@ impl PhoenixShell {
                             .flex_basis(px(0.))
                             .justify_end()
                             // Clip rather than spill over the play controls
-                            // when a side panel narrows the dock.
+                            // when a side panel narrows the dock. Clipping
+                            // starts at the left, so CAST (the voice picker
+                            // opens the same panel) goes first and Follow stays.
                             .overflow_hidden()
+                            .child(
+                                Button::new("reader-cast-badge")
+                                    .label("CAST")
+                                    .small()
+                                    .ghost()
+                                    .tooltip("Open voices and passage casting")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.show_reader_sidebar(false, cx)
+                                    })),
+                            )
                             .child(
                                 Button::new("reader-glow-follow")
                                     .icon(IconName::Eye)
@@ -296,16 +308,6 @@ impl PhoenixShell {
                                         this.reader.glow_follow = !this.reader.glow_follow;
                                         this.sync_reader_glow();
                                         cx.notify();
-                                    })),
-                            )
-                            .child(
-                                Button::new("reader-cast-badge")
-                                    .label("CAST")
-                                    .small()
-                                    .ghost()
-                                    .tooltip("Open voices and passage casting")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.show_reader_sidebar(false, cx)
                                     })),
                             )
                             .child(

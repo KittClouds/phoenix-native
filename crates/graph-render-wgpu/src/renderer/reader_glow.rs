@@ -46,6 +46,24 @@ pub(crate) struct ReaderGlow {
     pending_latency: Option<(u32, Instant)>,
 }
 
+impl ReaderGlow {
+    /// Moves the trail to `segment`; returns false when it is already current.
+    /// The next segment extends the trail; any jump (Next, Previous, bookmark,
+    /// seek) starts a fresh one so no stale glow survives.
+    fn step(&mut self, segment: u32, members: Arc<[u64]>) -> bool {
+        let current = self.trail.front().map(|(segment, _)| *segment);
+        if current == Some(segment) {
+            return false;
+        }
+        if current.is_none_or(|current| current.wrapping_add(1) != segment) {
+            self.trail.clear();
+        }
+        self.trail.push_front((segment, members));
+        self.trail.truncate(TRAIL_SEGMENTS);
+        true
+    }
+}
+
 impl GraphRenderer {
     /// Installs the Reader's current segment, or clears the glow exactly when
     /// the Reader stops (`None`).
@@ -64,14 +82,7 @@ impl GraphRenderer {
         };
         let glow = &mut self.reader_glow;
         glow.playing = frame.playing;
-        let current = glow.trail.front().map(|(segment, _)| *segment);
-        if current != Some(frame.segment) {
-            if current.is_none_or(|segment| segment.wrapping_add(1) != frame.segment) {
-                // A jump (Next, Previous, bookmark) starts a fresh trail.
-                glow.trail.clear();
-            }
-            glow.trail.push_front((frame.segment, frame.members));
-            glow.trail.truncate(TRAIL_SEGMENTS);
+        if glow.step(frame.segment, frame.members) {
             glow.pending_latency = Some((frame.segment, frame.observed_at));
             glow.follow_goal = goal;
         } else if !frame.follow {
@@ -148,5 +159,30 @@ impl GraphRenderer {
             .collect();
         self.scene.set_reader_overlay(entries, &self.queue);
         self.redraw_requested = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn segments(glow: &ReaderGlow) -> Vec<u32> {
+        glow.trail.iter().map(|(segment, _)| *segment).collect()
+    }
+
+    #[test]
+    fn trail_extends_forward_and_resets_on_any_jump() {
+        let mut glow = ReaderGlow::default();
+        let members: Arc<[u64]> = Arc::from([1u64]);
+        for segment in 10..16 {
+            assert!(glow.step(segment, Arc::clone(&members)));
+        }
+        assert_eq!(segments(&glow), [15, 14, 13, 12]);
+        assert!(!glow.step(15, Arc::clone(&members)));
+        // Previous and Next both jump: only the new segment glows.
+        assert!(glow.step(9, Arc::clone(&members)));
+        assert_eq!(segments(&glow), [9]);
+        assert!(glow.step(40, Arc::clone(&members)));
+        assert_eq!(segments(&glow), [40]);
     }
 }
