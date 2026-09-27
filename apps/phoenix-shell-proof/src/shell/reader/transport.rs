@@ -143,7 +143,8 @@ impl PhoenixShell {
                 s.segments
             )
         };
-        let narrow_dock = self.reader.sidebar || self.reader.settings || self.right_open;
+        // The right panel (Reader voices, settings or the inspector) narrows the dock.
+        let narrow_dock = self.right_open;
         let location = if self.reader.glow_stale {
             format!("{location} \u{b7} Graph is behind the note \u{b7} glow paused")
         } else {
@@ -315,7 +316,7 @@ impl PhoenixShell {
                             .child(
                                 Button::new("reader-voice-picker")
                                     .icon(IconName::User)
-                                    .label(voice.to_owned())
+                                    .when(!narrow_dock, |button| button.label(voice.to_owned()))
                                     .small()
                                     .ghost()
                                     .max_w(px(150.))
