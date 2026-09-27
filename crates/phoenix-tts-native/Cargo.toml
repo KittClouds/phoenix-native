@@ -21,6 +21,8 @@ phoenix-audio = { path = "../phoenix-audio" }
 phoenix-workspace = { path = "../phoenix-workspace" }
 tempfile = "3"
 serde_json.workspace = true
+# The Reader worker modules these targets include by path log with tracing.
+tracing.workspace = true
 
 [[bin]]
 name = "native-provider-fixture"

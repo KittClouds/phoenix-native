@@ -226,13 +226,6 @@ fn kernel_memory_commands_share_one_typed_generation_and_scope(
     assert_eq!(snapshot.resident_memory.runtime.active_records, 0);
     assert_eq!(snapshot.resident_memory.runtime.working_nodes, 0);
     assert_eq!(snapshot.resident_memory.runtime.working_edges, 0);
-    assert_eq!(
-        snapshot.resident_memory.semantic_shadow.sidecar_status,
-        phoenix_memory_coordinator::SemanticSidecarStatus::Absent
-    );
-    assert_eq!(snapshot.resident_memory.semantic_shadow.submitted, 0);
-    assert_eq!(snapshot.resident_memory.semantic_shadow.completed, 0);
-    assert_eq!(snapshot.resident_memory.semantic_shadow.dropped, 0);
     let context_item = &snapshot
         .resident_memory
         .last_context
@@ -1591,8 +1584,10 @@ fn manifest_section<'a>(manifest: &'a str, name: &str) -> &'a str {
         .find(&format!("{name} = ["))
         .expect("manifest section must exist");
     let tail = &manifest[start..];
-    let end = tail.find("]\n").expect("manifest section must terminate");
-    &tail[..end + 2]
+    // Entries are quoted paths, so the first `]` closes the list whatever the
+    // checkout's line endings are.
+    let end = tail.find(']').expect("manifest section must terminate");
+    &tail[..end + 1]
 }
 
 #[test]

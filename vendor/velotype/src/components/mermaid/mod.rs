@@ -620,8 +620,12 @@ mod tests {
     }
 
     fn remove_cache_file(path: &Path) {
-        if path.exists() {
-            fs::remove_file(path).expect("remove cache file");
+        // Parallel tests share cache files, so another test may remove it
+        // between a check and the delete; only a real failure matters.
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("remove cache file: {error}"),
         }
     }
 
