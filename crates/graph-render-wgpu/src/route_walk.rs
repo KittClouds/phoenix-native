@@ -39,6 +39,8 @@ pub enum RouteWalkNotice {
     Broken { step: usize },
     /// The scene changed and the frozen route could not be resolved in it.
     SceneChanged,
+    /// No visible document has connections for the flow to walk.
+    NoDocumentFlow,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -48,6 +50,15 @@ pub enum RouteWalkPlayback {
     Playing,
     /// Completing one Next/Previous traversal, then pausing.
     Stepping,
+}
+
+/// Summary of the document flow for the shell strip.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FlowStatus {
+    pub documents: usize,
+    pub connections: usize,
+    pub levels: u32,
+    pub settled: bool,
 }
 
 /// Snapshot the shell renders. `revision` changes only when a user-visible
@@ -62,6 +73,8 @@ pub struct RouteWalkStatus {
     pub traversing_to: Option<usize>,
     pub notice: Option<RouteWalkNotice>,
     pub endpoints: Option<(NodeId, NodeId)>,
+    /// Present while the document flow is running or settled.
+    pub flow: Option<FlowStatus>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

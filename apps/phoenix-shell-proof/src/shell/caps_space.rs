@@ -1,4 +1,4 @@
-use super::{PhoenixShell, BORDER, TEXT_MUTED};
+use super::{PhoenixShell, TEXT_MUTED};
 use gpui::{div, prelude::*, rgb, Context, IntoElement};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{Selectable, Sizable};
@@ -53,19 +53,13 @@ impl PhoenixShell {
                     })),
             );
         }
-        div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .px_3()
-            .py_2()
-            .border_t_1()
-            .border_color(rgb(BORDER))
+        super::graph_toolbar::mode_strip(0x0f1213)
+            .child(super::graph_toolbar::strip_mark("Caps", 0xa991ff))
             .child(row)
             .child(div().text_xs().text_color(rgb(TEXT_MUTED)).child(if space {
-                "CONTAINMENT ATLAS  ·  broad context inside, finer text outside  ·  drag to orbit"
+                "Broad context inside, finer text outside · drag to orbit"
             } else {
-                "CAPS  ·  radius = text granularity  ·  angular caps = containment regions"
+                "Radius is text granularity · caps are containment regions"
             }))
     }
 

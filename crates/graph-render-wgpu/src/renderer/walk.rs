@@ -55,6 +55,7 @@ impl GraphRenderer {
     /// Freezes the bounded route between the selected node and the second
     /// endpoint, then begins playing it. Hover never supplies an endpoint.
     pub fn start_route_walk(&mut self) -> &RouteWalkStatus {
+        self.end_document_flow();
         self.end_route_walk(None);
         let endpoints = self
             .scene
@@ -174,7 +175,7 @@ impl GraphRenderer {
         }
     }
 
-    fn end_route_walk(&mut self, _reason: Option<RouteWalkNotice>) {
+    pub(super) fn end_route_walk(&mut self, _reason: Option<RouteWalkNotice>) {
         if self.walk.take().is_some() {
             self.scene.set_walk_overlay(false, Vec::new(), &self.queue);
             self.particles.clear();
@@ -183,7 +184,10 @@ impl GraphRenderer {
         }
     }
 
-    fn publish_walk_status(&mut self, notice: Option<RouteWalkNotice>) -> &RouteWalkStatus {
+    pub(super) fn publish_walk_status(
+        &mut self,
+        notice: Option<RouteWalkNotice>,
+    ) -> &RouteWalkStatus {
         let mut next = RouteWalkStatus {
             revision: self.walk_status.revision,
             notice,
@@ -198,6 +202,7 @@ impl GraphRenderer {
             next.traversing_to = walk.route.traversal().map(|traversal| traversal.to);
             next.endpoints = nodes.first().copied().zip(nodes.last().copied());
         }
+        next.flow = self.flow.as_ref().map(super::flow::ActiveFlow::status);
         if next != self.walk_status {
             next.revision = self.walk_status.revision.wrapping_add(1);
             self.walk_status = next;

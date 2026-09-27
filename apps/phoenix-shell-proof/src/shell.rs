@@ -7,6 +7,7 @@ mod drawer;
 mod entity_tags;
 mod footer;
 mod graph_controls;
+mod graph_toolbar;
 mod graph_viewport;
 mod highlights;
 mod kammi;
@@ -14,8 +15,8 @@ mod layout;
 mod palette_controls;
 mod reader;
 mod registry_editor;
-mod shell_state;
 mod route_walk_ui;
+mod shell_state;
 mod source_local;
 mod style_hub;
 mod view;
@@ -90,6 +91,9 @@ pub struct PhoenixShell {
     source_scope_cache: RefCell<phoenix_app_core::SourceScopeCache>,
     source_open: source_local::SourceOpenState,
     route_walk_dismissed: u64,
+    graph_shelf: Option<graph_toolbar::GraphShelf>,
+    drawer_tabs_hidden: bool,
+    rebuild_after_warm: bool,
     proof_pending: bool,
     soak_mode: bool,
     expanded: HashSet<EntryId>,
@@ -310,6 +314,9 @@ impl PhoenixShell {
             source_scope_cache: RefCell::default(),
             source_open: source_local::SourceOpenState::default(),
             route_walk_dismissed: 0,
+            graph_shelf: None,
+            drawer_tabs_hidden: false,
+            rebuild_after_warm: false,
             proof_pending: proof_mode || soak_mode,
             soak_mode,
             expanded,

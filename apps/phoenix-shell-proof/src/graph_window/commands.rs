@@ -29,6 +29,8 @@ pub enum RouteWalkRequest {
     Start,
     Transport(graph_render_wgpu::RouteWalkCommand),
     Exit,
+    FlowStart,
+    FlowExit,
 }
 
 #[derive(Default)]

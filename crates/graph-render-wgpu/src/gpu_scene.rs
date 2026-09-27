@@ -180,6 +180,37 @@ impl GpuScene {
         self.interaction.edge_is_active(slot)
     }
 
+    /// Per-slot hierarchy ranks, stable ids, and visible edge endpoints for
+    /// the document flow. Hidden nodes and edges are excluded.
+    pub(crate) fn flow_inputs(&self) -> (Vec<u8>, Vec<u64>, Vec<Option<(u32, u32)>>) {
+        let node_count = self.node_product_data.len();
+        let mut ranks = vec![crate::flow_walk::RANK_NONE; node_count];
+        let mut ids = vec![0; node_count];
+        if self.bound_product_hash.is_some() {
+            for (slot, product) in self.node_product_data.iter().enumerate() {
+                let Some(node) = self.state.node_at_slot(slot as u32) else {
+                    continue;
+                };
+                ids[slot] = node.id.0;
+                if self.interaction.node_is_active(slot as u32) {
+                    let mask =
+                        u64::from(product.family_mask[0]) | (u64::from(product.family_mask[1]) << 32);
+                    ranks[slot] = crate::flow_walk::rank_for_family(mask);
+                }
+            }
+        }
+        let edges = (0..self.state.edge_capacity_slots() as u32)
+            .map(|slot| {
+                let edge = self.state.edge_at_slot(slot)?;
+                if !self.interaction.edge_is_active(slot) {
+                    return None;
+                }
+                Some((self.state.node_slot(edge.source)?, self.state.node_slot(edge.target)?))
+            })
+            .collect();
+        (ranks, ids, edges)
+    }
+
     pub(crate) fn node_color(&self, slot: u32) -> Option<[f32; 4]> {
         self.node_gpu_data.get(slot as usize).map(|node| node.color)
     }

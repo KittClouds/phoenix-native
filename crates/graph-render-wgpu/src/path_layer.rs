@@ -209,6 +209,28 @@ impl PreparedPathLayer {
         self.segments.len() > self.guide_segments
     }
 
+    /// Prepared polylines for many edges in one pass over the segments.
+    pub(crate) fn edge_polylines(
+        &self,
+        edge_slots: &[u32],
+    ) -> std::collections::HashMap<u32, Vec<[f32; 3]>> {
+        let wanted: std::collections::HashSet<u32> = edge_slots.iter().copied().collect();
+        let mut lines: std::collections::HashMap<u32, Vec<[f32; 3]>> =
+            std::collections::HashMap::new();
+        for segment in &self.segments[self.guide_segments..] {
+            if segment.flags & GUIDE_FLAG != 0 || !wanted.contains(&segment.edge_slot) {
+                continue;
+            }
+            let line = lines.entry(segment.edge_slot).or_default();
+            if line.is_empty() {
+                line.push([segment.start[0], segment.start[1], segment.start[2]]);
+            }
+            line.push([segment.end[0], segment.end[1], segment.end[2]]);
+        }
+        lines.retain(|_, line| line.len() >= 2);
+        lines
+    }
+
     /// Writes the prepared polyline for one edge, in stored order. Returns
     /// false when the edge has no resident prepared path.
     pub(crate) fn edge_polyline(&self, edge_slot: u32, output: &mut Vec<[f32; 3]>) -> bool {

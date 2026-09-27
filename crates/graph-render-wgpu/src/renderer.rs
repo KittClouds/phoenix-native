@@ -92,6 +92,7 @@ pub struct GraphRenderer {
     redraw_requested: bool,
     frame_count: u64,
     walk: Option<walk::ActiveWalk>,
+    flow: Option<flow::ActiveFlow>,
     walk_status: crate::RouteWalkStatus,
     particles: crate::particles::ParticleLayer,
     particle_scratch: Vec<crate::particles::ParticleGpu>,
@@ -291,6 +292,7 @@ impl GraphRenderer {
             redraw_requested: true,
             frame_count: 0,
             walk: None,
+            flow: None,
             walk_status: crate::RouteWalkStatus::default(),
             particles,
             particle_scratch: Vec::with_capacity(crate::particles::MAX_PARTICLES),
@@ -342,6 +344,7 @@ impl GraphRenderer {
         self.labels.clear();
         self.prepared_paths.clear();
         self.redraw_requested = true;
+        self.end_document_flow();
         self.revalidate_route_walk(true);
         tracing::info!(
             nodes = metrics.node_count,
@@ -495,6 +498,10 @@ impl GraphRenderer {
             }
         }
         self.active_view = view;
+        if visibility_changed {
+            // The flow's branches were computed over the old visible graph.
+            self.end_document_flow();
+        }
         let bytes_uploaded = if visibility_changed {
             let context_bytes = self.scene.set_interaction_visibility(view, &self.queue);
             self.refresh_interaction_lens();
@@ -583,6 +590,7 @@ impl GraphRenderer {
         self.refresh_interaction_lens();
         self.write_camera();
         self.redraw_requested = true;
+        self.end_document_flow();
         self.revalidate_route_walk(false);
         tracing::debug!(
             nodes_added = metrics.nodes_added,
@@ -835,6 +843,7 @@ impl GraphRenderer {
 
     pub fn update(&mut self, elapsed: Duration) {
         self.advance_route_walk(elapsed.as_secs_f32());
+        self.advance_document_flow(elapsed.as_secs_f32());
         if let Some(result) = self.picking.poll(&self.device, &self.scene) {
             match result.intent {
                 PickIntent::Hover if self.scene.hover_node() != result.node => {
@@ -995,7 +1004,10 @@ impl GraphRenderer {
 
     #[must_use]
     pub fn needs_redraw(&self) -> bool {
-        self.redraw_requested || self.picking.has_work() || self.walk_animating()
+        self.redraw_requested
+            || self.picking.has_work()
+            || self.walk_animating()
+            || self.flow_animating()
     }
 
     pub fn render(&mut self) -> Result<FrameMetrics, RenderError> {
@@ -1350,5 +1362,6 @@ mod view_delta_tests {
         }
     }
 }
+mod flow;
 mod geometry;
 mod walk;

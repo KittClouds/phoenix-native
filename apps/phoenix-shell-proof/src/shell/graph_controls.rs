@@ -1,29 +1,22 @@
-use super::{
-    drawer::{ACCENT, ACCENT_DIM},
-    PhoenixShell, BORDER, BORDER_BRIGHT, TEXT, TEXT_MUTED,
-};
+use super::{drawer::ACCENT, PhoenixShell, BORDER_BRIGHT, TEXT, TEXT_MUTED};
 use crate::lifecycle;
-use gpui::{div, prelude::*, px, rgb, Context, Corner, IntoElement, Window};
+use gpui::{div, prelude::*, px, rgb, Context, Corner, IntoElement};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::popover::Popover;
-use gpui_component::{Disableable, Sizable};
+use gpui_component::Sizable;
 use phoenix_app_core::{GraphProvenanceReceipt, KernelCommand, KernelOutcome};
 use phoenix_scene_archive::{PageKey, PageKind};
 use phoenix_scene_contract::{
-    FamilyMask, GraphAction, GraphCanvas, GraphEdgePresentation, GraphNavigationOverlay,
-    GraphProjection, GraphScope, GraphSurface, GraphTopologyEmphasis, GraphViewState, Manifold,
-    RelationFamily, ReviewMask, SceneSource,
+    FamilyMask, GraphAction, GraphEdgePresentation, GraphNavigationOverlay, GraphScope,
+    GraphSurface, GraphTopologyEmphasis, GraphViewState, Manifold, RelationFamily, ResidentScene,
+    SceneSource,
 };
 
-const CONTROL_BG: u32 = 0x111514;
-const CONTROL_RAISED: u32 = 0x1b211f;
-const CONTROL_ACTIVE: u32 = 0x183d34;
-const CONTROL_ACTIVE_BORDER: u32 = 0x317862;
-const VIOLET: u32 = 0xa991ff;
-const VIOLET_DIM: u32 = 0x2a2443;
+const CONTROL_RAISED: u32 = 0x1a201e;
 const POPOVER_BG: u32 = 0x181c1b;
 
 impl PhoenixShell {
+    /// Toolbar, optional settings shelf, then whichever mode strips are live.
     pub(super) fn render_graph_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let view = self
             .kernel_snapshot()
@@ -34,13 +27,8 @@ impl PhoenixShell {
             .flex_shrink_0()
             .flex()
             .flex_col()
-            .border_b_1()
-            .border_color(rgb(BORDER_BRIGHT))
-            .bg(rgb(CONTROL_BG))
-            .when(has_atlas_control_rail(view.surface), |controls| {
-                controls.child(self.render_primary_controls(view, cx))
-            })
-            .child(self.render_secondary_controls(view, cx))
+            .child(self.render_graph_toolbar(view, cx))
+            .children(self.render_graph_shelf(view, cx))
             .when(view.source_local, |controls| {
                 controls.child(self.render_source_local_strip(cx))
             })
@@ -49,258 +37,12 @@ impl PhoenixShell {
                     .filter(|status| self.route_walk_strip_visible(status)),
                 |controls, status| controls.child(self.render_route_walk_strip(&status, cx)),
             )
+            .when_some(
+                self.route_walk_status().and_then(|status| status.flow),
+                |controls, flow| controls.child(self.render_flow_strip(flow, cx)),
+            )
             .when(view.manifold == Manifold::Caps, |row| {
                 row.child(self.render_caps_space(cx))
-            })
-    }
-
-    fn render_primary_controls(
-        &self,
-        view: GraphViewState,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let mut row = div()
-            .min_h(px(52.))
-            .w_full()
-            .min_w_0()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .child(
-                div()
-                    .mr_3()
-                    .text_sm()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(rgb(TEXT))
-                    .child("Story atlas"),
-            );
-        row = row
-            .child(review_toggle("Accepted", ReviewMask::ACCEPTED, view, cx))
-            .child(review_toggle("Proposed", ReviewMask::PROPOSED, view, cx))
-            .child(self.relation_popover(view, cx))
-            .child(self.scope_popover(view, cx));
-        row.child(div().flex_1())
-    }
-
-    fn render_secondary_controls(
-        &self,
-        view: GraphViewState,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let mut row = div()
-            .min_h(px(48.))
-            .w_full()
-            .min_w_0()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .justify_between()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .border_t_1()
-            .border_color(rgb(BORDER));
-        row = row
-            .child(
-                Button::new("graph-toggle-atlas-sidebar")
-                    .label(if self.drawer_layout.atlas_collapsed() {
-                        "Show Atlas"
-                    } else {
-                        "Hide Atlas"
-                    })
-                    .tooltip("Close or reopen the Atlas sidebar without changing its width.")
-                    .small()
-                    .ghost()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.drawer_layout.toggle_atlas();
-                        cx.notify();
-                    })),
-            )
-            .child(manifold_segment(view.manifold, cx));
-        row.child(
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap_1()
-                .child(
-                    Button::new("graph-document-detail")
-                        .label(if document_detail_visible(view) {
-                            "Full detail"
-                        } else {
-                            "Overview"
-                        })
-                        .tooltip(
-                            "Toggle paragraph and sentence detail. All graph data stays available.",
-                        )
-                        .small()
-                        .ghost()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.mutate_graph_view(toggle_document_detail, "DETAIL", cx);
-                        })),
-                )
-                .child(projection_segment(view.projection, cx))
-                .child(self.edge_presentation_control(view, cx))
-                .when(view.surface == GraphSurface::Atlas, |row| {
-                    row.child(topology_emphasis_control(view.topology_emphasis, cx))
-                        .child(navigation_overlay_control(view.navigation_overlay, cx))
-                        .child(self.route_walk_button(cx))
-                })
-                .child(canvas_toggle(view.canvas, cx))
-                .child(super::source_local::source_local_toggle(view.source_local, cx))
-                .child(action_button(
-                    "graph-fit",
-                    if view.manifold == Manifold::Hybrid {
-                        "Fit content"
-                    } else {
-                        "Fit view"
-                    },
-                    GraphAction::Fit,
-                    cx,
-                ))
-                .child(action_button(
-                    "graph-reset",
-                    "Reset",
-                    GraphAction::Reset,
-                    cx,
-                ))
-                .child(
-                    Button::new("native-scene-rebuild")
-                        .label(if self.graph_rebuild_pending {
-                            "Building…"
-                        } else {
-                            "Build graph"
-                        })
-                        .small()
-                        .primary()
-                        .disabled(self.graph_rebuild_pending)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.start_native_scene_rebuild(window, cx);
-                        })),
-                ),
-        )
-    }
-
-    fn edge_presentation_control(
-        &self,
-        view: GraphViewState,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let available = self
-            .kernel_snapshot()
-            .and_then(|snapshot| snapshot.resident_scene)
-            .map(|scene| {
-                [
-                    PageKind::StraightPaths,
-                    PageKind::CurvedPaths,
-                    PageKind::BundledPaths,
-                ]
-                .map(|kind| {
-                    scene
-                        .archive()
-                        .has_page(PageKey::manifold(kind, view.manifold.into()))
-                })
-            })
-            .unwrap_or([false; 3]);
-        Button::new("graph-edge-presentation-cycle")
-            .label(format!(
-                "Edges · {}",
-                edge_presentation_label(view.edge_presentation)
-            ))
-            .tooltip("Cycle available path styles: manifold, straight, curved, bundled, hidden.")
-            .small()
-            .ghost()
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.mutate_graph_view(
-                    |next| {
-                        next.edge_presentation =
-                            next_edge_presentation(next.edge_presentation, available);
-                    },
-                    "EDGES",
-                    cx,
-                );
-            }))
-    }
-
-    fn relation_popover(&self, view: GraphViewState, cx: &mut Context<Self>) -> impl IntoElement {
-        let shell = cx.entity();
-        let selected = RelationFamily::ALL
-            .into_iter()
-            .filter(|family| view.relations.contains(*family))
-            .count();
-        Popover::new("graph-relations-popover")
-            .anchor(Corner::BottomLeft)
-            .appearance(false)
-            .trigger(
-                Button::new("graph-relations-trigger")
-                    .label(format!("Relations · {selected}"))
-                    .small()
-                    .ghost(),
-            )
-            .content(move |_, _, _| {
-                let mut menu = popover_card("RELATION FAMILIES", "Independent edge policy masks.");
-                for family in RelationFamily::ALL {
-                    let shell = shell.clone();
-                    menu = menu.child(popover_option(
-                        ("relation-option", family as usize),
-                        relation_label(family),
-                        view.relations.contains(family),
-                        move |_, cx| {
-                            shell.update(cx, |this, cx| {
-                                this.mutate_graph_view(
-                                    |next| next.relations = next.relations.toggled(family),
-                                    "RELATIONS",
-                                    cx,
-                                );
-                            });
-                        },
-                    ));
-                }
-                menu
-            })
-    }
-
-    fn scope_popover(&self, view: GraphViewState, cx: &mut Context<Self>) -> impl IntoElement {
-        let shell = cx.entity();
-        Popover::new("graph-scope-popover")
-            .anchor(Corner::BottomRight)
-            .appearance(false)
-            .trigger(
-                Button::new("graph-scope-trigger")
-                    .label(scope_label(view.scope))
-                    .small()
-                    .ghost(),
-            )
-            .content(move |state, window, popover_cx| {
-                let popover = popover_cx.entity();
-                let mut menu =
-                    popover_card("SCOPE", "Membership masks preserve stable node identities.");
-                for scope in [
-                    GraphScope::Global,
-                    GraphScope::Narrative,
-                    GraphScope::Note,
-                    GraphScope::Compare,
-                ] {
-                    let shell = shell.clone();
-                    let popover = popover.clone();
-                    menu = menu.child(popover_option(
-                        ("scope-option", scope as usize),
-                        scope_label(scope),
-                        scope == view.scope,
-                        move |window, cx| {
-                            shell.update(cx, |this, cx| {
-                                this.mutate_graph_view(|next| next.scope = scope, "SCOPE", cx);
-                            });
-                            popover.update(cx, |state, cx| state.dismiss(window, cx));
-                        },
-                    ));
-                }
-                let _ = state;
-                let _ = window;
-                menu
             })
     }
 
@@ -371,7 +113,7 @@ impl PhoenixShell {
         cx.notify();
     }
 
-    fn dispatch_manifold(&mut self, manifold: Manifold, cx: &mut Context<Self>) {
+    pub(super) fn dispatch_manifold(&mut self, manifold: Manifold, cx: &mut Context<Self>) {
         match self.kernel.execute(KernelCommand::SetManifold(manifold)) {
             Ok(_) => match self
                 .graph
@@ -391,7 +133,7 @@ impl PhoenixShell {
         cx.notify();
     }
 
-    fn dispatch_graph_action(&mut self, action: GraphAction, cx: &mut Context<Self>) {
+    pub(super) fn dispatch_graph_action(&mut self, action: GraphAction, cx: &mut Context<Self>) {
         match self
             .kernel
             .execute(KernelCommand::DispatchGraphAction(action))
@@ -416,57 +158,37 @@ impl PhoenixShell {
     }
 }
 
-fn canvas_toggle(canvas: GraphCanvas, cx: &mut Context<PhoenixShell>) -> impl IntoElement {
-    let (label, tooltip) = match canvas {
-        GraphCanvas::Ink => ("INK", "Canvas: pure black. Click for the green grid."),
-        GraphCanvas::Grid => ("GRID", "Canvas: green grid. Click for pure black."),
-    };
-    Button::new("graph-canvas-toggle")
-        .label(label)
-        .tooltip(tooltip)
-        .small()
-        .ghost()
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.mutate_graph_view(|next| next.canvas = next.canvas.toggled(), "CANVAS", cx);
-        }))
+/// Which prepared path pages (straight, curved, bundled) the resident scene
+/// carries for a manifold.
+pub(super) fn edge_pages_available(scene: &ResidentScene, manifold: Manifold) -> [bool; 3] {
+    [
+        PageKind::StraightPaths,
+        PageKind::CurvedPaths,
+        PageKind::BundledPaths,
+    ]
+    .map(|kind| {
+        scene
+            .archive()
+            .has_page(PageKey::manifold(kind, manifold.into()))
+    })
 }
 
-fn projection_segment(active: GraphProjection, cx: &mut Context<PhoenixShell>) -> impl IntoElement {
-    let mut segment = div()
-        .flex()
-        .items_center()
-        .p(px(2.))
-        .rounded_lg()
-        .border_1()
-        .border_color(rgb(BORDER))
-        .bg(rgb(0x0d100f));
-    for projection in [GraphProjection::Spatial, GraphProjection::Map] {
-        let selected = active == projection;
-        segment = segment.child(
-            div()
-                .id(("graph-projection", projection as usize))
-                .px_2()
-                .py_1()
-                .rounded_md()
-                .cursor_pointer()
-                .text_xs()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(rgb(if selected { ACCENT } else { TEXT_MUTED }))
-                .when(selected, |item| item.bg(rgb(CONTROL_ACTIVE)))
-                .hover(|item| item.bg(rgb(CONTROL_RAISED)).text_color(rgb(TEXT)))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.mutate_graph_view(|next| next.projection = projection, "PROJECTION", cx);
-                }))
-                .child(match projection {
-                    GraphProjection::Spatial => "3D",
-                    GraphProjection::Map => "MAP",
-                }),
-        );
-    }
-    segment
+/// Edge styles offered for the current scene: manifold and hidden always,
+/// prepared path styles only when their pages are resident.
+pub(super) fn available_edge_presentations(available: [bool; 3]) -> Vec<GraphEdgePresentation> {
+    [
+        (GraphEdgePresentation::Manifold, true),
+        (GraphEdgePresentation::Straight, available[0]),
+        (GraphEdgePresentation::Curved, available[1]),
+        (GraphEdgePresentation::Bundled, available[2]),
+        (GraphEdgePresentation::Hidden, true),
+    ]
+    .into_iter()
+    .filter_map(|(style, present)| present.then_some(style))
+    .collect()
 }
 
-const fn edge_presentation_label(style: GraphEdgePresentation) -> &'static str {
+pub(super) const fn edge_presentation_label(style: GraphEdgePresentation) -> &'static str {
     match style {
         GraphEdgePresentation::Manifold => "Manifold",
         GraphEdgePresentation::Straight => "Straight",
@@ -476,7 +198,7 @@ const fn edge_presentation_label(style: GraphEdgePresentation) -> &'static str {
     }
 }
 
-const fn topology_emphasis_label(emphasis: GraphTopologyEmphasis) -> &'static str {
+pub(super) const fn topology_emphasis_label(emphasis: GraphTopologyEmphasis) -> &'static str {
     match emphasis {
         GraphTopologyEmphasis::Off => "Off",
         GraphTopologyEmphasis::Structure => "Structure",
@@ -485,36 +207,7 @@ const fn topology_emphasis_label(emphasis: GraphTopologyEmphasis) -> &'static st
     }
 }
 
-const fn next_topology_emphasis(emphasis: GraphTopologyEmphasis) -> GraphTopologyEmphasis {
-    match emphasis {
-        GraphTopologyEmphasis::Off => GraphTopologyEmphasis::Structure,
-        GraphTopologyEmphasis::Structure => GraphTopologyEmphasis::Facts,
-        GraphTopologyEmphasis::Facts => GraphTopologyEmphasis::Discourse,
-        GraphTopologyEmphasis::Discourse => GraphTopologyEmphasis::Off,
-    }
-}
-
-fn topology_emphasis_control(
-    emphasis: GraphTopologyEmphasis,
-    cx: &mut Context<PhoenixShell>,
-) -> impl IntoElement {
-    Button::new("graph-topology-emphasis-cycle")
-        .label(format!("Emphasis · {}", topology_emphasis_label(emphasis)))
-        .tooltip(
-            "Emphasize published structure, facts, or discourse without changing graph visibility.",
-        )
-        .small()
-        .ghost()
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.mutate_graph_view(
-                |next| next.topology_emphasis = next_topology_emphasis(next.topology_emphasis),
-                "EMPHASIS",
-                cx,
-            );
-        }))
-}
-
-const fn navigation_overlay_label(overlay: GraphNavigationOverlay) -> &'static str {
+pub(super) const fn navigation_overlay_label(overlay: GraphNavigationOverlay) -> &'static str {
     match overlay {
         GraphNavigationOverlay::Off => "Off",
         GraphNavigationOverlay::Backbone => "Backbone",
@@ -523,195 +216,49 @@ const fn navigation_overlay_label(overlay: GraphNavigationOverlay) -> &'static s
     }
 }
 
-const fn next_navigation_overlay(overlay: GraphNavigationOverlay) -> GraphNavigationOverlay {
-    match overlay {
-        GraphNavigationOverlay::Off => GraphNavigationOverlay::Backbone,
-        GraphNavigationOverlay::Backbone => GraphNavigationOverlay::Bridges,
-        GraphNavigationOverlay::Bridges => GraphNavigationOverlay::Both,
-        GraphNavigationOverlay::Both => GraphNavigationOverlay::Off,
-    }
-}
-
-fn navigation_overlay_control(
-    overlay: GraphNavigationOverlay,
-    cx: &mut Context<PhoenixShell>,
-) -> impl IntoElement {
-    Button::new("graph-navigation-overlay-cycle")
-        .label(format!("Nav · {}", navigation_overlay_label(overlay)))
-        .tooltip(
-            "Backbone: published structure. Bridges: undirected visible graph cuts. Navigation only; no semantic or causal claim.",
-        )
-        .small()
-        .ghost()
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.mutate_graph_view(
-                |next| next.navigation_overlay = next_navigation_overlay(next.navigation_overlay),
-                "NAVIGATION",
-                cx,
-            );
-        }))
-}
-
-fn next_edge_presentation(
-    current: GraphEdgePresentation,
-    available: [bool; 3],
-) -> GraphEdgePresentation {
-    const STYLES: [GraphEdgePresentation; 5] = [
-        GraphEdgePresentation::Manifold,
-        GraphEdgePresentation::Straight,
-        GraphEdgePresentation::Curved,
-        GraphEdgePresentation::Bundled,
-        GraphEdgePresentation::Hidden,
-    ];
-    let start = STYLES
-        .iter()
-        .position(|style| *style == current)
-        .unwrap_or(0);
-    for step in 1..STYLES.len() {
-        let next = STYLES[(start + step) % STYLES.len()];
-        if match next {
-            GraphEdgePresentation::Straight => available[0],
-            GraphEdgePresentation::Curved => available[1],
-            GraphEdgePresentation::Bundled => available[2],
-            _ => true,
-        } {
-            return next;
-        }
-    }
-    current
-}
-
+/// Compact Entities / Atlas surface switch used by the sidebar header.
 pub(super) fn surface_segment(
     surface: GraphSurface,
     cx: &mut Context<PhoenixShell>,
 ) -> impl IntoElement {
     let mut segment = div()
-        .w_full()
+        .flex_shrink_0()
         .flex()
         .items_center()
+        .h(px(24.))
         .p(px(2.))
-        .rounded_lg()
+        .gap(px(1.))
+        .rounded_md()
         .border_1()
-        .border_color(rgb(BORDER))
-        .bg(rgb(0x0d100f));
+        .border_color(rgb(0x252c2a))
+        .bg(rgb(0x0b0e0d));
     for candidate in [GraphSurface::Entities, GraphSurface::Atlas] {
         let selected = candidate == surface;
         segment = segment.child(
             div()
                 .id(("graph-surface", candidate as usize))
-                .flex_1()
+                .h_full()
                 .flex()
                 .items_center()
-                .justify_center()
-                .px_2()
-                .py_1()
-                .rounded_md()
+                .px(px(8.))
+                .rounded(px(4.))
                 .cursor_pointer()
                 .text_xs()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(rgb(if selected { ACCENT } else { TEXT_MUTED }))
-                .when(selected, |item| {
-                    item.bg(rgb(CONTROL_ACTIVE))
-                        .border_1()
-                        .border_color(rgb(CONTROL_ACTIVE_BORDER))
+                .text_color(rgb(if selected { 0x8ff0d2 } else { TEXT_MUTED }))
+                .when(selected, |item| item.bg(rgb(0x1a3a32)))
+                .when(!selected, |item| {
+                    item.hover(|item| item.bg(rgb(CONTROL_RAISED)).text_color(rgb(TEXT)))
                 })
-                .hover(|item| item.bg(rgb(CONTROL_RAISED)).text_color(rgb(TEXT)))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.mutate_graph_view(|next| next.surface = candidate, "SURFACE", cx);
                 }))
                 .child(match candidate {
-                    GraphSurface::Entities => "ENTITIES",
-                    GraphSurface::Atlas => "ATLAS",
+                    GraphSurface::Entities => "Entities",
+                    GraphSurface::Atlas => "Atlas",
                 }),
         );
     }
     segment
-}
-
-fn manifold_segment(active: Manifold, cx: &mut Context<PhoenixShell>) -> impl IntoElement {
-    let mut segment = div()
-        .flex()
-        .flex_wrap()
-        .min_w_0()
-        .items_center()
-        .p(px(2.))
-        .rounded_lg()
-        .border_1()
-        .border_color(rgb(BORDER))
-        .bg(rgb(0x0d100f));
-    for manifold in Manifold::ALL {
-        let selected = manifold == active;
-        segment = segment.child(
-            div()
-                .id(("manifold-selector", manifold as usize))
-                .px_2()
-                .py_1()
-                .rounded_md()
-                .cursor_pointer()
-                .text_xs()
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(rgb(if selected { VIOLET } else { TEXT_MUTED }))
-                .when(selected, |item| {
-                    item.bg(rgb(VIOLET_DIM))
-                        .border_1()
-                        .border_color(rgb(0x534783))
-                })
-                .hover(|item| item.bg(rgb(CONTROL_RAISED)).text_color(rgb(TEXT)))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.dispatch_manifold(manifold, cx);
-                }))
-                .child(manifold_label(manifold)),
-        );
-    }
-    segment
-}
-
-fn review_toggle(
-    label: &'static str,
-    mask: ReviewMask,
-    view: GraphViewState,
-    cx: &mut Context<PhoenixShell>,
-) -> impl IntoElement {
-    let selected = view.reviews.contains(mask);
-    div()
-        .id(("review-toggle", mask.0 as usize))
-        .px_2()
-        .py_1()
-        .rounded_md()
-        .border_1()
-        .border_color(rgb(if selected {
-            CONTROL_ACTIVE_BORDER
-        } else {
-            BORDER
-        }))
-        .bg(rgb(if selected { CONTROL_ACTIVE } else { CONTROL_BG }))
-        .cursor_pointer()
-        .text_xs()
-        .text_color(rgb(if selected { ACCENT } else { TEXT_MUTED }))
-        .hover(|item| item.bg(rgb(CONTROL_RAISED)).text_color(rgb(TEXT)))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.mutate_graph_view(
-                |next| next.reviews = next.reviews.toggled(mask),
-                "REVIEWS",
-                cx,
-            );
-        }))
-        .child(label)
-}
-
-fn action_button(
-    id: &'static str,
-    label: &'static str,
-    action: GraphAction,
-    cx: &mut Context<PhoenixShell>,
-) -> impl IntoElement {
-    Button::new(id)
-        .label(label)
-        .small()
-        .ghost()
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.dispatch_graph_action(action, cx);
-        }))
 }
 
 fn popover_card(title: &'static str, detail: &'static str) -> gpui::Div {
@@ -739,37 +286,6 @@ fn popover_card(title: &'static str, detail: &'static str) -> gpui::Div {
                 .child(detail),
         )
 }
-
-fn popover_option(
-    id: impl Into<gpui::ElementId>,
-    label: &'static str,
-    selected: bool,
-    on_click: impl Fn(&mut Window, &mut gpui::App) + 'static,
-) -> impl IntoElement {
-    div()
-        .id(id)
-        .w_full()
-        .flex()
-        .items_center()
-        .justify_between()
-        .px_2()
-        .py_2()
-        .rounded_md()
-        .cursor_pointer()
-        .text_sm()
-        .text_color(rgb(if selected { TEXT } else { TEXT_MUTED }))
-        .when(selected, |item| item.bg(rgb(ACCENT_DIM)))
-        .hover(|item| item.bg(rgb(CONTROL_RAISED)).text_color(rgb(TEXT)))
-        .on_click(move |_, window, cx| on_click(window, cx))
-        .child(label)
-        .child(
-            div()
-                .text_xs()
-                .text_color(rgb(if selected { ACCENT } else { 0x48504e }))
-                .child(if selected { "●" } else { "○" }),
-        )
-}
-
 fn provenance_card(provenance: Option<GraphProvenanceReceipt>) -> impl IntoElement {
     let card = popover_card("SCENE AUTHORITY", "Compact native generation provenance.").w(px(304.));
     match provenance {
@@ -834,23 +350,23 @@ fn short_hash(hash: [u8; 32]) -> String {
     value
 }
 
-const fn scope_label(scope: GraphScope) -> &'static str {
+pub(super) const fn scope_label(scope: GraphScope) -> &'static str {
     match scope {
-        GraphScope::Global => "GLOBAL",
-        GraphScope::Narrative => "NARRATIVE",
-        GraphScope::Note => "NOTE",
-        GraphScope::Compare => "COMPARE",
+        GraphScope::Global => "Global",
+        GraphScope::Narrative => "Narrative",
+        GraphScope::Note => "Note",
+        GraphScope::Compare => "Compare",
     }
 }
 
-fn document_detail_visible(view: GraphViewState) -> bool {
+pub(super) fn document_detail_visible(view: GraphViewState) -> bool {
     view.topology_families.intersects(FamilyMask(
         FamilyMask::PARAGRAPHS.0 | FamilyMask::SENTENCES.0,
     ))
 }
 
-fn toggle_document_detail(view: &mut GraphViewState) {
-    let show = !document_detail_visible(*view);
+/// Shows or hides paragraph and sentence detail; nothing else changes.
+pub(super) fn set_document_detail(view: &mut GraphViewState, show: bool) {
     for detail in [FamilyMask::PARAGRAPHS, FamilyMask::SENTENCES] {
         if view.topology_families.contains(detail) != show {
             view.toggle_topology_family(detail);
@@ -858,7 +374,7 @@ fn toggle_document_detail(view: &mut GraphViewState) {
     }
 }
 
-const fn relation_label(family: RelationFamily) -> &'static str {
+pub(super) const fn relation_label(family: RelationFamily) -> &'static str {
     match family {
         RelationFamily::CoOccurrence => "Co-occurrence",
         RelationFamily::Observation => "Observation",
@@ -873,19 +389,15 @@ const fn relation_label(family: RelationFamily) -> &'static str {
     }
 }
 
-const fn manifold_label(manifold: Manifold) -> &'static str {
+pub(super) const fn manifold_label(manifold: Manifold) -> &'static str {
     match manifold {
-        Manifold::Hybrid => "HYBRID",
-        Manifold::Torus => "TORUS",
-        Manifold::Hopf => "HOPF",
-        Manifold::Caps => "CAPS",
-        Manifold::Transit => "TRANSIT",
-        Manifold::Siegel => "SIEGEL",
+        Manifold::Hybrid => "Hybrid",
+        Manifold::Torus => "Torus",
+        Manifold::Hopf => "Hopf",
+        Manifold::Caps => "Caps",
+        Manifold::Transit => "Transit",
+        Manifold::Siegel => "Siegel",
     }
-}
-
-const fn has_atlas_control_rail(surface: GraphSurface) -> bool {
-    matches!(surface, GraphSurface::Atlas)
 }
 
 #[cfg(test)]
@@ -893,55 +405,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn edge_control_cycles_only_published_styles_and_keeps_hidden_reachable() {
-        let all = [true; 3];
+    fn edge_styles_offer_only_published_paths_and_keep_hidden_reachable() {
         assert_eq!(
-            next_edge_presentation(GraphEdgePresentation::Manifold, all),
-            GraphEdgePresentation::Straight,
+            available_edge_presentations([true; 3]),
+            vec![
+                GraphEdgePresentation::Manifold,
+                GraphEdgePresentation::Straight,
+                GraphEdgePresentation::Curved,
+                GraphEdgePresentation::Bundled,
+                GraphEdgePresentation::Hidden,
+            ]
         );
         assert_eq!(
-            next_edge_presentation(GraphEdgePresentation::Bundled, all),
-            GraphEdgePresentation::Hidden,
-        );
-        assert_eq!(
-            next_edge_presentation(GraphEdgePresentation::Hidden, all),
-            GraphEdgePresentation::Manifold,
-        );
-        assert_eq!(
-            next_edge_presentation(GraphEdgePresentation::Manifold, [false, true, false]),
-            GraphEdgePresentation::Curved,
-        );
-    }
-
-    #[test]
-    fn topology_emphasis_cycles_through_published_lanes_and_off() {
-        let mut emphasis = GraphTopologyEmphasis::Off;
-        for expected in [
-            GraphTopologyEmphasis::Structure,
-            GraphTopologyEmphasis::Facts,
-            GraphTopologyEmphasis::Discourse,
-            GraphTopologyEmphasis::Off,
-        ] {
-            emphasis = next_topology_emphasis(emphasis);
-            assert_eq!(emphasis, expected);
-        }
-    }
-
-    #[test]
-    fn navigation_control_cycles_through_display_analysis_modes() {
-        let mut overlay = GraphNavigationOverlay::Off;
-        for expected in [
-            GraphNavigationOverlay::Backbone,
-            GraphNavigationOverlay::Bridges,
-            GraphNavigationOverlay::Both,
-            GraphNavigationOverlay::Off,
-        ] {
-            overlay = next_navigation_overlay(overlay);
-            assert_eq!(overlay, expected);
-        }
-        assert_eq!(
-            navigation_overlay_label(GraphNavigationOverlay::Bridges),
-            "Bridges"
+            available_edge_presentations([false, true, false]),
+            vec![
+                GraphEdgePresentation::Manifold,
+                GraphEdgePresentation::Curved,
+                GraphEdgePresentation::Hidden,
+            ]
         );
     }
 
@@ -949,12 +430,12 @@ mod tests {
     fn overview_only_changes_sentence_and_paragraph_visibility() {
         let mut view = GraphViewState::default();
         let original = view;
-        toggle_document_detail(&mut view);
+        set_document_detail(&mut view, false);
         assert!(!document_detail_visible(view));
         assert!(view.is_valid());
         assert_eq!(view.relations, original.relations);
         assert_eq!(view.manifold, original.manifold);
-        toggle_document_detail(&mut view);
+        set_document_detail(&mut view, true);
         assert!(document_detail_visible(view));
         assert_eq!(view.topology_families, original.topology_families);
     }
@@ -962,21 +443,27 @@ mod tests {
     #[test]
     fn angular_submodes_do_not_exist_in_native_surface_labels() {
         let visible = Manifold::ALL.map(manifold_label);
-        for removed in ["PROJECTION", "FINSLER", "SHELL", "MULTI"] {
+        for removed in ["Projection", "Finsler", "Shell", "Multi"] {
             assert!(!visible.contains(&removed));
         }
-        assert!(visible.contains(&"TORUS"));
-        assert!(visible.contains(&"HOPF"));
+        assert!(visible.contains(&"Torus"));
+        assert!(visible.contains(&"Hopf"));
+    }
+
+    #[test]
+    fn display_labels_cover_navigation_and_emphasis_modes() {
+        assert_eq!(
+            navigation_overlay_label(GraphNavigationOverlay::Bridges),
+            "Bridges"
+        );
+        assert_eq!(
+            topology_emphasis_label(GraphTopologyEmphasis::Facts),
+            "Facts"
+        );
     }
 
     #[test]
     fn exactly_two_product_surfaces_are_exposed() {
         assert_eq!([GraphSurface::Entities, GraphSurface::Atlas].len(), 2);
-    }
-
-    #[test]
-    fn entity_surface_does_not_reserve_an_empty_control_rail() {
-        assert!(!has_atlas_control_rail(GraphSurface::Entities));
-        assert!(has_atlas_control_rail(GraphSurface::Atlas));
     }
 }

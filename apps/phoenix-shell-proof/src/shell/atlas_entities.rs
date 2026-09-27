@@ -1,23 +1,22 @@
-use super::drawer::{ACCENT, ACCENT_DIM};
+use super::drawer::ACCENT;
 use super::graph_controls::surface_segment;
 use super::style_hub::GraphSidebarPanel;
 use super::{PhoenixShell, BORDER, TEXT, TEXT_MUTED};
-use gpui::{
-    div, linear_color_stop, linear_gradient, prelude::*, px, rgb, uniform_list, Context, Entity,
-    IntoElement, SharedString,
-};
+use gpui::{div, prelude::*, px, rgb, uniform_list, Context, Entity, IntoElement, SharedString};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
 use gpui_component::scroll::ScrollableElement;
-use gpui_component::{Sizable, StyledExt};
+use gpui_component::{Selectable, Sizable, StyledExt};
 use phoenix_app_core::{AtlasEntity, AtlasRegistry, GraphSelectionCommand, KernelCommand};
 use phoenix_scene_contract::{EntityKind, GraphColorKey, GraphViewState, HighlightPalette};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-const ENTITY_ROW_HEIGHT: f32 = 44.;
-const KIND_TILE_HEIGHT: f32 = 24.;
+const ENTITY_ROW_HEIGHT: f32 = 42.;
+const KIND_TILE_HEIGHT: f32 = 22.;
+const SIDEBAR_BG: u32 = 0x121816;
+const QUIET: u32 = 0x6f7a76;
 const _: () = assert!(ENTITY_ROW_HEIGHT <= 44.);
 const _: () = assert!(KIND_TILE_HEIGHT <= 24.);
 
@@ -46,11 +45,7 @@ impl PhoenixShell {
             .overflow_hidden()
             .border_r_1()
             .border_color(rgb(BORDER))
-            .bg(linear_gradient(
-                155.,
-                linear_color_stop(rgb(0x14231f), 0.),
-                linear_color_stop(rgb(0x111715), 1.),
-            ))
+            .bg(rgb(SIDEBAR_BG))
             .child(atlas_header(&atlas, graph_view, panel, cx));
 
         if panel == GraphSidebarPanel::StyleHub {
@@ -104,7 +99,7 @@ impl PhoenixShell {
             .child(
                 div()
                     .px_2()
-                    .pt_2()
+                    .pt(px(6.))
                     .flex()
                     .items_center()
                     .gap_1()
@@ -116,7 +111,8 @@ impl PhoenixShell {
                     )
                     .child(
                         Button::new("registry-add-entity")
-                            .label("+ Add")
+                            .icon(gpui_component::IconName::Plus)
+                            .tooltip("Add an entity")
                             .small()
                             .ghost()
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -127,16 +123,22 @@ impl PhoenixShell {
             .child(kind_summary(self, &atlas))
             .child(
                 div()
-                    .mt_1()
+                    .mt(px(6.))
                     .px_2()
-                    .pb_1()
+                    .pb(px(4.))
                     .flex()
                     .items_center()
                     .justify_between()
+                    .gap_2()
                     .text_xs()
-                    .text_color(rgb(TEXT_MUTED))
-                    .child("In this note")
-                    .child(format!("{} identities", visible.len())),
+                    .text_color(rgb(QUIET))
+                    .child(format!("{} in this note", visible.len()))
+                    .child(format!(
+                        "{} tagged · {} found · rev {}",
+                        atlas.user_tagged_source_count,
+                        atlas.ner_source_count,
+                        atlas.registry_revision
+                    )),
             )
             .child(
                 div()
@@ -173,6 +175,8 @@ impl PhoenixShell {
     }
 }
 
+/// One compact row: title with count, the Entities/Atlas surface switch, and
+/// the appearance toggle.
 fn atlas_header(
     atlas: &AtlasRegistry,
     graph_view: GraphViewState,
@@ -180,108 +184,54 @@ fn atlas_header(
     cx: &mut Context<PhoenixShell>,
 ) -> impl IntoElement {
     div()
+        .h(px(36.))
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .gap_2()
         .px_2()
-        .pt_2()
-        .pb_2()
         .border_b_1()
         .border_color(rgb(BORDER))
         .child(
             div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_semibold()
-                        .text_color(rgb(ACCENT))
-                        .child("Entities"),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .child(
-                            div()
-                                .min_w(px(28.))
-                                .px_2()
-                                .py(px(2.))
-                                .rounded_full()
-                                .bg(rgb(ACCENT_DIM))
-                                .text_xs()
-                                .text_center()
-                                .text_color(rgb(ACCENT))
-                                .child(atlas.entities.len().to_string()),
-                        )
-                        .child(
-                            div()
-                                .id("graph-sidebar-panel-toggle")
-                                .px_2()
-                                .py(px(3.))
-                                .rounded_md()
-                                .border_1()
-                                .border_color(rgb(0x35675a))
-                                .bg(rgb(0x12211d))
-                                .cursor_pointer()
-                                .text_xs()
-                                .font_semibold()
-                                .text_color(rgb(ACCENT))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.graph_sidebar_panel = match this.graph_sidebar_panel {
-                                        GraphSidebarPanel::Registry => GraphSidebarPanel::StyleHub,
-                                        GraphSidebarPanel::StyleHub => GraphSidebarPanel::Registry,
-                                    };
-                                    cx.notify();
-                                }))
-                                .child(match panel {
-                                    GraphSidebarPanel::Registry => "Appearance",
-                                    GraphSidebarPanel::StyleHub => "Entities",
-                                }),
-                        ),
-                ),
-        )
-        .child(
-            div()
-                .mt_1()
-                .w_full()
-                .child(surface_segment(graph_view.surface, cx)),
-        )
-        .child(
-            div()
-                .mt_1()
-                .flex()
-                .items_center()
-                .gap_1()
                 .text_xs()
-                .text_color(rgb(TEXT_MUTED))
-                .child(authority_stat(
-                    "Tagged",
-                    atlas.user_tagged_source_count.to_string(),
-                ))
-                .child(authority_stat("Found", atlas.ner_source_count.to_string()))
-                .child(authority_stat("Rev", atlas.registry_revision.to_string())),
+                .font_semibold()
+                .text_color(rgb(TEXT))
+                .child("Identities"),
         )
-}
-
-fn authority_stat(label: &'static str, value: String) -> impl IntoElement {
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap_1()
-        .px_1()
-        .py(px(2.))
-        .rounded_sm()
-        .bg(rgb(0x111715))
-        .child(label)
-        .child(div().text_color(rgb(0xb5c2be)).child(value))
+        .child(
+            div()
+                .text_xs()
+                .text_color(rgb(QUIET))
+                .child(atlas.entities.len().to_string()),
+        )
+        .child(div().flex_1())
+        .child(surface_segment(graph_view.surface, cx))
+        .child(
+            Button::new("graph-sidebar-panel-toggle")
+                .icon(match panel {
+                    GraphSidebarPanel::Registry => gpui_component::IconName::Palette,
+                    GraphSidebarPanel::StyleHub => gpui_component::IconName::Menu,
+                })
+                .tooltip(match panel {
+                    GraphSidebarPanel::Registry => "Appearance",
+                    GraphSidebarPanel::StyleHub => "Back to identities",
+                })
+                .small()
+                .ghost()
+                .selected(panel == GraphSidebarPanel::StyleHub)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.graph_sidebar_panel = match this.graph_sidebar_panel {
+                        GraphSidebarPanel::Registry => GraphSidebarPanel::StyleHub,
+                        GraphSidebarPanel::StyleHub => GraphSidebarPanel::Registry,
+                    };
+                    cx.notify();
+                })),
+        )
 }
 
 fn kind_summary(shell: &PhoenixShell, atlas: &AtlasRegistry) -> impl IntoElement {
-    let mut rows = div().mt_2().px_2().grid().grid_cols(2).gap_1();
+    let mut rows = div().mt(px(6.)).px_2().grid().grid_cols(2).gap(px(3.));
     for kind in EntityKind::TOOLBAR {
         let count = atlas
             .entities
@@ -300,9 +250,7 @@ fn kind_summary(shell: &PhoenixShell, atlas: &AtlasRegistry) -> impl IntoElement
                 .gap_1()
                 .px_1()
                 .rounded_md()
-                .border_1()
-                .border_color(rgb(0x24302c))
-                .bg(rgb(0x121816))
+                .bg(rgb(0x161d1b))
                 .child(shell.graph_color_picker(color_key))
                 .child(
                     div()
@@ -351,17 +299,11 @@ fn atlas_entity_row(
         .flex()
         .items_center()
         .gap_2()
-        .border_b_1()
-        .border_color(rgb(0x1d2924))
+        .mx_1()
+        .rounded_md()
         .cursor_pointer()
-        .when(selected, |row| {
-            row.bg(linear_gradient(
-                90.,
-                linear_color_stop(rgb(0x123f34), 0.),
-                linear_color_stop(rgb(0x17211e), 1.),
-            ))
-        })
-        .hover(|row| row.bg(rgb(0x17211e)))
+        .when(selected, |row| row.bg(rgb(0x163129)))
+        .when(!selected, |row| row.hover(|row| row.bg(rgb(0x19201e))))
         .on_click(move |_, _, cx| {
             if kernel
                 .execute(KernelCommand::SetGraphSelection(
@@ -378,7 +320,7 @@ fn atlas_entity_row(
         .child(
             div()
                 .w(px(2.))
-                .h(px(28.))
+                .h(px(22.))
                 .flex_shrink_0()
                 .rounded_full()
                 .bg(rgb(marker_color)),
@@ -390,14 +332,14 @@ fn atlas_entity_row(
                 .child(
                     div()
                         .truncate()
-                        .text_sm()
+                        .text_xs()
                         .font_medium()
                         .text_color(rgb(TEXT))
                         .child(label.to_string()),
                 )
                 .child(
                     div()
-                        .mt(px(2.))
+                        .mt(px(1.))
                         .flex()
                         .items_center()
                         .gap_1()
@@ -414,26 +356,20 @@ fn atlas_entity_row(
         )
         .child(
             div()
-                .min_w(px(30.))
-                .px_1()
-                .py(px(2.))
-                .rounded_md()
-                .bg(rgb(0x111715))
                 .text_xs()
-                .text_color(rgb(TEXT_MUTED))
-                .child(format!("{}x", entity.mention_count)),
+                .text_color(rgb(QUIET))
+                .child(format!("{}\u{d7}", entity.mention_count)),
         )
         .child(
             div()
                 .id(("registry-edit", stable_id as usize))
-                .px_1()
-                .py(px(2.))
+                .px(px(6.))
+                .py(px(1.))
                 .rounded_md()
-                .border_1()
-                .border_color(rgb(0x29463e))
                 .text_xs()
-                .text_color(rgb(ACCENT))
-                .child("EDIT")
+                .text_color(rgb(QUIET))
+                .hover(|edit| edit.bg(rgb(0x1f2826)).text_color(rgb(ACCENT)))
+                .child("Edit")
                 .on_click(move |_, window, cx| {
                     shell.update(cx, |this, cx| {
                         this.open_registry_edit(stable_id, window, cx);

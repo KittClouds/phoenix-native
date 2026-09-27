@@ -674,6 +674,12 @@ impl EmbeddedGraphApp {
                             RouteWalkRequest::Exit => {
                                 renderer.exit_route_walk();
                             }
+                            RouteWalkRequest::FlowStart => {
+                                renderer.start_document_flow();
+                            }
+                            RouteWalkRequest::FlowExit => {
+                                renderer.exit_document_flow();
+                            }
                         }
                     }
                     self.publish_walk_status();

@@ -2,10 +2,7 @@
 //! the animation; the shell only sends transport commands and renders the
 //! status it publishes at step boundaries.
 
-use super::{
-    drawer::{ACCENT, ACCENT_DIM},
-    PhoenixShell, BORDER, TEXT, TEXT_MUTED,
-};
+use super::{drawer::ACCENT, PhoenixShell, TEXT, TEXT_MUTED};
 use crate::graph_window::RouteWalkRequest;
 use gpui::{div, prelude::*, px, rgb, Context, IntoElement, SharedString};
 use gpui_component::button::{Button, ButtonVariants};
@@ -29,29 +26,7 @@ impl PhoenixShell {
     /// The strip is visible while a walk runs, or until an outcome from a
     /// refused start is dismissed.
     pub(super) fn route_walk_strip_visible(&self, status: &RouteWalkStatus) -> bool {
-        status.active
-            || (status.notice.is_some() && status.revision != self.route_walk_dismissed)
-    }
-
-    pub(super) fn route_walk_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let endpoints = self
-            .kernel_snapshot()
-            .is_some_and(|snapshot| {
-                snapshot.graph_selection.node_id.is_some()
-                    && snapshot.graph_selection.secondary_node_id.is_some()
-            });
-        Button::new("graph-route-walk")
-            .label("Walk")
-            .tooltip(if endpoints {
-                "Freeze the route between the selected endpoints and walk it."
-            } else {
-                "Select a node, then Shift+click a second node to set the route end."
-            })
-            .small()
-            .ghost()
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.send_route_walk(RouteWalkRequest::Start, cx);
-            }))
+        status.active || (status.notice.is_some() && status.revision != self.route_walk_dismissed)
     }
 
     pub(super) fn render_route_walk_strip(
@@ -59,30 +34,8 @@ impl PhoenixShell {
         status: &RouteWalkStatus,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let mut strip = div()
-            .w_full()
-            .min_w_0()
-            .min_h(px(40.))
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .border_t_1()
-            .border_color(rgb(BORDER))
-            .bg(rgb(STRIP_BG))
-            .child(
-                div()
-                    .px_2()
-                    .py(px(2.))
-                    .rounded_sm()
-                    .bg(rgb(ACCENT_DIM))
-                    .text_xs()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(rgb(ACCENT))
-                    .child("ROUTE WALK"),
-            );
+        let mut strip = super::graph_toolbar::mode_strip(STRIP_BG)
+            .child(super::graph_toolbar::strip_mark("Route walk", ACCENT));
         if status.active {
             let snapshot = self.kernel_snapshot();
             let label = |id: graph_model::NodeId| {
@@ -104,7 +57,7 @@ impl PhoenixShell {
                         .min_w_0()
                         .child(
                             div()
-                                .text_sm()
+                                .text_xs()
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(rgb(TEXT))
                                 .child(route),
@@ -187,7 +140,49 @@ impl PhoenixShell {
         strip
     }
 
-    fn send_route_walk(&mut self, request: RouteWalkRequest, cx: &mut Context<Self>) {
+    pub(super) fn render_flow_strip(
+        &self,
+        flow: graph_render_wgpu::FlowStatus,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        super::graph_toolbar::mode_strip(STRIP_BG)
+            .child(super::graph_toolbar::strip_mark("Flow", ACCENT))
+            .child(div().text_xs().text_color(rgb(TEXT_MUTED)).child(format!(
+                "{} document{} \u{b7} {} connections \u{b7} {} levels",
+                flow.documents,
+                if flow.documents == 1 { "" } else { "s" },
+                flow.connections,
+                flow.levels
+            )))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(if flow.settled { ACCENT } else { TEXT }))
+                    .child(if flow.settled { "Settled" } else { "Flowing\u{2026}" }),
+            )
+            .child(div().flex_1())
+            .child(
+                Button::new("document-flow-replay")
+                    .label("Replay")
+                    .small()
+                    .ghost()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.send_route_walk(RouteWalkRequest::FlowStart, cx);
+                    })),
+            )
+            .child(
+                Button::new("document-flow-exit")
+                    .label("Exit")
+                    .tooltip("Leave the flow. The atlas returns to its prior view.")
+                    .small()
+                    .ghost()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.send_route_walk(RouteWalkRequest::FlowExit, cx);
+                    })),
+            )
+    }
+
+    pub(super) fn send_route_walk(&mut self, request: RouteWalkRequest, cx: &mut Context<Self>) {
         let result = self
             .graph
             .borrow()
@@ -234,13 +229,7 @@ fn step_track(status: &RouteWalkStatus) -> impl IntoElement {
         } else {
             (STEP_FUTURE, 6.)
         };
-        track = track.child(
-            div()
-                .w(px(width))
-                .h(px(height))
-                .rounded_sm()
-                .bg(rgb(color)),
-        );
+        track = track.child(div().w(px(width)).h(px(height)).rounded_sm().bg(rgb(color)));
     }
     track
 }
@@ -265,6 +254,9 @@ fn notice_text(notice: RouteWalkNotice) -> SharedString {
             step + 1
         )
         .into(),
+        RouteWalkNotice::NoDocumentFlow => {
+            "No visible document has connections to flow through.".into()
+        }
         RouteWalkNotice::SceneChanged => {
             "The scene changed and the route could not be resolved; the walk ended.".into()
         }

@@ -2,11 +2,8 @@
 //! bound to the selected object's verified source passages. Scope and source
 //! navigation come only from stored provenance; this module never infers.
 
-use super::{
-    drawer::{ACCENT, ACCENT_DIM},
-    PhoenixShell, BORDER, TEXT, TEXT_MUTED,
-};
-use gpui::{div, prelude::*, px, rgb, Context, IntoElement, SharedString};
+use super::{drawer::ACCENT, PhoenixShell, TEXT, TEXT_MUTED};
+use gpui::{div, prelude::*, rgb, Context, IntoElement, SharedString};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::Sizable;
 use phoenix_app_core::{
@@ -67,30 +64,8 @@ impl PhoenixShell {
             SourceScopeResolution::Unavailable(SourceUnavailable::NoVerifiedSource),
             |snapshot| self.resolve_source_scope(snapshot),
         );
-        let mut strip = div()
-            .w_full()
-            .min_w_0()
-            .min_h(px(40.))
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .border_t_1()
-            .border_color(rgb(BORDER))
-            .bg(rgb(STRIP_BG))
-            .child(
-                div()
-                    .px_2()
-                    .py(px(2.))
-                    .rounded_sm()
-                    .bg(rgb(ACCENT_DIM))
-                    .text_xs()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(rgb(ACCENT))
-                    .child("SOURCE-LOCAL"),
-            );
+        let mut strip = super::graph_toolbar::mode_strip(STRIP_BG)
+            .child(super::graph_toolbar::strip_mark("Source", ACCENT));
         match &resolution {
             SourceScopeResolution::Scoped(scope) => {
                 let label = snapshot
@@ -99,32 +74,29 @@ impl PhoenixShell {
                     .unwrap_or_else(|| format!("Node {}", scope.anchor));
                 strip = strip.child(scope_summary(scope, label));
                 if let Some(notice) = self.source_open.notice_for(scope.anchor) {
-                    strip = strip.child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(SOURCE_WARN))
-                            .child(notice),
-                    );
+                    strip = strip.child(div().text_xs().text_color(rgb(SOURCE_WARN)).child(notice));
                 }
-                strip = strip.child(div().flex_1()).child(self.open_source_button(scope, cx));
+                strip = strip
+                    .child(div().flex_1())
+                    .child(self.open_source_button(scope, cx));
             }
             SourceScopeResolution::Unavailable(reason) => {
-                strip = strip.child(unavailable_summary(*reason)).child(div().flex_1());
+                strip = strip
+                    .child(unavailable_summary(*reason))
+                    .child(div().flex_1());
             }
         }
-        strip
-            .child(self.provenance_popover(cx))
-            .child(
-                Button::new("source-local-exit")
-                    .label("Exit")
-                    .tooltip("Leave source-local view. The graph returns to its prior view.")
-                    .small()
-                    .ghost()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.source_open = SourceOpenState::default();
-                        this.mutate_graph_view(|next| next.source_local = false, "SOURCE", cx);
-                    })),
-            )
+        strip.child(self.provenance_popover(cx)).child(
+            Button::new("source-local-exit")
+                .label("Exit")
+                .tooltip("Leave source-local view. The graph returns to its prior view.")
+                .small()
+                .ghost()
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.source_open = SourceOpenState::default();
+                    this.mutate_graph_view(|next| next.source_local = false, "SOURCE", cx);
+                })),
+        )
     }
 
     fn open_source_button(&self, scope: &SourceScope, cx: &mut Context<Self>) -> impl IntoElement {
@@ -231,12 +203,19 @@ fn check_binding(
 
 pub(super) fn node_label(snapshot: &KernelSnapshot, node: u64) -> Option<String> {
     let index = snapshot.scene_product_index.as_ref()?;
-    let slot = index.nodes().iter().position(|record| record.node_id == node)?;
+    let slot = index
+        .nodes()
+        .iter()
+        .position(|record| record.node_id == node)?;
     index
         .label(slot)
         .filter(|label| !label.is_empty())
         .map(str::to_owned)
-        .or_else(|| index.entity_for_node(NodeId(node)).map(|_| format!("Entity {node}")))
+        .or_else(|| {
+            index
+                .entity_for_node(NodeId(node))
+                .map(|_| format!("Entity {node}"))
+        })
 }
 
 fn scope_summary(scope: &SourceScope, label: String) -> impl IntoElement {
@@ -253,7 +232,7 @@ fn scope_summary(scope: &SourceScope, label: String) -> impl IntoElement {
         .min_w_0()
         .child(
             div()
-                .text_sm()
+                .text_xs()
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(rgb(TEXT))
                 .child(label),
@@ -290,28 +269,12 @@ fn unavailable_summary(reason: SourceUnavailable) -> impl IntoElement {
         .min_w_0()
         .child(
             div()
-                .text_sm()
+                .text_xs()
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_color(rgb(if warn { SOURCE_WARN } else { TEXT }))
                 .child(headline),
         )
         .child(div().text_xs().text_color(rgb(TEXT_MUTED)).child(detail))
-}
-
-pub(super) fn source_local_toggle(active: bool, cx: &mut Context<PhoenixShell>) -> impl IntoElement {
-    Button::new("graph-source-local")
-        .label("SOURCE")
-        .tooltip(
-            "Source-local view: ghost everything not explicitly bound to the selected object's \
-             verified source passages. Display only; graph data is unchanged.",
-        )
-        .small()
-        .when(active, |button| button.primary())
-        .when(!active, |button| button.ghost())
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.source_open = SourceOpenState::default();
-            this.mutate_graph_view(|next| next.source_local = !next.source_local, "SOURCE", cx);
-        }))
 }
 
 #[cfg(test)]

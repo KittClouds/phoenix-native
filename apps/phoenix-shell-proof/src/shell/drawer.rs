@@ -3,8 +3,9 @@ use super::{
 };
 use crate::lifecycle;
 use gpui::{div, prelude::*, px, rgb, Context, IntoElement, Window};
+use gpui_component::button::ButtonVariants;
 use gpui_component::resizable::{h_resizable, resizable_panel};
-use gpui_component::PixelsExt;
+use gpui_component::{PixelsExt, Sizable};
 use phoenix_app_core::{KernelCommand, KernelError, KernelOutcome};
 use phoenix_scene_contract::Manifold;
 use serde::{Deserialize, Serialize};
@@ -41,11 +42,11 @@ impl DrawerTab {
 
     const fn label(self) -> &'static str {
         match self {
-            Self::Graph => "GRAPH",
-            Self::Patterns => "PATTERNS",
-            Self::PlotThreads => "PLOT THREADS",
-            Self::Worldbuilding => "WORLDBUILDING",
-            Self::AtlasControl => "ATLAS CONTROL",
+            Self::Graph => "Graph",
+            Self::Patterns => "Patterns",
+            Self::PlotThreads => "Plot threads",
+            Self::Worldbuilding => "Worldbuilding",
+            Self::AtlasControl => "Atlas control",
         }
     }
 
@@ -231,8 +232,9 @@ impl PhoenixShell {
             let result = background
                 .spawn(async move { kernel.warm_analysis_models() })
                 .await;
-            if let Err(error) = shell.update_in(async_cx, |this, _window, cx| {
+            if let Err(error) = shell.update_in(async_cx, |this, window, cx| {
                 this.analysis_warm_pending = false;
+                let rebuild = std::mem::take(&mut this.rebuild_after_warm) && result.is_ok();
                 this.status = match result {
                     Ok(receipt) => {
                         let cache = match (receipt.ner_cache_hit, receipt.nli_cache_hit) {
@@ -253,6 +255,9 @@ impl PhoenixShell {
                     }
                     Err(error) => format!("MODEL WARM BLOCKED / {error}").into(),
                 };
+                if rebuild {
+                    this.start_registry_graph_refresh(window, cx);
+                }
                 cx.notify();
             }) {
                 lifecycle::mark_proof_failed();
@@ -423,7 +428,10 @@ impl PhoenixShell {
             .when(!tabs_in_app_header, |surface| surface.border_t_1())
             .border_color(rgb(BORDER_BRIGHT))
             .bg(rgb(SURFACE))
-            .child(self.render_drawer_tabs(tabs_in_app_header, cx))
+            .when(
+                !(self.drawer_tabs_hidden && self.drawer_tab == DrawerTab::Graph),
+                |surface| surface.child(self.render_drawer_tabs(tabs_in_app_header, cx)),
+            )
             .child(body)
     }
 
@@ -519,17 +527,19 @@ impl PhoenixShell {
             .into_any_element()
     }
 
+    /// A lean tab row: live tabs read as tabs, dormant ones stay quiet, and on
+    /// the Graph tab the whole row can fold into the toolbar's tab switch.
     fn render_drawer_tabs(&self, in_app_header: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let mut tabs = div()
-            .h(px(if in_app_header { 44. } else { 42. }))
+            .h(px(if in_app_header { 32. } else { 30. }))
             .flex_shrink_0()
             .flex()
             .items_center()
-            .gap_1()
-            .px_3()
+            .gap(px(2.))
+            .px_2()
             .border_b_1()
             .border_color(rgb(BORDER))
-            .bg(rgb(if in_app_header { SURFACE } else { 0x171918 }));
+            .bg(rgb(super::graph_toolbar::BAR_BG));
         for tab in DrawerTab::ALL {
             let selected = self.drawer_tab == tab;
             let enabled = tab.is_active_product();
@@ -539,26 +549,41 @@ impl PhoenixShell {
                     .h_full()
                     .flex()
                     .items_center()
-                    .px_3()
+                    .px(px(10.))
                     .text_xs()
-                    .text_color(rgb(if selected { TEXT } else { TEXT_MUTED }))
-                    .when(selected, |item| {
-                        item.border_b_2()
-                            .border_color(rgb(ACCENT))
-                            .bg(rgb(0x1d2321))
-                    })
-                    .when(enabled, |item| {
+                    .text_color(rgb(if selected {
+                        TEXT
+                    } else if enabled {
+                        TEXT_MUTED
+                    } else {
+                        0x4a5451
+                    }))
+                    .when(selected, |item| item.border_b_2().border_color(rgb(ACCENT)))
+                    .when(enabled && !selected, |item| {
                         item.cursor_pointer()
-                            .hover(|hover| hover.bg(rgb(0x202624)).text_color(rgb(TEXT)))
+                            .hover(|hover| hover.text_color(rgb(TEXT)))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.select_drawer_tab(tab, window, cx);
                             }))
                     })
-                    .when(!enabled, |item| item.opacity(0.42))
                     .child(tab.label()),
             );
         }
-        tabs.overflow_hidden()
+        tabs.child(div().flex_1())
+            .when(self.drawer_tab == DrawerTab::Graph, |row| {
+                row.child(
+                    gpui_component::button::Button::new("drawer-tabs-hide")
+                        .icon(gpui_component::IconName::ChevronUp)
+                        .tooltip("Hide tabs")
+                        .xsmall()
+                        .ghost()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.drawer_tabs_hidden = true;
+                            cx.notify();
+                        })),
+                )
+            })
+            .overflow_hidden()
     }
 }
 
