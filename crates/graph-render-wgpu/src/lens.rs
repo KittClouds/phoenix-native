@@ -12,9 +12,10 @@ pub struct NodeProductGpu {
     /// Set by the CPU visibility closure when a selected edge needs this node
     /// as a muted endpoint even though its primary lane is hidden.
     pub context_visible: u32,
-    /// Source-local display bits (`SOURCE_SCOPE_*`). Zero when the mode is
-    /// off, so the word never changes admission or graph authority.
-    pub source_scope: u32,
+    /// Display-only overlay bits: source-local (`SOURCE_SCOPE_*`) and route
+    /// walk (`WALK_*`, glow in bits 16..24). Zero when both modes are off, so
+    /// the word never changes admission or graph authority.
+    pub overlay_flags: u32,
 }
 
 impl NodeProductGpu {
@@ -24,7 +25,7 @@ impl NodeProductGpu {
         review_mask: u32::MAX,
         enabled: 1,
         context_visible: 0,
-        source_scope: 0,
+        overlay_flags: 0,
     };
 }
 
@@ -36,7 +37,7 @@ impl From<&NodeProductRecord> for NodeProductGpu {
             review_mask: record.review_mask,
             enabled: 1,
             context_visible: 0,
-            source_scope: 0,
+            overlay_flags: 0,
         }
     }
 }
@@ -47,6 +48,17 @@ pub const SOURCE_SCOPE_ACTIVE: u32 = 1;
 pub const SOURCE_SCOPE_MEMBER: u32 = 2;
 /// The node is the source-local anchor.
 pub const SOURCE_SCOPE_ANCHOR: u32 = 4;
+/// A route walk is active for this frame.
+pub const WALK_ACTIVE: u32 = 8;
+/// Route member not yet reached.
+pub const WALK_ROUTE: u32 = 16;
+/// Route member already walked.
+pub const WALK_VISITED: u32 = 32;
+/// The walk's current node.
+pub const WALK_CURRENT: u32 = 64;
+/// Destination of the traversal in flight.
+pub const WALK_NEXT: u32 = 128;
+pub const WALK_GLOW_SHIFT: u32 = 16;
 
 /// Display-only source-local scope: node ids resolved from stored provenance.
 /// Nodes outside `members` stay resident and are ghosted, never removed.

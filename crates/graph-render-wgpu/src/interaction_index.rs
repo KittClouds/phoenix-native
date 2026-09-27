@@ -3,7 +3,17 @@ use phoenix_scene_contract::GraphNavigationOverlay;
 use std::collections::VecDeque;
 
 const UNSET: u32 = u32::MAX;
-const MAX_ROUTE_EDGES: usize = 64;
+pub(crate) const MAX_ROUTE_EDGES: usize = 64;
+
+/// Explicit result of the bounded route search. Routes longer than
+/// `MAX_ROUTE_EDGES` are reported, never truncated.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum RouteOutcome {
+    #[default]
+    NoPath,
+    Found,
+    OverBound,
+}
 pub(crate) const NAV_BACKBONE: u32 = 1;
 pub(crate) const NAV_BRIDGE: u32 = 2;
 
@@ -33,6 +43,7 @@ pub(crate) struct InteractionIndex {
     visit_generation: u32,
     route_nodes: Vec<u32>,
     route_edges: Vec<u32>,
+    route_outcome: RouteOutcome,
     active_nodes: Vec<u64>,
     active_edges: Vec<u64>,
     navigation_flags: Vec<u32>,
@@ -307,6 +318,7 @@ impl InteractionIndex {
     pub(crate) fn compute_route(&mut self, source: u32, target: u32) {
         self.route_nodes.clear();
         self.route_edges.clear();
+        self.route_outcome = RouteOutcome::NoPath;
         if source == target
             || source as usize >= self.visited.len()
             || target as usize >= self.visited.len()
@@ -364,6 +376,9 @@ impl InteractionIndex {
         if cursor != source {
             self.route_nodes.clear();
             self.route_edges.clear();
+            self.route_outcome = RouteOutcome::OverBound;
+        } else {
+            self.route_outcome = RouteOutcome::Found;
         }
     }
 
@@ -373,6 +388,10 @@ impl InteractionIndex {
 
     pub(crate) fn route_edges(&self) -> &[u32] {
         &self.route_edges
+    }
+
+    pub(crate) fn route_outcome(&self) -> RouteOutcome {
+        self.route_outcome
     }
 
     pub(crate) fn stats(&self) -> InteractionIndexStats {

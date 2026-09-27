@@ -66,6 +66,8 @@ pub enum GraphInput {
 pub enum GraphEvent {
     HoverChanged(Option<NodeId>),
     SelectionChanged { sequence: u64, node: Option<NodeId> },
+    /// Shift+click chose a second route endpoint while `primary` stays selected.
+    RouteEndpointsChanged { primary: NodeId, secondary: NodeId },
     CameraChanged(CameraSnapshot),
 }
 

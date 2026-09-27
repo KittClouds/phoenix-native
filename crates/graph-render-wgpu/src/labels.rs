@@ -26,6 +26,9 @@ pub(crate) struct LabelFocus {
     /// Sorted source-local members. When present, the bounded secondary
     /// pass labels in-scope nodes instead of the topology emphasis lane.
     pub(crate) source_members: Option<std::sync::Arc<[u64]>>,
+    /// During a route walk only the current node (plus hover/selection) is
+    /// labelled, so the journey reads without clutter.
+    pub(crate) walk_current: Option<NodeId>,
 }
 
 struct LabelEntry {
@@ -202,6 +205,7 @@ impl LabelLayer {
         let scope_mask = view.scope_mask().0;
         let hover_slot = focus.hover.and_then(|id| scene.node_slot(id));
         let selected_slot = focus.selected.and_then(|id| scene.node_slot(id));
+        let walk_slot = focus.walk_current.and_then(|id| scene.node_slot(id));
         let emphasis_family = if view.surface == GraphSurface::Atlas {
             emphasis_family_mask(view.topology_emphasis)
         } else {
@@ -212,9 +216,10 @@ impl LabelLayer {
         let mut emphasized_count = 0;
         for focused_only in [true, false] {
             for (entry_index, entry) in self.entries.iter().enumerate() {
-                let focused =
-                    Some(entry.node_slot) == hover_slot || Some(entry.node_slot) == selected_slot;
-                let secondary = match focus.source_members.as_deref() {
+                let focused = Some(entry.node_slot) == hover_slot
+                    || Some(entry.node_slot) == selected_slot
+                    || Some(entry.node_slot) == walk_slot;
+                let secondary = focus.walk_current.is_none() && match focus.source_members.as_deref() {
                     Some(members) => scene
                         .node_at_slot(entry.node_slot)
                         .is_some_and(|node| members.binary_search(&node.id.0).is_ok()),

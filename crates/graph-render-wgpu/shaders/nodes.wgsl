@@ -23,7 +23,7 @@ struct NodeProductGpu {
     review_mask: u32,
     enabled: u32,
     context_visible: u32,
-    source_scope: u32,
+    overlay_flags: u32,
 };
 
 struct GraphLensUniform {
@@ -54,11 +54,29 @@ struct VertexOutput {
     @location(4) @interpolate(flat) kind: u32,
     @location(5) @interpolate(flat) context_only: u32,
     @location(6) @interpolate(flat) emphasis_match: u32,
-    @location(7) @interpolate(flat) source_scope: u32,
+    @location(7) @interpolate(flat) overlay_flags: u32,
 };
 
 // Source-local display: out-of-scope nodes stay resident but recede.
 const SOURCE_GHOST_NODE_OPACITY: f32 = 0.09;
+
+// Route walk overlay bits (see lens.rs WALK_*).
+const WALK_ACTIVE: u32 = 8u;
+const WALK_ROUTE: u32 = 16u;
+const WALK_VISITED: u32 = 32u;
+const WALK_CURRENT: u32 = 64u;
+const WALK_NEXT: u32 = 128u;
+const WALK_MEMBER: u32 = 240u;
+// Non-route nodes remain only as faint spatial context during a walk.
+const WALK_CONTEXT_OPACITY: f32 = 0.075;
+
+fn walk_lit(bits: u32) -> bool {
+    return (bits & WALK_ACTIVE) != 0u && (bits & WALK_MEMBER) != 0u;
+}
+
+fn walk_glow(bits: u32) -> f32 {
+    return f32((bits >> 16u) & 255u) / 255.0;
+}
 
 // Screen-space geometry contract. Semantic radius may grow for hubs, centroids,
 // and medoids, but line width is governed independently in the edge shaders.
@@ -219,7 +237,16 @@ fn vs_main(
         vec2<f32>(-1.0,  1.0),
         vec2<f32>( 1.0,  1.0),
     );
-    let uv = corners[vertex_index] * 1.24;
+    let walk_bits = product.overlay_flags;
+    let lit = walk_lit(walk_bits);
+    // Route members get a wider quad so their bloom halo is never clipped.
+    let uv = corners[vertex_index] * select(1.24, 2.6, lit);
+    var walk_scale = 1.0;
+    if (lit && (walk_bits & WALK_CURRENT) != 0u) {
+        walk_scale = 1.3 + 0.45 * walk_glow(walk_bits);
+    } else if (lit && (walk_bits & WALK_NEXT) != 0u) {
+        walk_scale = 1.0 + 0.3 * walk_glow(walk_bits);
+    }
     let flags = node.kind_flags & 0xffffu;
     let role = visual_role(flags);
     let emphasized = emphasis_matches(primary_node_family(product.family_mask));
@@ -227,7 +254,7 @@ fn vs_main(
         node.position_radius.w * NODE_DIAMETER_SCALE * role_scale(role),
         NODE_MIN_DIAMETER_PX,
         NODE_MAX_DIAMETER_PX,
-    ) * NODE_SCREEN_SCALE;
+    ) * NODE_SCREEN_SCALE * walk_scale;
     let view_back = cross(camera.view_right.xyz, camera.view_up.xyz);
     let view_depth = max(
         dot(camera.eye_position.xyz - node.position_radius.xyz, view_back),
@@ -254,7 +281,7 @@ fn vs_main(
     output.visible = select(0u, 1u, is_visible);
     output.context_only = select(1u, 0u, is_primary);
     output.emphasis_match = select(0u, 1u, emphasized);
-    output.source_scope = product.source_scope;
+    output.overlay_flags = product.overlay_flags;
     var kind = node.kind_flags >> 16u;
     // An unfiltered renderer uses the sentinel all-ones product page.  Do
     // not interpret that sentinel as a character lane; only an installed,
@@ -283,6 +310,63 @@ fn type_aura(kind: u32, fallback: vec3<f32>) -> vec3<f32> {
     }
 }
 
+// The walk replaces focus, route, and hover treatments so hover can never
+// change what the walk shows. Visited, current, and future positions are
+// distinguished by brightness and afterglow rather than labels.
+fn walk_node_color(
+    bits: u32,
+    base: vec4<f32>,
+    sphere_rgb: vec3<f32>,
+    circle: f32,
+    distance: f32,
+    derivative: f32,
+) -> vec4<f32> {
+    if ((bits & WALK_MEMBER) == 0u) {
+        let grey = dot(sphere_rgb, vec3<f32>(0.30, 0.59, 0.11));
+        return vec4<f32>(
+            mix(sphere_rgb, vec3<f32>(grey), 0.55),
+            base.a * circle * WALK_CONTEXT_OPACITY,
+        );
+    }
+    let glow = walk_glow(bits);
+    var intensity = 0.62;
+    var halo_strength = 0.10;
+    var white = 0.0;
+    var body_alpha = 0.88;
+    if ((bits & WALK_CURRENT) != 0u) {
+        intensity = 1.0;
+        halo_strength = 0.55 + 0.45 * glow;
+        white = 0.16 + 0.34 * glow;
+        body_alpha = 1.0;
+    } else if ((bits & WALK_NEXT) != 0u) {
+        intensity = 0.72 + 0.28 * glow;
+        halo_strength = 0.16 + 0.6 * glow;
+        white = 0.3 * glow;
+        body_alpha = 0.92 + 0.08 * glow;
+    } else if ((bits & WALK_VISITED) != 0u) {
+        intensity = 0.9;
+        halo_strength = 0.30;
+        white = 0.06;
+        body_alpha = 1.0;
+    }
+    let body_rgb = min(
+        sphere_rgb * intensity + (vec3<f32>(1.0) - sphere_rgb) * white,
+        vec3<f32>(1.0),
+    );
+    let outside = max(distance - 1.0, 0.0);
+    let halo = exp(-outside * outside * 3.2) * (1.0 - circle) * halo_strength;
+    let halo_rgb = mix(base.rgb, vec3<f32>(1.0), 0.25 + 0.3 * white);
+    var rgb = mix(halo_rgb, body_rgb, circle);
+    var alpha = max(body_alpha * circle, halo);
+    if ((bits & WALK_CURRENT) != 0u) {
+        let ring = smoothstep(1.10 - derivative, 1.14, distance)
+            - smoothstep(1.22 - derivative, 1.26, distance);
+        rgb = mix(rgb, vec3<f32>(1.0, 0.95, 0.82), ring * 0.9);
+        alpha = max(alpha, ring * 0.9);
+    }
+    return vec4<f32>(rgb, alpha);
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if (input.visible == 0u) {
@@ -294,12 +378,14 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let aura = 1.0 - smoothstep(0.92, 1.52, distance);
     let role = visual_role(input.flags);
     let hovered = (input.flags & 4096u) != 0u;
-    let source_active = (input.source_scope & 1u) != 0u;
-    let source_member = (input.source_scope & 2u) != 0u;
-    let selected = (input.flags & 8192u) != 0u || (input.source_scope & 4u) != 0u;
+    let source_active = (input.overlay_flags & 1u) != 0u;
+    let source_member = (input.overlay_flags & 2u) != 0u;
+    let selected = (input.flags & 8192u) != 0u || (input.overlay_flags & 4u) != 0u;
     let neighbor = (input.flags & 16384u) != 0u;
     let route = (input.flags & 32768u) != 0u;
-    if (circle <= 0.001 && aura <= 0.001 && !hovered && !selected) {
+    let walk_active = (input.overlay_flags & WALK_ACTIVE) != 0u;
+    let walking_member = walk_lit(input.overlay_flags);
+    if (circle <= 0.001 && aura <= 0.001 && !hovered && !selected && !walking_member) {
         discard;
     }
 
@@ -321,6 +407,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     );
     let aura_rgb = mix(color.rgb, type_aura(input.kind, color.rgb), 0.34);
     let halo_alpha = color.a * aura * role_aura_strength(role);
+    if (walk_active) {
+        return walk_node_color(input.overlay_flags, input.color, sphere_rgb, circle, distance, derivative);
+    }
     color = vec4<f32>(mix(aura_rgb, sphere_rgb, circle), max(color.a * circle, halo_alpha));
     if (route) {
         let glow = 1.0 - smoothstep(0.55, 1.15, distance);

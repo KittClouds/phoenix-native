@@ -27,6 +27,7 @@ use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::window::{Window, WindowId};
 
 use commands::{GraphQueueMetrics, GraphWake, GraphWindowCommand};
+pub use commands::RouteWalkRequest;
 use manifold::{FixedSamples, PendingManifoldSwitch};
 pub use manifold::{GraphGpuTelemetry, ManifoldSwitchReceipt};
 use proof::ProjectionIdentity;
@@ -59,7 +60,12 @@ struct GraphRuntimeSignals {
     ready_sender: SyncSender<std::result::Result<Ready, String>>,
     proxy: EventLoopProxy<GraphWake>,
     ui_notifications: async_channel::Sender<()>,
+    walk_status: SharedWalkStatus,
 }
+
+/// Latest route-walk status, published by the graph thread only when its
+/// revision changes (step boundaries and outcomes, never per frame).
+type SharedWalkStatus = Arc<std::sync::Mutex<graph_render_wgpu::RouteWalkStatus>>;
 
 pub struct GraphWindow {
     parent: ParentWindowHandle,
@@ -73,6 +79,7 @@ pub struct GraphWindow {
     edge_count: usize,
     generation: GraphGeneration,
     kernel: Arc<PhoenixKernel>,
+    walk_status: SharedWalkStatus,
 }
 
 impl GraphWindow {
@@ -89,6 +96,8 @@ impl GraphWindow {
         let thread_viewport = Arc::clone(&viewport);
         let thread_queue_metrics = Arc::clone(&queue_metrics);
         let thread_kernel = Arc::clone(&kernel);
+        let walk_status = SharedWalkStatus::default();
+        let thread_walk_status = Arc::clone(&walk_status);
         let join = thread::Builder::new()
             .name("phoenix-child-graph".into())
             .spawn(move || {
@@ -100,6 +109,7 @@ impl GraphWindow {
                     thread_queue_metrics,
                     ready_sender,
                     ui_notifications,
+                    thread_walk_status,
                 )
             })
             .context("spawn embedded graph event loop")?;
@@ -122,6 +132,7 @@ impl GraphWindow {
                     edge_count: ready.edge_count,
                     generation: ready.generation,
                     kernel,
+                    walk_status,
                 })
             }
             Ok(Err(message)) => {
@@ -166,6 +177,18 @@ impl GraphWindow {
 
     pub fn reset_camera(&self) -> Result<()> {
         self.proof_handle().send(GraphWindowCommand::ResetCamera)
+    }
+
+    pub fn route_walk(&self, request: RouteWalkRequest) -> Result<()> {
+        self.proof_handle()
+            .send(GraphWindowCommand::RouteWalk(request))
+    }
+
+    pub fn route_walk_status(&self) -> graph_render_wgpu::RouteWalkStatus {
+        self.walk_status
+            .lock()
+            .map(|status| status.clone())
+            .unwrap_or_default()
     }
 
     pub fn proof_handle(&self) -> GraphProofHandle {
@@ -216,6 +239,7 @@ fn run_graph_window(
     queue_metrics: Arc<GraphQueueMetrics>,
     ready_sender: SyncSender<std::result::Result<Ready, String>>,
     ui_notifications: async_channel::Sender<()>,
+    walk_status: SharedWalkStatus,
 ) -> Result<()> {
     let mut builder = EventLoop::<GraphWake>::with_user_event();
     builder.with_any_thread(true);
@@ -232,6 +256,7 @@ fn run_graph_window(
             ready_sender,
             proxy,
             ui_notifications,
+            walk_status,
         },
     );
     event_loop
@@ -271,6 +296,8 @@ struct EmbeddedGraphApp {
     latest_switch: Option<ManifoldSwitchReceipt>,
     applied_viewport_revision: u64,
     applied_geometry: ViewportGeometry,
+    walk_status: SharedWalkStatus,
+    published_walk_revision: u64,
 }
 
 impl EmbeddedGraphApp {
@@ -314,7 +341,26 @@ impl EmbeddedGraphApp {
             latest_switch: None,
             applied_viewport_revision: 0,
             applied_geometry: ViewportGeometry::hidden(),
+            walk_status: signals.walk_status,
+            published_walk_revision: 0,
         }
+    }
+
+    /// Mirrors the renderer's walk status to the shell when it changed and
+    /// wakes the shell once; animation frames never reach the UI thread.
+    fn publish_walk_status(&mut self) {
+        let Some(renderer) = self.renderer.as_ref() else {
+            return;
+        };
+        let status = renderer.route_walk_status();
+        if status.revision == self.published_walk_revision {
+            return;
+        }
+        self.published_walk_revision = status.revision;
+        if let Ok(mut shared) = self.walk_status.lock() {
+            *shared = status.clone();
+        }
+        let _ = self.ui_notifications.try_send(());
     }
 
     fn initialize(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
@@ -616,6 +662,23 @@ impl EmbeddedGraphApp {
                     depth,
                     cutaway,
                 }),
+                GraphWindowCommand::RouteWalk(request) => {
+                    if let Some(renderer) = self.renderer.as_mut() {
+                        match request {
+                            RouteWalkRequest::Start => {
+                                renderer.start_route_walk();
+                            }
+                            RouteWalkRequest::Transport(command) => {
+                                renderer.route_walk_command(command);
+                            }
+                            RouteWalkRequest::Exit => {
+                                renderer.exit_route_walk();
+                            }
+                        }
+                    }
+                    self.publish_walk_status();
+                    window.request_redraw();
+                }
                 GraphWindowCommand::FitGraph => self.send_input(GraphInput::FitGraph),
                 GraphWindowCommand::ResetCamera => self.send_input(GraphInput::ResetCamera),
                 GraphWindowCommand::ResetSwitchTelemetry => {
@@ -908,6 +971,20 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
                                     "renderer hover changed"
                                 );
                             }
+                            GraphEvent::RouteEndpointsChanged { primary, secondary } => {
+                                if let Err(error) = self.kernel.execute(
+                                    KernelCommand::SetGraphSelection(
+                                        GraphSelectionCommand::GraphNodePair {
+                                            primary: primary.0,
+                                            secondary: secondary.0,
+                                        },
+                                    ),
+                                ) {
+                                    tracing::error!(%error, "route endpoint selection was rejected");
+                                } else {
+                                    let _ = self.ui_notifications.try_send(());
+                                }
+                            }
                             GraphEvent::CameraChanged(_) => {}
                         }
                     }
@@ -954,6 +1031,7 @@ impl ApplicationHandler<GraphWake> for EmbeddedGraphApp {
                     }
                 }
                 self.last_update = now;
+                self.publish_walk_status();
             }
             _ => {}
         }

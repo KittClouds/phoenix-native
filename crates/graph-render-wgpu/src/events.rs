@@ -40,6 +40,12 @@ impl PendingEvents {
         Ok(())
     }
 
+    pub(crate) fn push_route_endpoints(&mut self, primary: NodeId, secondary: NodeId) {
+        self.queue
+            .retain(|event| !matches!(event, GraphEvent::RouteEndpointsChanged { .. }));
+        self.push(GraphEvent::RouteEndpointsChanged { primary, secondary });
+    }
+
     pub(crate) fn drain(&mut self) -> impl Iterator<Item = GraphEvent> + '_ {
         self.queue.drain(..)
     }

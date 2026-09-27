@@ -209,6 +209,25 @@ impl PreparedPathLayer {
         self.segments.len() > self.guide_segments
     }
 
+    /// Writes the prepared polyline for one edge, in stored order. Returns
+    /// false when the edge has no resident prepared path.
+    pub(crate) fn edge_polyline(&self, edge_slot: u32, output: &mut Vec<[f32; 3]>) -> bool {
+        output.clear();
+        for segment in &self.segments[self.guide_segments..] {
+            if segment.edge_slot != edge_slot || segment.flags & GUIDE_FLAG != 0 {
+                if !output.is_empty() {
+                    break;
+                }
+                continue;
+            }
+            if output.is_empty() {
+                output.push([segment.start[0], segment.start[1], segment.start[2]]);
+            }
+            output.push([segment.end[0], segment.end[1], segment.end[2]]);
+        }
+        output.len() >= 2
+    }
+
     /// Repack only when the inspection settings or publication change. Camera
     /// motion does no CPU traversal, allocation, or geometry upload.
     pub(crate) fn inspect(&mut self, settings: (bool, u8, bool), queue: &wgpu::Queue) {

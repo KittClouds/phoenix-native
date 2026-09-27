@@ -15,6 +15,7 @@ mod palette_controls;
 mod reader;
 mod registry_editor;
 mod shell_state;
+mod route_walk_ui;
 mod source_local;
 mod style_hub;
 mod view;
@@ -88,6 +89,7 @@ pub struct PhoenixShell {
     graph_provenance: Option<GraphProvenanceReceipt>,
     source_scope_cache: RefCell<phoenix_app_core::SourceScopeCache>,
     source_open: source_local::SourceOpenState,
+    route_walk_dismissed: u64,
     proof_pending: bool,
     soak_mode: bool,
     expanded: HashSet<EntryId>,
@@ -307,6 +309,7 @@ impl PhoenixShell {
             graph_provenance: None,
             source_scope_cache: RefCell::default(),
             source_open: source_local::SourceOpenState::default(),
+            route_walk_dismissed: 0,
             proof_pending: proof_mode || soak_mode,
             soak_mode,
             expanded,

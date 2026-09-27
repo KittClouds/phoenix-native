@@ -229,7 +229,7 @@ fn check_binding(
     Ok(())
 }
 
-fn node_label(snapshot: &KernelSnapshot, node: u64) -> Option<String> {
+pub(super) fn node_label(snapshot: &KernelSnapshot, node: u64) -> Option<String> {
     let index = snapshot.scene_product_index.as_ref()?;
     let slot = index.nodes().iter().position(|record| record.node_id == node)?;
     index

@@ -7,7 +7,7 @@ use crate::gpu_scene_support::{
 use crate::interaction_index::InteractionIndex;
 use crate::{
     EdgeProductGpu, NodeProductGpu, RenderError, SceneChanges, SceneState, SourceScopeMask,
-    SOURCE_SCOPE_ACTIVE,
+    SOURCE_SCOPE_ACTIVE, WALK_ACTIVE,
 };
 use graph_model::{EdgeId, GraphDiff, GraphRevision, GraphSnapshot, NodeId};
 use phoenix_scene_archive::{ManifoldPageSet, PositionRecord};
@@ -114,6 +114,10 @@ pub struct GpuScene {
     context_node_slots: Vec<u32>,
     context_node_dirty: Vec<u32>,
     source_scope: Option<SourceScopeMask>,
+    walk_active: bool,
+    /// Route-walk bits per node slot, sorted by slot.
+    walk_entries: Vec<(u32, u32)>,
+    walk_dirty: Vec<u32>,
 }
 
 impl GpuScene {
@@ -162,7 +166,38 @@ impl GpuScene {
             context_node_slots: Vec::new(),
             context_node_dirty: Vec::new(),
             source_scope: None,
+            walk_active: false,
+            walk_entries: Vec::new(),
+            walk_dirty: Vec::new(),
         })
+    }
+
+    pub(crate) fn node_active(&self, slot: u32) -> bool {
+        self.interaction.node_is_active(slot)
+    }
+
+    pub(crate) fn edge_active(&self, slot: u32) -> bool {
+        self.interaction.edge_is_active(slot)
+    }
+
+    pub(crate) fn node_color(&self, slot: u32) -> Option<[f32; 4]> {
+        self.node_gpu_data.get(slot as usize).map(|node| node.color)
+    }
+
+    /// Runs the bounded route search between two slots and returns the
+    /// explicit outcome with the route as `(nodes, edges)` from source to
+    /// target.
+    pub(crate) fn frozen_route(
+        &mut self,
+        source: u32,
+        target: u32,
+    ) -> (crate::interaction_index::RouteOutcome, Vec<u32>, Vec<u32>) {
+        self.interaction.compute_route(source, target);
+        let mut nodes = self.interaction.route_nodes().to_vec();
+        let mut edges = self.interaction.route_edges().to_vec();
+        nodes.reverse();
+        edges.reverse();
+        (self.interaction.route_outcome(), nodes, edges)
     }
 
     #[must_use]
@@ -182,7 +217,7 @@ impl GpuScene {
             return 0;
         }
         self.source_scope = scope;
-        self.stamp_source_scope();
+        self.stamp_overlays();
         if self.node_product_data.is_empty() {
             return 0;
         }
@@ -193,14 +228,80 @@ impl GpuScene {
             .saturating_mul(size_of::<NodeProductGpu>())
     }
 
-    fn stamp_source_scope(&mut self) {
-        for (slot, product) in self.node_product_data.iter_mut().enumerate() {
-            product.source_scope = match (&self.source_scope, self.state.node_at_slot(slot as u32))
-            {
-                (Some(scope), Some(node)) => scope.flags_for(node.id),
-                (Some(_), None) => SOURCE_SCOPE_ACTIVE,
-                (None, _) => 0,
-            };
+    /// Installs the display-only route-walk overlay. Starting or ending a
+    /// walk restamps every node once; per-frame updates touch only the route
+    /// slots that changed.
+    pub fn set_walk_overlay(
+        &mut self,
+        active: bool,
+        mut entries: Vec<(u32, u32)>,
+        queue: &wgpu::Queue,
+    ) -> usize {
+        entries.sort_unstable_by_key(|entry| entry.0);
+        entries.dedup_by_key(|entry| entry.0);
+        if active != self.walk_active {
+            self.walk_active = active;
+            self.walk_entries = entries;
+            self.stamp_overlays();
+            if self.node_product_data.is_empty() {
+                return 0;
+            }
+            self.node_product_buffer
+                .write(queue, 0, &self.node_product_data);
+            return self
+                .node_product_data
+                .len()
+                .saturating_mul(size_of::<NodeProductGpu>());
+        }
+        if entries == self.walk_entries {
+            return 0;
+        }
+        let mut dirty = std::mem::take(&mut self.walk_dirty);
+        dirty.clear();
+        dirty.extend(self.walk_entries.iter().map(|entry| entry.0));
+        dirty.extend(entries.iter().map(|entry| entry.0));
+        dirty.sort_unstable();
+        dirty.dedup();
+        self.walk_entries = entries;
+        for &slot in &dirty {
+            let word = self.overlay_word(slot);
+            if let Some(product) = self.node_product_data.get_mut(slot as usize) {
+                product.overlay_flags = word;
+            }
+        }
+        write_dirty_ranges(
+            &self.node_product_buffer,
+            queue,
+            &self.node_product_data,
+            &dirty,
+        );
+        let bytes = dirty.len().saturating_mul(size_of::<NodeProductGpu>());
+        self.walk_dirty = dirty;
+        bytes
+    }
+
+    fn overlay_word(&self, slot: u32) -> u32 {
+        let source = match (&self.source_scope, self.state.node_at_slot(slot)) {
+            (Some(scope), Some(node)) => scope.flags_for(node.id),
+            (Some(_), None) => SOURCE_SCOPE_ACTIVE,
+            (None, _) => 0,
+        };
+        let walk = if self.walk_active {
+            WALK_ACTIVE
+                | self
+                    .walk_entries
+                    .binary_search_by_key(&slot, |entry| entry.0)
+                    .map_or(0, |index| self.walk_entries[index].1)
+        } else {
+            0
+        };
+        source | walk
+    }
+
+    fn stamp_overlays(&mut self) {
+        for slot in 0..self.node_product_data.len() {
+            let word = self.overlay_word(slot as u32);
+            self.node_product_data[slot].overlay_flags = word;
         }
     }
 
@@ -458,7 +559,7 @@ impl GpuScene {
         self.node_product_data.clear();
         self.node_product_data
             .extend(index.nodes().iter().map(NodeProductGpu::from));
-        self.stamp_source_scope();
+        self.stamp_overlays();
         self.edge_product_data.clear();
         self.edge_product_data
             .extend(index.edges().iter().map(EdgeProductGpu::from));
@@ -680,7 +781,9 @@ impl GpuScene {
         }
         self.bound_product_hash = None;
         self.source_scope = None;
-        self.stamp_source_scope();
+        self.walk_active = false;
+        self.walk_entries.clear();
+        self.stamp_overlays();
         self.context_node_slots.clear();
         self.context_node_dirty.clear();
 
@@ -1065,6 +1168,8 @@ impl GpuScene {
         self.edge_product_data
             .resize(self.edge_gpu_data.len(), EdgeProductGpu::UNFILTERED);
         self.source_scope = None;
+        self.walk_active = false;
+        self.walk_entries.clear();
         let node_product_reallocated = self
             .node_product_buffer
             .ensure_capacity(device, self.node_product_data.len())?;
@@ -1255,7 +1360,7 @@ mod visibility_tests {
             review_mask: ReviewMask::ACCEPTED.0,
             enabled: 1,
             context_visible: 0,
-            source_scope: 0,
+            overlay_flags: 0,
         }
     }
 
@@ -1283,7 +1388,7 @@ mod visibility_tests {
         let plain = node(FamilyMask::STRUCTURE);
         for bits in [0, SOURCE_SCOPE_ACTIVE, scope.flags_for(NodeId(20))] {
             let stamped = NodeProductGpu {
-                source_scope: bits,
+                overlay_flags: bits,
                 ..plain
             };
             assert_eq!(

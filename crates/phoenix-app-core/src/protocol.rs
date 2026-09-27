@@ -67,6 +67,8 @@ pub enum KernelCommand {
 pub enum GraphSelectionCommand {
     AtlasEntity(u64),
     GraphNode(u64),
+    /// A selected node plus a second route endpoint chosen in the renderer.
+    GraphNodePair { primary: u64, secondary: u64 },
     Clear,
 }
 

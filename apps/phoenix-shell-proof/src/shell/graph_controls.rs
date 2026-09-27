@@ -44,6 +44,11 @@ impl PhoenixShell {
             .when(view.source_local, |controls| {
                 controls.child(self.render_source_local_strip(cx))
             })
+            .when_some(
+                self.route_walk_status()
+                    .filter(|status| self.route_walk_strip_visible(status)),
+                |controls, status| controls.child(self.render_route_walk_strip(&status, cx)),
+            )
             .when(view.manifold == Manifold::Caps, |row| {
                 row.child(self.render_caps_space(cx))
             })
@@ -142,6 +147,7 @@ impl PhoenixShell {
                 .when(view.surface == GraphSurface::Atlas, |row| {
                     row.child(topology_emphasis_control(view.topology_emphasis, cx))
                         .child(navigation_overlay_control(view.navigation_overlay, cx))
+                        .child(self.route_walk_button(cx))
                 })
                 .child(canvas_toggle(view.canvas, cx))
                 .child(super::source_local::source_local_toggle(view.source_local, cx))

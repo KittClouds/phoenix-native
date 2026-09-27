@@ -7,6 +7,7 @@ pub(super) fn set_selection(
     command: GraphSelectionCommand,
 ) -> Result<CommandReceipt, KernelError> {
     let mut state = write_state(shared)?;
+    let mut secondary_node_id = None;
     let (node_id, entity_id, origin) = match command {
         GraphSelectionCommand::AtlasEntity(entity_id) => {
             let index = state
@@ -34,12 +35,29 @@ pub(super) fn set_selection(
                 GraphSelectionOrigin::Renderer,
             )
         }
+        GraphSelectionCommand::GraphNodePair { primary, secondary } => {
+            let index = state
+                .scene_product_index
+                .as_ref()
+                .ok_or(KernelError::GraphNodeNotFound(primary))?;
+            for node_id in [primary, secondary] {
+                if !index.nodes().iter().any(|node| node.node_id == node_id) {
+                    return Err(KernelError::GraphNodeNotFound(node_id));
+                }
+            }
+            secondary_node_id = (secondary != primary).then_some(secondary);
+            (
+                Some(primary),
+                index.entity_for_node(NodeId(primary)).map(|entity| entity.0),
+                GraphSelectionOrigin::Renderer,
+            )
+        }
         GraphSelectionCommand::Clear => (None, None, GraphSelectionOrigin::None),
     };
     let selection = GraphSelectionState {
         revision: state.graph_selection.revision.saturating_add(1),
         node_id,
-        secondary_node_id: None,
+        secondary_node_id,
         entity_id,
         candidate_id: None,
         evidence: None,

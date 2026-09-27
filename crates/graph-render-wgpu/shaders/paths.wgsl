@@ -40,7 +40,7 @@ struct NodeProductGpu {
     review_mask: u32,
     enabled: u32,
     context_visible: u32,
-    source_scope: u32,
+    overlay_flags: u32,
 };
 
 struct EdgeGpu {
@@ -88,13 +88,14 @@ struct VertexOutput {
     @location(6) @interpolate(flat) emphasis_match: u32,
     @location(7) @interpolate(flat) navigation_flags: u32,
     @location(8) @interpolate(flat) source_state: u32,
+    @location(9) @interpolate(flat) walk_state: u32,
 };
 
 // Source-local edge state derived from its endpoints: 0 = mode off,
 // 1 = ghosted, 2 = both endpoints are in the verified source scope.
 fn source_state(edge: EdgeGpu) -> u32 {
-    let from_scope = node_products[edge.source_slot].source_scope;
-    let to_scope = node_products[edge.target_slot].source_scope;
+    let from_scope = node_products[edge.source_slot].overlay_flags;
+    let to_scope = node_products[edge.target_slot].overlay_flags;
     if ((from_scope & 1u) == 0u) {
         return 0u;
     }
@@ -102,6 +103,46 @@ fn source_state(edge: EdgeGpu) -> u32 {
 }
 
 const SOURCE_GHOST_EDGE_OPACITY: f32 = 0.035;
+
+// Route-walk edge state derived from its endpoints: 0 = no walk,
+// 1 = dimmed context, 2 = route ahead, 3 = walked, 4 = traversal in flight.
+// A frozen shortest route has no chords, so endpoint membership identifies
+// route edges exactly.
+fn walk_edge_state(edge: EdgeGpu) -> u32 {
+    let a = node_products[edge.source_slot].overlay_flags;
+    let b = node_products[edge.target_slot].overlay_flags;
+    if ((a & 8u) == 0u) {
+        return 0u;
+    }
+    if ((a & 240u) == 0u || (b & 240u) == 0u) {
+        return 1u;
+    }
+    let both = a | b;
+    if ((both & 64u) != 0u && (both & 128u) != 0u) {
+        return 4u;
+    }
+    if ((a & 96u) != 0u && (b & 96u) != 0u) {
+        return 3u;
+    }
+    return 2u;
+}
+
+const WALK_EDGE_MAX_WIDTH_PX: f32 = 2.4;
+
+fn walk_edge_color(state: u32, color: vec4<f32>) -> vec4<f32> {
+    switch state {
+        case 1u: { return vec4<f32>(color.rgb, color.a * 0.018); }
+        case 2u: { return vec4<f32>(mix(color.rgb, vec3<f32>(1.0), 0.06), 0.34); }
+        case 3u: { return vec4<f32>(mix(color.rgb, vec3<f32>(1.0), 0.20), 0.66); }
+        default: { return vec4<f32>(mix(color.rgb, vec3<f32>(1.0), 0.32), 0.82); }
+    }
+}
+
+// Guides have no endpoints; every node carries the walk-active bit, so the
+// first product record reports whether a walk is dimming the atlas.
+fn walk_active_globally() -> bool {
+    return arrayLength(&node_products) > 0u && (node_products[0].overlay_flags & 8u) != 0u;
+}
 
 // Prepared paths and direct edges share the same bounded screen-space width.
 // The reference is an ordinary node, so semantic node growth cannot widen lines.
@@ -215,6 +256,10 @@ fn vs_main(
             MIN_EDGE_WIDTH_PX,
             BASE_NODE_DIAMETER_PX * MAX_EDGE_TO_BASE_NODE_RATIO,
         );
+        let path_walk = walk_edge_state(edges[segment.edge_slot]);
+        if (path_walk >= 2u) {
+            segment_width = select(1.3, WALK_EDGE_MAX_WIDTH_PX, path_walk >= 3u);
+        }
     }
     let screen = center + normal * segment_width * 0.5 * side;
     let ndc = (screen / camera.viewport_size - 0.5) * 2.0;
@@ -249,10 +294,15 @@ fn vs_main(
     output.emphasis_match = emphasis_match;
     output.navigation_flags = navigation_flags;
     var path_source_state = 0u;
+    var path_walk_state = 0u;
     if ((segment.flags & 1u) == 0u) {
         path_source_state = source_state(edges[segment.edge_slot]);
+        path_walk_state = walk_edge_state(edges[segment.edge_slot]);
+    } else if (walk_active_globally()) {
+        path_walk_state = 1u;
     }
     output.source_state = path_source_state;
+    output.walk_state = path_walk_state;
     output.segment_flags = segment.flags;
     output.progress = progress;
     return output;
@@ -281,7 +331,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         } else if ((runtime_flags & 16384u) != 0u) {
             color.a = max(color.a, 0.42);
         }
-        if (input.source_state == 1u) {
+        if (input.walk_state != 0u) {
+            color = walk_edge_color(input.walk_state, color);
+        } else if (input.source_state == 1u) {
             color.a *= SOURCE_GHOST_EDGE_OPACITY;
         } else if (input.source_state == 2u) {
             // In-scope paths keep normal rendering while the anchor is focused.
@@ -293,6 +345,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             color.a *= select(0.60, 1.25, input.emphasis_match != 0u);
         }
         color.a *= mix(0.68, 1.0, input.progress);
+    }
+    if ((input.segment_flags & 1u) != 0u && input.walk_state == 1u) {
+        color.a *= 0.22;
     }
     color.a *= 1.0 - smoothstep(1.0 - derivative, 1.0, abs(input.side));
     return color;

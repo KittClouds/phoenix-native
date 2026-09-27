@@ -12,6 +12,7 @@ pub(super) enum GraphWindowCommand {
     FitGraph,
     ResetCamera,
     ResetSwitchTelemetry,
+    RouteWalk(RouteWalkRequest),
     StressInteraction(SyncSender<Result<InteractionStressProof, String>>),
     PickProbePoint(SyncSender<Option<(u32, u32)>>),
     RecoverRenderer(SyncSender<Result<(), String>>),
@@ -19,6 +20,15 @@ pub(super) enum GraphWindowCommand {
     Barrier(SyncSender<()>),
     Telemetry(SyncSender<GraphGpuTelemetry>),
     Shutdown,
+}
+
+/// Shell requests for the guided route walk. The renderer owns the frozen
+/// route; the shell only issues transport commands and reads status.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RouteWalkRequest {
+    Start,
+    Transport(graph_render_wgpu::RouteWalkCommand),
+    Exit,
 }
 
 #[derive(Default)]

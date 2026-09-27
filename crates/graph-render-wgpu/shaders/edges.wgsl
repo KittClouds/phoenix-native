@@ -43,7 +43,7 @@ struct NodeProductGpu {
     review_mask: u32,
     enabled: u32,
     context_visible: u32,
-    source_scope: u32,
+    overlay_flags: u32,
 };
 
 struct GraphLensUniform {
@@ -77,13 +77,14 @@ struct VertexOutput {
     @location(5) @interpolate(flat) emphasis_match: u32,
     @location(6) @interpolate(flat) navigation_flags: u32,
     @location(7) @interpolate(flat) source_state: u32,
+    @location(8) @interpolate(flat) walk_state: u32,
 };
 
 // Source-local edge state derived from its endpoints: 0 = mode off,
 // 1 = ghosted, 2 = both endpoints are in the verified source scope.
 fn source_state(edge: EdgeGpu) -> u32 {
-    let from_scope = node_products[edge.source_slot].source_scope;
-    let to_scope = node_products[edge.target_slot].source_scope;
+    let from_scope = node_products[edge.source_slot].overlay_flags;
+    let to_scope = node_products[edge.target_slot].overlay_flags;
     if ((from_scope & 1u) == 0u) {
         return 0u;
     }
@@ -91,6 +92,41 @@ fn source_state(edge: EdgeGpu) -> u32 {
 }
 
 const SOURCE_GHOST_EDGE_OPACITY: f32 = 0.035;
+
+// Route-walk edge state derived from its endpoints: 0 = no walk,
+// 1 = dimmed context, 2 = route ahead, 3 = walked, 4 = traversal in flight.
+// A frozen shortest route has no chords, so endpoint membership identifies
+// route edges exactly.
+fn walk_edge_state(edge: EdgeGpu) -> u32 {
+    let a = node_products[edge.source_slot].overlay_flags;
+    let b = node_products[edge.target_slot].overlay_flags;
+    if ((a & 8u) == 0u) {
+        return 0u;
+    }
+    if ((a & 240u) == 0u || (b & 240u) == 0u) {
+        return 1u;
+    }
+    let both = a | b;
+    if ((both & 64u) != 0u && (both & 128u) != 0u) {
+        return 4u;
+    }
+    if ((a & 96u) != 0u && (b & 96u) != 0u) {
+        return 3u;
+    }
+    return 2u;
+}
+
+const WALK_EDGE_MAX_WIDTH_PX: f32 = 2.4;
+
+fn walk_edge_color(state: u32, color: vec4<f32>) -> vec4<f32> {
+    switch state {
+        case 1u: { return vec4<f32>(color.rgb, color.a * 0.018); }
+        case 2u: { return vec4<f32>(mix(color.rgb, vec3<f32>(1.0), 0.06), 0.34); }
+        case 3u: { return vec4<f32>(mix(color.rgb, vec3<f32>(1.0), 0.20), 0.66); }
+        default: { return vec4<f32>(mix(color.rgb, vec3<f32>(1.0), 0.32), 0.82); }
+    }
+}
+
 
 // Line width is relative to the smallest ordinary node, never to either endpoint.
 // This keeps edges stable when degree makes centroids or medoids much larger.
@@ -194,10 +230,16 @@ fn vs_main(
         1.32,
         (edge._padding0 & 2u) != 0u,
     );
-    let edge_width = clamp(
-        edge.width * navigation_scale * EDGE_WIDTH_SCALE,
-        MIN_EDGE_WIDTH_PX,
-        BASE_NODE_DIAMETER_PX * MAX_EDGE_TO_BASE_NODE_RATIO,
+    let walk_state = walk_edge_state(edge);
+    let walk_route = walk_state >= 2u;
+    let edge_width = select(
+        clamp(
+            edge.width * navigation_scale * EDGE_WIDTH_SCALE,
+            MIN_EDGE_WIDTH_PX,
+            BASE_NODE_DIAMETER_PX * MAX_EDGE_TO_BASE_NODE_RATIO,
+        ),
+        select(1.3, WALK_EDGE_MAX_WIDTH_PX, walk_state >= 3u),
+        walk_route,
     );
     let half_width = edge_width * 0.5;
     let screen = center + normal * half_width * side;
@@ -219,6 +261,7 @@ fn vs_main(
     output.emphasis_match = select(0u, 1u, emphasis_matches(primary_edge_family(edge_products[instance_index])));
     output.navigation_flags = edge._padding0;
     output.source_state = source_state(edge);
+    output.walk_state = walk_state;
     output.visible = select(0u, 1u, is_visible);
     output.flags = edge.kind_flags & 0xffffu;
     output.progress = progress;
@@ -245,7 +288,9 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if ((input.flags & 16384u) != 0u) {
         color.a = max(color.a, 0.42);
     }
-    if (input.source_state == 1u) {
+    if (input.walk_state != 0u) {
+        color = walk_edge_color(input.walk_state, color);
+    } else if (input.source_state == 1u) {
         color.a *= SOURCE_GHOST_EDGE_OPACITY;
     } else if (input.source_state == 2u) {
         // In-scope edges keep normal rendering while the anchor is focused.

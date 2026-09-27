@@ -16,6 +16,7 @@ impl GraphRenderer {
             &self.queue,
         )?;
         self.redraw_requested = true;
+        self.invalidate_walk_curve();
         Ok(metrics)
     }
 }

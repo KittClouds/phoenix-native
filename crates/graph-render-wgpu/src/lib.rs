@@ -15,6 +15,8 @@ mod pipelines;
 mod renderer;
 mod renderer_metrics;
 mod renderer_support;
+mod route_walk;
+mod particles;
 #[cfg(test)]
 mod renderer_tests;
 mod scene_state;
@@ -33,8 +35,10 @@ pub use interaction::{
 };
 pub use lens::{
     EdgeProductGpu, GraphLensUniform, NodeProductGpu, SourceScopeMask, SOURCE_SCOPE_ACTIVE,
-    SOURCE_SCOPE_ANCHOR, SOURCE_SCOPE_MEMBER,
+    SOURCE_SCOPE_ANCHOR, SOURCE_SCOPE_MEMBER, WALK_ACTIVE, WALK_CURRENT, WALK_GLOW_SHIFT,
+    WALK_NEXT, WALK_ROUTE, WALK_VISITED,
 };
+pub use route_walk::{RouteWalkCommand, RouteWalkNotice, RouteWalkPlayback, RouteWalkStatus};
 pub use path_layer::PreparedGeometryMetrics;
 pub use renderer::GraphRenderer;
 pub use renderer_metrics::{FrameMetrics, LensUpdateMetrics};

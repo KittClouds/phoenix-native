@@ -15,6 +15,8 @@ const COPY_BYTES_PER_ROW: u32 = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 pub enum PickIntent {
     Hover,
     Select,
+    /// Shift+click: choose the second route endpoint, keeping the selection.
+    SelectSecondary,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -187,7 +189,7 @@ impl PickingPass {
             viewport_revision: self.viewport_revision,
         };
         match (self.pending, intent) {
-            (Some(pending), PickIntent::Hover) if pending.intent == PickIntent::Select => {}
+            (Some(pending), PickIntent::Hover) if pending.intent != PickIntent::Hover => {}
             _ => self.pending = Some(request),
         }
     }

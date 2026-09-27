@@ -48,6 +48,12 @@ fn headless_gpu_resources_accept_snapshot_diff_and_shaders() {
         wgpu::TextureFormat::Bgra8UnormSrgb,
     )
     .unwrap_or_else(|error| panic!("prepared path pipeline: {error}"));
+    let _particles = crate::particles::ParticleLayer::new(
+        &device,
+        &layouts.camera,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+    )
+    .unwrap_or_else(|error| panic!("route walk particle pipeline: {error}"));
     encode_background_pass(&device, &queue, &layouts.camera, &pipelines.background);
     let _picking = PickingPass::new(
         &device,
@@ -198,6 +204,7 @@ fn encode_nonempty_label_overlay(
                 hover: Some(NodeId(1)),
                 selected: None,
                 source_members: None,
+                walk_current: None,
             },
         )
         .unwrap_or_else(|error| panic!("{error}"));

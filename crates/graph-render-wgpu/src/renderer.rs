@@ -91,6 +91,10 @@ pub struct GraphRenderer {
     events: PendingEvents,
     redraw_requested: bool,
     frame_count: u64,
+    walk: Option<walk::ActiveWalk>,
+    walk_status: crate::RouteWalkStatus,
+    particles: crate::particles::ParticleLayer,
+    particle_scratch: Vec<crate::particles::ParticleGpu>,
 }
 
 impl GraphRenderer {
@@ -235,6 +239,8 @@ impl GraphRenderer {
         );
         let (depth_texture, depth_view) = create_depth_texture(&device, width, height);
         let labels = LabelLayer::new(&device, &queue, surface_config.format);
+        let particles =
+            crate::particles::ParticleLayer::new(&device, &layouts.camera, surface_config.format)?;
         let prepared_paths = PreparedPathLayer::new(
             &device,
             &layouts.camera,
@@ -284,6 +290,10 @@ impl GraphRenderer {
             events: PendingEvents::new(),
             redraw_requested: true,
             frame_count: 0,
+            walk: None,
+            walk_status: crate::RouteWalkStatus::default(),
+            particles,
+            particle_scratch: Vec::with_capacity(crate::particles::MAX_PARTICLES),
         })
     }
 
@@ -332,6 +342,7 @@ impl GraphRenderer {
         self.labels.clear();
         self.prepared_paths.clear();
         self.redraw_requested = true;
+        self.revalidate_route_walk(true);
         tracing::info!(
             nodes = metrics.node_count,
             edges = metrics.edge_count,
@@ -572,6 +583,7 @@ impl GraphRenderer {
         self.refresh_interaction_lens();
         self.write_camera();
         self.redraw_requested = true;
+        self.revalidate_route_walk(false);
         tracing::debug!(
             nodes_added = metrics.nodes_added,
             nodes_updated = metrics.nodes_updated,
@@ -730,7 +742,12 @@ impl GraphRenderer {
                 if button == PointerButton::Left {
                     self.pointer.left_down = false;
                     if !self.pointer.dragged && !inspecting {
-                        self.picking.request(point.0, point.1, PickIntent::Select);
+                        let intent = if self.pointer.shift_down {
+                            PickIntent::SelectSecondary
+                        } else {
+                            PickIntent::Select
+                        };
+                        self.picking.request(point.0, point.1, intent);
                         self.redraw_requested = true;
                     }
                 } else if button == PointerButton::Middle {
@@ -816,7 +833,8 @@ impl GraphRenderer {
             .then_some(position)
     }
 
-    pub fn update(&mut self, _elapsed: Duration) {
+    pub fn update(&mut self, elapsed: Duration) {
+        self.advance_route_walk(elapsed.as_secs_f32());
         if let Some(result) = self.picking.poll(&self.device, &self.scene) {
             match result.intent {
                 PickIntent::Hover if self.scene.hover_node() != result.node => {
@@ -844,6 +862,41 @@ impl GraphRenderer {
                     }
                     self.labels.mark_dirty();
                     self.redraw_requested = true;
+                }
+                PickIntent::SelectSecondary => {
+                    let primary = self.scene.selected_node();
+                    match (primary, result.node) {
+                        (Some(primary), Some(node))
+                            if node != primary
+                                && self.scene.secondary_selected_node() != Some(node) =>
+                        {
+                            self.scene.update_highlights(
+                                self.scene.hover_node(),
+                                Some(primary),
+                                Some(node),
+                                &self.queue,
+                            );
+                            self.refresh_interaction_lens();
+                            self.events.push_route_endpoints(primary, node);
+                            self.labels.mark_dirty();
+                            self.redraw_requested = true;
+                        }
+                        (None, Some(node)) => {
+                            self.scene.update_highlights(
+                                self.scene.hover_node(),
+                                Some(node),
+                                None,
+                                &self.queue,
+                            );
+                            self.refresh_interaction_lens();
+                            if let Err(error) = self.events.push_selection(Some(node)) {
+                                tracing::error!(%error, "selection event rejected");
+                            }
+                            self.labels.mark_dirty();
+                            self.redraw_requested = true;
+                        }
+                        _ => {}
+                    }
                 }
                 _ => {}
             }
@@ -942,7 +995,7 @@ impl GraphRenderer {
 
     #[must_use]
     pub fn needs_redraw(&self) -> bool {
-        self.redraw_requested || self.picking.has_work()
+        self.redraw_requested || self.picking.has_work() || self.walk_animating()
     }
 
     pub fn render(&mut self) -> Result<FrameMetrics, RenderError> {
@@ -1000,6 +1053,7 @@ impl GraphRenderer {
                     .scene
                     .source_scope()
                     .map(|scope| scope.members.clone()),
+                walk_current: self.walk_current_node(),
             },
         )?;
         {
@@ -1059,6 +1113,9 @@ impl GraphRenderer {
                 pass.set_bind_group(1, &self.node_bind_group, &[]);
                 pass.set_bind_group(2, &self.lens_bind_group, &[]);
                 pass.draw(0..4, 0..node_slots);
+            }
+            if !space_only {
+                self.particles.render(&mut pass, &self.camera_bind_group);
             }
         }
         if !space_only {
@@ -1294,3 +1351,4 @@ mod view_delta_tests {
     }
 }
 mod geometry;
+mod walk;
