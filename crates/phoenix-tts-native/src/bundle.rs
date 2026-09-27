@@ -84,6 +84,14 @@ impl Bundle {
             _files: files,
         })
     }
+    /// True when both bundles pin the same worker, model and runtime files.
+    pub fn same_files(&self, other: &Bundle) -> bool {
+        self.executable == other.executable
+            && self.model_path == other.model_path
+            && self.dll_directory == other.dll_directory
+            && self.runtime == other.runtime
+            && self.model == other.model
+    }
     pub fn identity(
         &self,
         instruction: &str,

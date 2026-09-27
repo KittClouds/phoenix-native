@@ -82,6 +82,15 @@ impl NativeProvider {
     pub fn bundle(&self) -> &Bundle {
         &self.bundle
     }
+    /// True when this provider runs the files `bundle` pins.
+    pub fn serves(&self, bundle: &Bundle) -> bool {
+        self.bundle.same_files(bundle)
+    }
+    /// Hands a live provider to a new caller whose epochs start over. Request
+    /// ids stay monotonic, as the worker requires.
+    pub fn begin_session(&mut self) {
+        self.last_epoch = 0;
+    }
     pub fn pid(&self) -> Option<u32> {
         self.worker.as_ref().map(|w| w.child.id())
     }

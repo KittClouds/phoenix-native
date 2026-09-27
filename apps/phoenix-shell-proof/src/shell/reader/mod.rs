@@ -44,6 +44,7 @@ pub(super) struct ReaderPanel {
 }
 impl PhoenixShell {
     pub(super) fn take_reader_for_shutdown(&mut self) -> Option<Bridge> {
+        worker::warm::release_now();
         let bridge = self.reader.bridge.take();
         if let Some(b) = &bridge {
             b.send(Command::Stop);
@@ -66,6 +67,7 @@ impl PhoenixShell {
             self.reader.sidebar = true;
         }
         self.reader.open = true;
+        worker::warm::prewarm(self.kernel.workspace_path().to_path_buf());
         self.editor.update(cx, |editor, cx| {
             editor.set_selection_toolbar_requires_selection(true, cx)
         });
@@ -121,6 +123,7 @@ impl PhoenixShell {
             enrollment.cancel();
         }
         self.reader.open = false;
+        worker::warm::release();
         self.editor.update(cx, |editor, cx| {
             editor.set_selection_toolbar_requires_selection(false, cx)
         });

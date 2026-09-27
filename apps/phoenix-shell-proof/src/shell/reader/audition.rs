@@ -167,11 +167,9 @@ fn sample(
             .generate_voiced_streamed(request, asset.as_ref(), &mut cache, cancel, |_| Ok(()))?
     };
     let audio = cache.get(key)?;
-    // Sample synthesis is complete. Playback only needs the cached PCM, so
-    // release the GPU before occupying the audio device for several seconds.
-    if let Some(breeze) = provider.breeze.as_mut() {
-        breeze.stop()?;
-    }
+    // Sample synthesis is complete. Playback only needs the cached PCM; the
+    // Breeze worker goes back to the warm slot for Listen.
+    drop(provider);
     anyhow::ensure!(!cancel.is_cancelled(), "Sample cancelled");
     let _ = tx.try_send(format!("Playing sample · {}", spec.profile.name));
     let mut device = WaveOutput::open_default()?;

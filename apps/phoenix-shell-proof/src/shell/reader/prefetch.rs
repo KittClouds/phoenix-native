@@ -13,9 +13,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-// A brief pause keeps the warm model; a longer pause gives the GPU back to
-// graph and analysis work. The bundle remains hash-pinned for the next request.
-const BREEZE_IDLE_RELEASE: Duration = Duration::from_secs(20);
+// A pause of a few minutes keeps the warm model; a longer pause gives the GPU
+// back to graph and analysis work. The bundle remains hash-pinned for the next
+// request.
+const BREEZE_IDLE_RELEASE: Duration = super::warm::IDLE_RELEASE;
 
 pub struct Job {
     pub epoch: u64,

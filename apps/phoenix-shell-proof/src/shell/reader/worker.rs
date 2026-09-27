@@ -7,6 +7,8 @@ pub(super) mod presentation;
 use presentation::Phase;
 #[path = "voices.rs"]
 pub(super) mod voices;
+#[path = "warm.rs"]
+pub(super) mod warm;
 use phoenix_audio::device::WaveOutput;
 use phoenix_reader_session::*;
 use phoenix_tts_native::Cancellation;
@@ -104,6 +106,17 @@ pub(super) struct Config {
     pub supertonic: Option<engines::CpuConfig>,
 }
 impl Config {
+    pub fn read(workspace: &std::path::Path) -> anyhow::Result<Self> {
+        let config_path = workspace.with_extension("reader.json");
+        anyhow::ensure!(
+            std::fs::metadata(&config_path)?.len() <= 1_048_576,
+            "Reader configuration is too large"
+        );
+        Ok(serde_json::from_slice(
+            &std::fs::read(&config_path)
+                .map_err(|e| anyhow::anyhow!("Configure {}: {e}", config_path.display()))?,
+        )?)
+    }
     pub fn load_voices(&mut self) -> anyhow::Result<()> {
         if self.supertonic.is_some() {
             voices::add_cpu_voices(&mut self.voices);
@@ -197,15 +210,7 @@ fn run(
     shared: &Mutex<Status>,
     cancel: &Cancellation,
 ) -> anyhow::Result<()> {
-    let config_path = workspace.with_extension("reader.json");
-    anyhow::ensure!(
-        std::fs::metadata(&config_path)?.len() <= 1_048_576,
-        "Reader configuration is too large"
-    );
-    let mut config: Config = serde_json::from_slice(
-        &std::fs::read(&config_path)
-            .map_err(|e| anyhow::anyhow!("Configure {}: {e}", config_path.display()))?,
-    )?;
+    let mut config = Config::read(&workspace)?;
     let stage = StageClock::new();
     let workspace_id = *blake3::hash(workspace.to_string_lossy().as_bytes()).as_bytes();
     let plan = if plain {
@@ -286,8 +291,11 @@ fn run(
         anyhow::ensure!(!selection, "selection cannot inherit book position");
         session.restart_at_segment(&plan, segment)?;
     }
+    stage.mark("sessions");
     let cache = AudioCache::open(config.storage.join("cache"), 1024 * 1024 * 1024)?;
+    stage.mark("cache");
     let provider = engines::Providers::new(bundle, config.storage.clone())?;
+    stage.mark("providers");
     let mut runtime = if restored && restart_segment.is_none() {
         ReaderRuntime::restore(
             WaveOutput::open_default()?,

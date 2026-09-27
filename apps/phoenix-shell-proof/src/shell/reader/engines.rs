@@ -5,7 +5,7 @@ use phoenix_tts_native::{
     supertonic::{SupertonicBundle, SupertonicProvider},
     Bundle, Cancellation, NativeProvider, VoiceAsset,
 };
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 #[derive(serde::Deserialize)]
 pub struct CpuConfig {
     pub runner: PathBuf,
@@ -110,16 +110,33 @@ pub struct Providers {
     pub cpu: Option<SupertonicProvider>,
 }
 impl Providers {
+    /// Adopts the warm Breeze worker when it runs the same files; the worker
+    /// goes back to the warm slot when these providers drop.
     pub fn new(bundles: Bundles, storage: PathBuf) -> anyhow::Result<Self> {
         Ok(Self {
             breeze: bundles
                 .breeze
-                .map(|b| NativeProvider::new(b, Duration::from_secs(240), Duration::from_secs(120)))
+                .map(|b| match super::warm::take(&b) {
+                    Some(provider) => Ok(provider),
+                    None => NativeProvider::new(
+                        b,
+                        super::warm::STARTUP_TIMEOUT,
+                        super::warm::REQUEST_TIMEOUT,
+                    )
+                    .inspect_err(|_| super::warm::cancel_take()),
+                })
                 .transpose()?,
             cpu: bundles
                 .cpu
                 .map(|b| SupertonicProvider::new(b, storage.join("supertonic-jobs")))
                 .transpose()?,
         })
+    }
+}
+impl Drop for Providers {
+    fn drop(&mut self) {
+        if let Some(provider) = self.breeze.take() {
+            super::warm::give_back(provider);
+        }
     }
 }
