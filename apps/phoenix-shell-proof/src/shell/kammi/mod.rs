@@ -8,7 +8,7 @@ pub mod ui;
 use gpui::{AppContext as _, Entity, ScrollHandle, Task, Window};
 use gpui_component::input::InputState;
 use gpui_component::slider::{SliderEvent, SliderState, SliderValue};
-use provider::{KammiProviderRuntime, spawn_provider_runtime};
+use provider::{KammiProviderRuntime, LocalServerState, spawn_provider_runtime};
 use session::{KammiSession, MessageState};
 use settings::{KammiSettings, ProviderBackend, load_openrouter_key};
 use std::collections::VecDeque;
@@ -83,6 +83,7 @@ pub struct KammiState {
     pub provider: KammiProviderRuntime,
     pub provider_task: Option<Task<()>>,
     pub generation: GenerationState,
+    pub local_server_state: LocalServerState,
     pub next_request_id: u64,
     pub has_api_key: bool,
     pub settings: KammiSettings,
@@ -154,6 +155,7 @@ impl KammiState {
             provider,
             provider_task: None,
             generation: GenerationState::Idle,
+            local_server_state: LocalServerState::Stopped,
             next_request_id: 2,
             has_api_key,
             settings: KammiSettings::default(),

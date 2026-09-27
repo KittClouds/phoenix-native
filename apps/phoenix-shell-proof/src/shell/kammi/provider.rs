@@ -75,6 +75,17 @@ impl DeltaBatch {
 pub enum ProviderCommand {
     Generate(ProviderRequest),
     Cancel { request_id: u64 },
+    WarmLocal(LlamaCppSettings),
+    ReleaseLocal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalServerState {
+    Stopped,
+    Starting,
+    Ready,
+    Releasing,
+    Failed,
 }
 
 #[derive(Clone, Debug)]
@@ -100,6 +111,8 @@ pub enum ProviderEvent {
     Finished { request_id: u64 },
     Cancelled { request_id: u64 },
     Failed { request_id: u64, error: String },
+    LocalServerState(LocalServerState),
+    LocalServerControlFailed { error: String, state: LocalServerState },
     Fatal { error: String },
 }
 
@@ -120,6 +133,14 @@ impl KammiProviderRuntime {
 
     pub fn try_cancel(&self, request_id: u64) -> Result<()> {
         self.try_command(ProviderCommand::Cancel { request_id }, "cancellation")
+    }
+
+    pub fn try_warm_local(&self, settings: LlamaCppSettings) -> Result<()> {
+        self.try_command(ProviderCommand::WarmLocal(settings), "local model load")
+    }
+
+    pub fn try_release_local(&self) -> Result<()> {
+        self.try_command(ProviderCommand::ReleaseLocal, "local model release")
     }
 
     fn try_command(&self, command: ProviderCommand, label: &'static str) -> Result<()> {
@@ -183,11 +204,18 @@ async fn provider_loop(
     events: async_channel::Sender<ProviderEvent>,
 ) {
     let mut active_task: Option<(u64, tokio::task::JoinHandle<()>, Arc<AtomicBool>)> = None;
+    let mut warm_task: Option<tokio::task::JoinHandle<()>> = None;
     let llama_server = Arc::new(tokio::sync::Mutex::new(LlamaServerManager::new()));
 
     while let Ok(cmd) = commands.recv().await {
         match cmd {
             ProviderCommand::Generate(request) => {
+                if let Some(handle) = warm_task.take() {
+                    if !handle.is_finished() {
+                        handle.abort();
+                        llama_server.lock().await.stop_if_loading();
+                    }
+                }
                 let req_id = request.request_id;
                 if let Some((old_id, handle, cancel_flag)) = active_task.take() {
                     cancel_flag.store(true, Ordering::SeqCst);
@@ -234,6 +262,59 @@ async fn provider_loop(
                     }
                 }
             }
+            ProviderCommand::WarmLocal(settings) => {
+                if active_task.as_ref().is_some_and(|(_, handle, _)| !handle.is_finished()) {
+                    let state = if llama_server.lock().await.is_ready() { LocalServerState::Ready } else { LocalServerState::Stopped };
+                    let _ = events.try_send(ProviderEvent::LocalServerControlFailed {
+                        error: "Kammi is generating. Stop or finish that request before loading a model.".into(),
+                        state,
+                    });
+                    continue;
+                }
+                if warm_task.as_ref().is_some_and(|handle| !handle.is_finished()) {
+                    continue;
+                }
+                let _ = events.try_send(ProviderEvent::LocalServerState(LocalServerState::Starting));
+                let manager = llama_server.clone();
+                let warm_events = events.clone();
+                warm_task = Some(tokio::spawn(async move {
+                    let cancelled = AtomicBool::new(false);
+                    let result = manager.lock().await.ensure_ready(&settings, &cancelled).await;
+                    match result {
+                        Ok(()) => {
+                            let _ = warm_events.send(ProviderEvent::LocalServerState(LocalServerState::Ready)).await;
+                        }
+                        Err(error) => {
+                            let state = if manager.lock().await.is_ready() {
+                                LocalServerState::Ready
+                            } else {
+                                LocalServerState::Failed
+                            };
+                            let _ = warm_events.send(ProviderEvent::LocalServerState(state)).await;
+                            let _ = warm_events.send(ProviderEvent::LocalServerControlFailed {
+                                error: format!("Could not load the local model: {error:#}"),
+                                state,
+                            }).await;
+                        }
+                    }
+                }));
+            }
+            ProviderCommand::ReleaseLocal => {
+                if active_task.as_ref().is_some_and(|(_, handle, _)| !handle.is_finished()) {
+                    let state = if llama_server.lock().await.is_ready() { LocalServerState::Ready } else { LocalServerState::Stopped };
+                    let _ = events.try_send(ProviderEvent::LocalServerControlFailed {
+                        error: "Kammi is generating. Stop or finish that request before releasing GPU memory.".into(),
+                        state,
+                    });
+                    continue;
+                }
+                let _ = events.try_send(ProviderEvent::LocalServerState(LocalServerState::Releasing));
+                if let Some(handle) = warm_task.take() {
+                    handle.abort();
+                }
+                llama_server.lock().await.stop();
+                let _ = events.try_send(ProviderEvent::LocalServerState(LocalServerState::Stopped));
+            }
         }
     }
 
@@ -241,6 +322,10 @@ async fn provider_loop(
         cancel_flag.store(true, Ordering::SeqCst);
         handle.abort();
         llama_server.lock().await.stop_if_loading();
+    }
+    if let Some(handle) = warm_task.take() {
+        handle.abort();
+        llama_server.lock().await.stop();
     }
 }
 
@@ -264,11 +349,17 @@ async fn run_generation(
             (client, model, "OpenRouter")
         }
         ProviderBackend::LlamaCpp => {
-            llama_server
+            let _ = events.try_send(ProviderEvent::LocalServerState(LocalServerState::Starting));
+            let ready = llama_server
                 .lock()
                 .await
                 .ensure_ready(&request.llama_cpp, &cancel_flag)
-                .await?;
+                .await;
+            if ready.is_err() {
+                let _ = events.try_send(ProviderEvent::LocalServerState(LocalServerState::Failed));
+            }
+            ready?;
+            let _ = events.try_send(ProviderEvent::LocalServerState(LocalServerState::Ready));
             let model = request.llama_cpp.model_label();
             let client = OpenRouterClient::builder()
                 .base_url(request.llama_cpp.endpoint.trim_end_matches('/'))
@@ -482,6 +573,46 @@ mod tests {
             .try_send(ProviderCommand::Cancel { request_id: 9 })
             .expect("fill command queue");
         drop(runtime);
+    }
+
+    #[test]
+    fn release_local_does_not_touch_an_unmanaged_listener() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (commands_tx, commands_rx) = async_channel::bounded(4);
+            let (events_tx, events_rx) = async_channel::bounded(4);
+            let loop_task = tokio::spawn(provider_loop(commands_rx, events_tx));
+            commands_tx.send(ProviderCommand::ReleaseLocal).await.unwrap();
+            assert!(matches!(events_rx.recv().await.unwrap(), ProviderEvent::LocalServerState(LocalServerState::Releasing)));
+            assert!(matches!(events_rx.recv().await.unwrap(), ProviderEvent::LocalServerState(LocalServerState::Stopped)));
+            assert!(std::net::TcpStream::connect(address).is_ok());
+            commands_tx.close();
+            loop_task.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn invalid_local_model_load_reports_failure_without_starting_a_server() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (commands_tx, commands_rx) = async_channel::bounded(4);
+            let (events_tx, events_rx) = async_channel::bounded(4);
+            let loop_task = tokio::spawn(provider_loop(commands_rx, events_tx));
+            commands_tx.send(ProviderCommand::WarmLocal(LlamaCppSettings::default())).await.unwrap();
+            assert!(matches!(events_rx.recv().await.unwrap(), ProviderEvent::LocalServerState(LocalServerState::Starting)));
+            assert!(matches!(events_rx.recv().await.unwrap(), ProviderEvent::LocalServerState(LocalServerState::Failed)));
+            assert!(matches!(events_rx.recv().await.unwrap(), ProviderEvent::LocalServerControlFailed { .. }));
+            commands_tx.close();
+            loop_task.await.unwrap();
+        });
     }
 
     #[test]

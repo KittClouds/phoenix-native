@@ -1,6 +1,6 @@
 use super::{
     KammiPanel,
-    provider::validate_llama_cpp_settings,
+    provider::{LocalServerState, validate_llama_cpp_settings},
     settings::{
         BONSAI_2_OPENROUTER_MODEL, LlamaPerformanceProfile, MAX_SAVED_MODELS, ProviderBackend,
         ReasoningLevel, clear_openrouter_key, store_openrouter_key,
@@ -8,7 +8,7 @@ use super::{
 };
 use crate::shell::{BORDER, PhoenixShell, SURFACE, TEXT, TEXT_MUTED};
 use gpui::{Context, FontWeight, IntoElement, Window, div, prelude::*, px, rgb};
-use gpui_component::Sizable;
+use gpui_component::{Disableable, Sizable};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
 use gpui_component::scroll::ScrollableElement;
@@ -40,6 +40,8 @@ impl PhoenixShell {
         let saved_models = self.kammi.settings.saved_models.clone();
         let active_reasoning = self.kammi.settings.reasoning;
         let local_performance = self.kammi.settings.llama_cpp.performance;
+        let local_state = self.kammi.local_server_state;
+        let local_busy = self.kammi.active_request_id().is_some();
         let prompt_bytes = self.kammi.settings.system_prompt.len();
 
         div()
@@ -236,7 +238,7 @@ impl PhoenixShell {
                                     .mb_2()
                                     .text_xs()
                                     .text_color(rgb(TEXT_MUTED))
-                                    .child("Phoenix supervises llama-server and streams its local response. Paths must be absolute. Bonsai 2 uses the OpenRouter preset; its packed GGUF needs the PrismML llama.cpp fork."),
+                                    .child("Phoenix owns its local llama-server. Load it when needed; release it to free GPU memory. The next Kammi request also loads it automatically. Paths must be absolute; packed Bonsai GGUF needs the PrismML fork."),
                             )
                             .child(
                                 div()
@@ -338,6 +340,50 @@ impl PhoenixShell {
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.save_kammi_llama_cpp(cx);
                                     })),
+                            )
+                            .child(
+                                div()
+                                    .mt_3()
+                                    .pt_3()
+                                    .border_t_1()
+                                    .border_color(rgb(BORDER))
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(rgb(if local_state == LocalServerState::Ready {
+                                                ACCENT
+                                            } else { TEXT_MUTED }))
+                                            .child(format!("MODEL · {}", match local_state {
+                                                LocalServerState::Stopped => "OFF / UNLOADED",
+                                                LocalServerState::Starting => "LOADING",
+                                                LocalServerState::Ready => "READY",
+                                                LocalServerState::Releasing => "RELEASING",
+                                                LocalServerState::Failed => "CHECK SETUP",
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("kammi-load-local-model")
+                                            .label("LOAD")
+                                            .small()
+                                            .ghost()
+                                            .when(local_busy || matches!(local_state, LocalServerState::Starting | LocalServerState::Releasing), |button| button.disabled(true))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.load_kammi_local_model(cx);
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("kammi-release-local-model")
+                                            .label("RELEASE GPU")
+                                            .small()
+                                            .ghost()
+                                            .when(local_busy || matches!(local_state, LocalServerState::Stopped | LocalServerState::Releasing), |button| button.disabled(true))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.release_kammi_local_model(cx);
+                                            })),
+                                    ),
                             ),
                     ))
                     .when(backend == ProviderBackend::OpenRouter, |content| content.child(
@@ -709,13 +755,47 @@ impl PhoenixShell {
                 self.kammi.error_banner = None;
                 self.save_kammi_history();
                 self.status = format!(
-                    "KAMMI / LOCAL GGUF {} ACTIVE",
+                    "KAMMI / LOCAL GGUF {} SELECTED",
                     self.kammi.settings.llama_cpp.model_label()
                 )
                 .into();
             }
             Err(error) => {
                 self.kammi.error_banner = Some(format!("Invalid llama.cpp setup: {error:#}"));
+            }
+        }
+        cx.notify();
+    }
+
+    fn load_kammi_local_model(&mut self, cx: &mut Context<Self>) {
+        if self.kammi.active_request_id().is_some() {
+            return;
+        }
+        self.save_kammi_llama_cpp(cx);
+        if self.kammi.error_banner.is_some() {
+            return;
+        }
+        let settings = self.kammi.settings.llama_cpp.clone();
+        if let Err(error) = self.kammi.provider.try_warm_local(settings) {
+            self.kammi.error_banner = Some(format!("Could not load local model: {error}"));
+        } else {
+            self.kammi.local_server_state = LocalServerState::Starting;
+            self.kammi.error_banner = None;
+        }
+        cx.notify();
+    }
+
+    fn release_kammi_local_model(&mut self, cx: &mut Context<Self>) {
+        if self.kammi.active_request_id().is_some() {
+            return;
+        }
+        match self.kammi.provider.try_release_local() {
+            Ok(()) => {
+                self.kammi.local_server_state = LocalServerState::Releasing;
+                self.kammi.error_banner = None;
+            }
+            Err(error) => {
+                self.kammi.error_banner = Some(format!("Could not release local model: {error}"));
             }
         }
         cx.notify();

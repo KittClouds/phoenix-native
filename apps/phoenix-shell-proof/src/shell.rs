@@ -492,6 +492,14 @@ impl PhoenixShell {
                 self.kammi.cancelled(request_id);
                 self.save_kammi_history();
             }
+            kammi::provider::ProviderEvent::LocalServerState(state) => {
+                self.kammi.local_server_state = state;
+                self.status = format!("KAMMI / LOCAL MODEL {state:?}").into();
+            }
+            kammi::provider::ProviderEvent::LocalServerControlFailed { error, state } => {
+                self.kammi.error_banner = Some(error);
+                self.kammi.local_server_state = state;
+            }
             kammi::provider::ProviderEvent::Fatal { error } => {
                 self.kammi.generation = kammi::GenerationState::Failed {
                     message: error.clone(),

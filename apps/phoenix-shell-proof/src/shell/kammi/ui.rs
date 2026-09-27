@@ -131,7 +131,19 @@ impl PhoenixShell {
         let status = self.kammi.provider_status();
         let (status_text, status_color) = match &status {
             ProviderStatus::Unconfigured => ("PROVIDER OFF", TEXT_MUTED),
-            ProviderStatus::Ready { .. } => (self.kammi.settings.backend.label(), ACCENT),
+            ProviderStatus::Ready { .. } => {
+                if self.kammi.settings.backend == ProviderBackend::LlamaCpp {
+                    match self.kammi.local_server_state {
+                        super::provider::LocalServerState::Stopped => ("LOCAL · OFF", TEXT_MUTED),
+                        super::provider::LocalServerState::Starting => ("LOCAL · LOADING", ACCENT),
+                        super::provider::LocalServerState::Ready => ("LOCAL · READY", ACCENT),
+                        super::provider::LocalServerState::Releasing => ("LOCAL · RELEASING", TEXT_MUTED),
+                        super::provider::LocalServerState::Failed => ("LOCAL · ERROR", 0xee5555),
+                    }
+                } else {
+                    (self.kammi.settings.backend.label(), ACCENT)
+                }
+            }
             ProviderStatus::Generating { .. } => ("GENERATING ●", ACCENT),
             ProviderStatus::Error { .. } => ("ERROR", 0xee5555),
         };

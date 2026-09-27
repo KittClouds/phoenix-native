@@ -132,7 +132,7 @@ impl LlamaServerManager {
         }
     }
 
-    fn stop(&mut self) {
+    pub(super) fn stop(&mut self) {
         if let Some(mut server) = self.active.take() {
             let _ = server.child.kill();
             let _ = server.child.wait();
@@ -143,6 +143,10 @@ impl LlamaServerManager {
         if self.active.as_ref().is_some_and(|server| !server.ready) {
             self.stop();
         }
+    }
+
+    pub(super) fn is_ready(&self) -> bool {
+        self.active.as_ref().is_some_and(|server| server.ready)
     }
 }
 
@@ -157,6 +161,7 @@ fn append_runtime_args(command: &mut Command, identity: &ServerIdentity) {
                 .arg("on");
         }
     }
+
 }
 
 async fn health_ready(address: SocketAddr) -> bool {
