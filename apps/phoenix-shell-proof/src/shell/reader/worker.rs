@@ -9,6 +9,8 @@ use presentation::Phase;
 pub(super) mod voices;
 #[path = "warm.rs"]
 pub(super) mod warm;
+#[path = "timeline.rs"]
+mod timeline;
 use phoenix_audio::device::WaveOutput;
 use phoenix_reader_session::*;
 use phoenix_tts_native::Cancellation;
@@ -40,6 +42,8 @@ pub enum Command {
     Bookmark,
     ReturnBookmark,
     Speed(u16),
+    /// Scrubber: jump to a listening time (at the current speed) in the note.
+    SeekMs(u64),
 }
 #[derive(Clone, Default, PartialEq)]
 pub struct Status {
@@ -62,6 +66,10 @@ pub struct Status {
     pub rebufferings: u32,
     pub generated_during_playback: u32,
     pub device_starvations: u32,
+    /// Listening time at the current speed; estimated for passages not yet
+    /// generated.
+    pub elapsed_ms: u64,
+    pub total_ms: u64,
 }
 pub struct Bridge {
     pub commands: SyncSender<Command>,
@@ -314,6 +322,7 @@ fn run(
         runtime.checkpoint(&mut sessions, 0, true)?;
     }
     stage.mark("runtime");
+    let mut timeline = timeline::Timeline::new(runtime.plan());
     let mut generator = Generator::new(provider, cache);
     let mut active = false;
     let mut priming = true;
@@ -418,6 +427,11 @@ fn run(
                         }
                     }
                 }
+                Command::SeekMs(ms) => {
+                    let speed = runtime.speed_milli() as f32 / 1000.0;
+                    let (segment, offset) = timeline.locate(ms as f32 / 1000.0 * speed);
+                    selected = Some((segment, (offset * 24_000.0) as u64));
+                }
                 Command::Previous | Command::Next => {
                     let plan = runtime.plan();
                     let current = plan.segment(runtime.session().position().segment)?.chapter;
@@ -436,7 +450,7 @@ fn run(
             }
             if matches!(
                 command,
-                Command::Previous | Command::Next | Command::ReturnBookmark
+                Command::Previous | Command::Next | Command::ReturnBookmark | Command::SeekMs(_)
             ) && selected.is_some()
             {
                 generation_epoch = generation_epoch
@@ -459,6 +473,7 @@ fn run(
             inflight = None;
             if receipt.epoch == generation_epoch {
                 let audio = receipt.result.map_err(anyhow::Error::msg)?;
+                timeline.learn(receipt.segment, audio.manifest().frames as f32 / 24_000.0);
                 if receipt.generated {
                     if runtime.state() == PlaybackState::Playing {
                         generated_during_playback += 1;
@@ -468,6 +483,8 @@ fn run(
                 }
                 if let Some((segment, frame)) = selected.take() {
                     anyhow::ensure!(receipt.segment == segment, "seek receipt segment");
+                    // A scrubbed offset may fall past a clip shorter than estimated.
+                    let frame = frame.min(audio.manifest().frames.saturating_sub(1));
                     runtime.seek(segment, frame, audio)?;
                     runtime.pause(true)?;
                 } else if matches!(runtime.state(), PlaybackState::NeedsAudio(_)) {
@@ -605,6 +622,10 @@ fn run(
                 rebufferings,
                 generated_during_playback,
                 device_starvations: runtime.device_starvations(),
+                elapsed_ms: ((timeline.start_of(p.segment) + p.source_frame as f32 / 24_000.0)
+                    / speed as f32
+                    * 1000.0) as u64,
+                total_ms: (timeline.total() / speed as f32 * 1000.0) as u64,
             };
             last_status = Instant::now();
         }

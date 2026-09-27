@@ -18,6 +18,7 @@ pub use plan::*;
 pub use planner::{plan_markdown, PlannedNarration, PlannerConfig, PlannerReceipt};
 pub use runtime::*;
 pub use session::*;
+pub use tempo::Join;
 pub use storage::{SnapshotStore, VerifiedBytes};
 
 #[derive(Debug, thiserror::Error)]

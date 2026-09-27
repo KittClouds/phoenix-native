@@ -41,6 +41,10 @@ pub(super) struct ReaderPanel {
     pub(in crate::shell) glow_follow: bool,
     /// The Reader is speaking but the graph is behind its revision.
     pub(in crate::shell) glow_stale: bool,
+    /// Scrubber track bounds from the last paint, and the fraction being
+    /// dragged (the seek is sent on release).
+    pub(in crate::shell) scrub_bounds: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    pub(in crate::shell) scrub_drag: Option<f32>,
 }
 impl PhoenixShell {
     pub(super) fn take_reader_for_shutdown(&mut self) -> Option<Bridge> {

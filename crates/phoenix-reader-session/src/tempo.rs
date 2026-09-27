@@ -54,7 +54,7 @@ impl Join {
     }
 
     /// Silence after the speech release, at 1x.
-    fn pause_ms(self) -> Option<u64> {
+    pub fn pause_ms(self) -> Option<u64> {
         match self {
             Join::WithinSentence => Some(80),
             Join::Sentence => Some(300),

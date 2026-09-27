@@ -1,9 +1,29 @@
 use super::{worker::presentation::Phase, Command, PhoenixShell};
-use gpui::{div, prelude::*, px, relative, rgb, Context, IntoElement};
+use gpui::{
+    canvas, div, prelude::*, px, relative, rgb, Bounds, Context, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+};
 use gpui_component::{
     button::{Button, ButtonVariants},
-    Disableable, IconName, Selectable, Sizable,
+    Disableable, Icon, IconName, Selectable, Sizable,
 };
+
+/// `m:ss`, or `h:mm:ss` from an hour.
+fn clock(ms: u64) -> String {
+    let seconds = ms / 1000;
+    let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
+}
+
+fn track_fraction(bounds: Option<Bounds<Pixels>>, position: Point<Pixels>) -> Option<f32> {
+    let bounds = bounds?;
+    let width = f32::from(bounds.size.width);
+    (width > 0.0).then(|| (f32::from(position.x - bounds.left()) / width).clamp(0.0, 1.0))
+}
 
 impl PhoenixShell {
     pub(in crate::shell) fn reader_primary(&mut self, cx: &mut Context<Self>) {
@@ -119,6 +139,21 @@ impl PhoenixShell {
         cx.notify();
     }
 
+    /// Sends the dragged scrubber position as a seek.
+    fn commit_scrub(&mut self, cx: &mut Context<Self>) {
+        if let Some(fraction) = self.reader.scrub_drag.take() {
+            let target = (fraction as f64 * self.reader.status.total_ms as f64) as u64;
+            self.reader_command(Command::SeekMs(target), cx);
+        }
+        cx.notify();
+    }
+
+    fn skip_reader(&mut self, seconds: i64, cx: &mut Context<Self>) {
+        let s = &self.reader.status;
+        let target = (s.elapsed_ms as i64 + seconds * 1000).clamp(0, s.total_ms as i64);
+        self.reader_command(Command::SeekMs(target as u64), cx);
+    }
+
     pub(in crate::shell) fn render_reader(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let s = &self.reader.status;
         let phase = s.phase;
@@ -160,11 +195,18 @@ impl PhoenixShell {
         } else {
             &s.voice_name
         };
-        let progress = if s.segments == 0 {
+        let timed = available && s.total_ms > 0;
+        let played = if timed {
+            (s.elapsed_ms as f32 / s.total_ms as f32).clamp(0., 1.)
+        } else if s.segments == 0 {
             0.
         } else {
             ((s.segment + 1) as f32 / s.segments as f32).clamp(0., 1.)
         };
+        // While dragging, the thumb and time follow the pointer.
+        let progress = self.reader.scrub_drag.filter(|_| timed).unwrap_or(played);
+        let shown_ms = (progress as f64 * s.total_ms as f64) as u64;
+        let scrub_bounds = self.reader.scrub_bounds.clone();
         div()
             .id("reader-dock")
             .h(px(92.))
@@ -181,16 +223,109 @@ impl PhoenixShell {
             .bg(rgb(0x101312))
             .child(
                 div()
-                    .h(px(3.))
-                    .w_full()
-                    .rounded_full()
-                    .bg(rgb(0x303633))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .min_w_0()
+                    .text_xs()
+                    .text_color(rgb(0x9ca8a2))
                     .child(
                         div()
-                            .h_full()
-                            .w(relative(progress))
-                            .rounded_full()
-                            .bg(rgb(0xe7eee9)),
+                            .w(px(52.))
+                            .flex_shrink_0()
+                            .child(if timed { clock(shown_ms) } else { String::new() }),
+                    )
+                    .child(
+                        div()
+                            .id("reader-scrubber")
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(14.))
+                            .relative()
+                            .flex()
+                            .items_center()
+                            .when(timed, |track| track.cursor_pointer())
+                            .child(
+                                canvas(
+                                    move |bounds, _, _| scrub_bounds.set(Some(bounds)),
+                                    |_, _, _, _| {},
+                                )
+                                .absolute()
+                                .size_full(),
+                            )
+                            .child(
+                                div()
+                                    .h(px(3.))
+                                    .w_full()
+                                    .rounded_full()
+                                    .bg(rgb(0x303633))
+                                    .child(
+                                        div()
+                                            .h_full()
+                                            .w(relative(progress))
+                                            .rounded_full()
+                                            .bg(rgb(0xe7eee9)),
+                                    ),
+                            )
+                            .when(timed, |track| {
+                                track
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .left(relative(progress))
+                                            .ml(px(-5.))
+                                            .size(px(10.))
+                                            .rounded_full()
+                                            .bg(rgb(0xe7eee9)),
+                                    )
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                                            this.reader.scrub_drag = track_fraction(
+                                                this.reader.scrub_bounds.get(),
+                                                event.position,
+                                            );
+                                            cx.notify();
+                                        }),
+                                    )
+                                    .on_mouse_move(cx.listener(
+                                        |this, event: &MouseMoveEvent, _, cx| {
+                                            if this.reader.scrub_drag.is_some()
+                                                && event.pressed_button == Some(MouseButton::Left)
+                                            {
+                                                this.reader.scrub_drag = track_fraction(
+                                                    this.reader.scrub_bounds.get(),
+                                                    event.position,
+                                                );
+                                                cx.notify();
+                                            }
+                                        },
+                                    ))
+                                    .on_mouse_up(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _: &MouseUpEvent, _, cx| {
+                                            this.commit_scrub(cx)
+                                        }),
+                                    )
+                                    .on_mouse_up_out(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _: &MouseUpEvent, _, cx| {
+                                            this.commit_scrub(cx)
+                                        }),
+                                    )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .w(px(52.))
+                            .flex_shrink_0()
+                            .flex()
+                            .justify_end()
+                            .child(if timed {
+                                format!("-{}", clock(s.total_ms.saturating_sub(shown_ms)))
+                            } else {
+                                String::new()
+                            }),
                     ),
             )
             .child(
@@ -240,6 +375,16 @@ impl PhoenixShell {
                                     })),
                             )
                             .child(
+                                Button::new("reader-back-15")
+                                    .icon(Icon::empty().path("icons/rotate-ccw.svg"))
+                                    .label("15")
+                                    .ghost()
+                                    .small()
+                                    .tooltip("Back 15 seconds")
+                                    .disabled(!timed)
+                                    .on_click(cx.listener(|this, _, _, cx| this.skip_reader(-15, cx))),
+                            )
+                            .child(
                                 Button::new("reader-play")
                                     .label(
                                         if self.reader.selection_mode
@@ -260,6 +405,16 @@ impl PhoenixShell {
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.reader_primary(cx)),
                                     ),
+                            )
+                            .child(
+                                Button::new("reader-forward-15")
+                                    .icon(Icon::empty().path("icons/rotate-cw.svg"))
+                                    .label("15")
+                                    .ghost()
+                                    .small()
+                                    .tooltip("Forward 15 seconds")
+                                    .disabled(!timed)
+                                    .on_click(cx.listener(|this, _, _, cx| this.skip_reader(15, cx))),
                             )
                             .child(
                                 Button::new("reader-next")
