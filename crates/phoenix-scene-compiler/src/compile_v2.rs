@@ -990,19 +990,7 @@ fn add_candidate_edges(
     let contextual: &[phoenix_graph_generation_v2::ContextualEvidenceRecord] =
         typed(generation, PageKind::ContextualEvidence)?;
     for record in contextual {
-        let source = record.source_entity_id.to_le_bytes();
-        let target = record.target_entity_id.to_le_bytes();
-        let source_mention = record.source_mention_id.to_le_bytes();
-        let target_mention = record.target_mention_id.to_le_bytes();
-        let chunk = record.chunk_id.to_le_bytes();
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"phoenix.native.contextual-candidate/v2\0");
-        hasher.update(&source);
-        hasher.update(&target);
-        hasher.update(&source_mention);
-        hasher.update(&target_mention);
-        hasher.update(&chunk);
-        let candidate_id = CandidateId(*hasher.finalize().as_bytes());
+        let candidate_id = contextual_candidate_id(record);
         push_candidate_through_node(
             builder,
             ProjectedStatus {
@@ -1030,6 +1018,27 @@ fn add_candidate_edges(
         )?;
     }
     Ok(())
+}
+
+/// The candidate id a contextual co-occurrence record is projected under.
+#[must_use]
+pub fn contextual_candidate_id(
+    record: &phoenix_graph_generation_v2::ContextualEvidenceRecord,
+) -> CandidateId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"phoenix.native.contextual-candidate/v2\0");
+    hasher.update(&record.source_entity_id.to_le_bytes());
+    hasher.update(&record.target_entity_id.to_le_bytes());
+    hasher.update(&record.source_mention_id.to_le_bytes());
+    hasher.update(&record.target_mention_id.to_le_bytes());
+    hasher.update(&record.chunk_id.to_le_bytes());
+    CandidateId(*hasher.finalize().as_bytes())
+}
+
+/// The scene node id of a candidate drawn through a midpoint node.
+#[must_use]
+pub fn semantic_midpoint_node_id(candidate: &CandidateId) -> u64 {
+    projection_id(b"semantic-midpoint-node/v2", &[&candidate.0])
 }
 
 #[inline]
@@ -1084,7 +1093,7 @@ fn push_candidate_through_node(
     overlay_count: &mut u64,
 ) -> Result<(), NativeSceneCompilerError> {
     let candidate = status.candidate_id.0;
-    let node_id = projection_id(b"semantic-midpoint-node/v2", &[&candidate]);
+    let node_id = semantic_midpoint_node_id(&status.candidate_id);
     builder.push_node(NodeDraft {
         id: node_id,
         label: Arc::from(label),

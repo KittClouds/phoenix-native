@@ -16,7 +16,7 @@ const STRIP_BG: u32 = 0x0f1720;
 const TRACK: u32 = 0x2a3a38;
 const TICK: u32 = 0x5f7a73;
 /// Playback speeds as multiples of reading pace.
-const SPEEDS: [(u16, &str); 4] = [(1, "Reading"), (10, "10\u{d7}"), (60, "60\u{d7}"), (300, "300\u{d7}")];
+const SPEEDS: [(u16, &str); 4] = [(1, "1\u{d7}"), (10, "10\u{d7}"), (60, "60\u{d7}"), (300, "300\u{d7}")];
 
 /// Shell-side scrub state; the position itself lives on the graph thread.
 #[derive(Default)]
@@ -211,23 +211,29 @@ impl PhoenixShell {
                     .text_color(rgb(TEXT_MUTED))
                     .flex_shrink_0()
                     .child(format!(
-                        "{} / {} introduced \u{b7} {} untimed",
+                        "{}/{} \u{b7} {} untimed",
                         status.introduced, status.timed, status.untimed
                     )),
             )
-            .children(SPEEDS.iter().map(|&(speed, label)| {
-                Button::new(("story-speed", speed as usize))
-                    .label(label)
-                    .small()
-                    .ghost()
-                    .selected(status.speed == speed)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.send_story(StoryCommand::Speed(speed), cx)
-                    }))
-            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_shrink_0()
+                    .children(SPEEDS.iter().map(|&(speed, label)| {
+                        Button::new(("story-speed", speed as usize))
+                            .label(label)
+                            .xsmall()
+                            .ghost()
+                            .selected(status.speed == speed)
+                            .tooltip("Playback speed, as a multiple of reading pace")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.send_story(StoryCommand::Speed(speed), cx)
+                            }))
+                    })),
+            )
             .child(
                 Button::new("story-follow-reader")
-                    .label("Follow Reader")
+                    .label("Follow")
                     .small()
                     .ghost()
                     .selected(self.story_strip.follow_reader)

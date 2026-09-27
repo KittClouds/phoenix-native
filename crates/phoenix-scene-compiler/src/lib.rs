@@ -11,6 +11,7 @@ mod visual_v3;
 #[cfg(test)]
 mod v2_tests;
 
+pub use compile_v2::{contextual_candidate_id, semantic_midpoint_node_id};
 pub use compile_v2::{
     compile_graph_generation_v2, semantic_candidate_edge_id, CompiledNativeSceneV2,
     NativeSceneCompileReceiptV2, NativeSceneCompilerV2Input,

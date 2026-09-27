@@ -5,17 +5,35 @@
 //! revision. Structure (chapters, paragraphs, sentences, passages, spans)
 //! appears at its own start, evidence at its start, an entity at its earliest
 //! evidence start, and an event at its stored span's start. The document node
-//! is present from the beginning. Anything without a stored span (episodes,
-//! events without a span, entities without evidence) is left out and shown
-//! as untimed; it is never given a guessed time. Edges are not listed: an
-//! edge appears once both of its ends have.
+//! is present from the beginning. A candidate drawn through a midpoint node
+//! appears at its earliest bound evidence; a contextual co-occurrence once
+//! both of its mentions have been read. Anything without a stored span
+//! (episodes, events without a span, entities without evidence) is left out
+//! and shown as untimed; it is never given a guessed time. Edges are not
+//! listed: an edge appears once both of its ends have.
 
 use phoenix_graph_generation_v2::{
-    ChapterRecord, ChunkRecord, DocumentRecord, EventRecord, EvidenceRecord, PageKind,
-    ParagraphRecord, SentenceRecord, SpanRecord, VerifiedGraphGenerationV2,
+    CandidateEvidenceBindingRecord, CandidateId, CausalCandidateRecord, ChapterRecord,
+    ChunkRecord, ContextualEvidenceRecord, DocumentRecord, EventRecord, EvidenceRecord,
+    IdentityCandidateRecord, MemoryStateCandidateRecord, MentionRecord, PageKind,
+    ParagraphRecord, SentenceRecord, SpanRecord, TemporalCandidateRecord,
+    TypedRelationshipCandidateRecord, VerifiedGraphGenerationV2,
 };
+use phoenix_scene_compiler::{contextual_candidate_id, semantic_midpoint_node_id};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+struct Candidates<'a> {
+    evidence: &'a [EvidenceRecord],
+    bindings: &'a [CandidateEvidenceBindingRecord],
+    mentions: &'a [MentionRecord],
+    relationships: &'a [TypedRelationshipCandidateRecord],
+    identities: &'a [IdentityCandidateRecord],
+    temporal: &'a [TemporalCandidateRecord],
+    causal: &'a [CausalCandidateRecord],
+    memory: &'a [MemoryStateCandidateRecord],
+    contextual: &'a [ContextualEvidenceRecord],
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoryTimeline {
@@ -55,7 +73,7 @@ impl StoryTimeline {
             .typed_page::<EvidenceRecord>(PageKind::Evidence)
             .ok()?;
         let events = generation.typed_page::<EventRecord>(PageKind::Events).ok()?;
-        Some(Self::from_records(
+        let mut timeline = Self::from_records(
             document,
             header.document_revision,
             chapters,
@@ -65,7 +83,96 @@ impl StoryTimeline {
             spans,
             evidence,
             events,
-        ))
+        );
+        timeline.add_candidates(&Candidates {
+            evidence,
+            bindings: generation
+                .typed_page::<CandidateEvidenceBindingRecord>(PageKind::CandidateEvidenceBindings)
+                .ok()?,
+            mentions: generation.typed_page::<MentionRecord>(PageKind::Mentions).ok()?,
+            relationships: generation
+                .typed_page::<TypedRelationshipCandidateRecord>(
+                    PageKind::TypedRelationshipCandidates,
+                )
+                .ok()?,
+            identities: generation
+                .typed_page::<IdentityCandidateRecord>(PageKind::IdentityCandidates)
+                .ok()?,
+            temporal: generation
+                .typed_page::<TemporalCandidateRecord>(PageKind::TemporalCandidates)
+                .ok()?,
+            causal: generation
+                .typed_page::<CausalCandidateRecord>(PageKind::CausalCandidates)
+                .ok()?,
+            memory: generation
+                .typed_page::<MemoryStateCandidateRecord>(PageKind::MemoryStateCandidates)
+                .ok()?,
+            contextual: generation
+                .typed_page::<ContextualEvidenceRecord>(PageKind::ContextualEvidence)
+                .ok()?,
+        });
+        Some(timeline)
+    }
+
+    /// Adds candidate midpoint nodes timed from their stored evidence.
+    fn add_candidates(&mut self, c: &Candidates<'_>) {
+        let evidence_start: HashMap<u64, u32> = c
+            .evidence
+            .iter()
+            .filter(|r| r.start < r.end)
+            .map(|r| (r.id, r.start))
+            .collect();
+        let mention_start: HashMap<u64, u32> = c
+            .mentions
+            .iter()
+            .filter(|r| r.start < r.end)
+            .map(|r| (r.id, r.start))
+            .collect();
+        let earliest = |start: u32, count: u32| -> Option<u32> {
+            let rows = c
+                .bindings
+                .get(start as usize..(start as usize).checked_add(count as usize)?)?;
+            rows.iter()
+                .filter_map(|row| evidence_start.get(&row.evidence_id).copied())
+                .min()
+        };
+        let mut timed: Vec<(u64, u32)> = Vec::new();
+        let mut add = |candidate: &CandidateId, at: Option<u32>| {
+            if let Some(at) = at {
+                timed.push((semantic_midpoint_node_id(candidate), at));
+            }
+        };
+        for r in c.relationships {
+            add(&r.candidate_id, earliest(r.evidence_start, r.evidence_count));
+        }
+        for r in c.identities {
+            add(&r.candidate_id, earliest(r.evidence_start, r.evidence_count));
+        }
+        for r in c.temporal {
+            add(&r.candidate_id, earliest(r.evidence_start, r.evidence_count));
+        }
+        for r in c.causal {
+            add(&r.candidate_id, earliest(r.evidence_start, r.evidence_count));
+        }
+        for r in c.memory {
+            add(&r.candidate_id, earliest(r.evidence_start, r.evidence_count));
+        }
+        for r in c.contextual {
+            // Observed once both mentions have been read.
+            let at = mention_start
+                .get(&r.source_mention_id)
+                .zip(mention_start.get(&r.target_mention_id))
+                .map(|(a, b)| (*a).max(*b));
+            add(&contextual_candidate_id(r), at);
+        }
+        if timed.is_empty() {
+            return;
+        }
+        let mut all: Vec<(u64, u32)> = self.appearances.iter().copied().chain(timed).collect();
+        all.sort_unstable_by_key(|&(id, at)| (id, at));
+        all.dedup_by_key(|entry| entry.0);
+        all.sort_unstable_by_key(|&(id, at)| (at, id));
+        self.appearances = all.into();
     }
 
     #[allow(clippy::too_many_arguments)]
