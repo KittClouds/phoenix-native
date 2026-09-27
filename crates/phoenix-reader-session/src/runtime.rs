@@ -1,6 +1,6 @@
 //! Completed-cache playback coordinator. A cache miss is explicit; regeneration
 //! and incomplete provider audio cannot silently substitute a resume artifact.
-use crate::tempo::PlaybackAudio;
+use crate::tempo::{Join, PlaybackAudio};
 use crate::{CachedAudio, Digest, Error, NarrationPlan, ReaderSession, Result, SessionStore};
 use phoenix_audio::device::PlaybackDevice;
 use phoenix_tts_contract::{SynthesisIdentity, BLOCK_FRAMES};
@@ -39,6 +39,9 @@ pub struct ReaderRuntime<D: PlaybackDevice> {
     ahead: VecDeque<Ahead>,
     device_base: u64,
     starvations: u32,
+    /// Replace each clip's tail silence with a pause matched to the text
+    /// structure (see `tempo::Join`). Off keeps exact source-length playback.
+    shape_joins: bool,
 }
 impl<D: PlaybackDevice> Drop for ReaderRuntime<D> {
     fn drop(&mut self) {
@@ -88,7 +91,24 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
             ahead: VecDeque::with_capacity(PREFETCH_SEGMENTS),
             device_base: 0,
             starvations: 0,
+            shape_joins: false,
         })
+    }
+    /// Set before attaching audio; playback then pauses by sentence,
+    /// paragraph and chapter instead of each clip's arbitrary tail.
+    pub fn shape_joins(&mut self, on: bool) -> Result<()> {
+        if self.audio.is_some() || !matches!(self.state, PlaybackState::NeedsAudio(_)) {
+            return Err(Error::Invalid("join shaping must be set before playback"));
+        }
+        self.shape_joins = on;
+        Ok(())
+    }
+    fn join(&self, segment: u32) -> Join {
+        if self.shape_joins {
+            Join::after(&self.plan, segment)
+        } else {
+            Join::End
+        }
     }
     pub fn state(&self) -> PlaybackState {
         self.state
@@ -134,7 +154,7 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
             return Err(Error::Invalid("stale, nonsequential or excessive prefetch"));
         }
         self.ahead.push_back(Ahead {
-            audio: PlaybackAudio::new(audio, self.speed_milli())?,
+            audio: PlaybackAudio::new(audio, self.speed_milli(), self.join(segment))?,
             queued: 0,
         });
         Ok(())
@@ -199,7 +219,7 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
         self.flush()?;
         self.session = candidate;
         self.segment = segment;
-        let playback = PlaybackAudio::new(audio, self.speed_milli())?;
+        let playback = PlaybackAudio::new(audio, self.speed_milli(), self.join(segment))?;
         let output_frame = playback.output_at(frame);
         self.start = output_frame;
         self.queued = output_frame;
@@ -368,11 +388,14 @@ impl<D: PlaybackDevice> ReaderRuntime<D> {
             self.observe()?;
         }
         let frame = self.session.position().source_frame;
-        let audio = self.audio.take().map(PlaybackAudio::into_cached);
+        let audio = self
+            .audio
+            .take()
+            .map(|audio| (audio.join(), audio.into_cached()));
         self.flush()?;
         self.session.set_speed(speed_milli)?;
-        if let Some(audio) = audio {
-            let playback = PlaybackAudio::new(audio, speed_milli)?;
+        if let Some((join, audio)) = audio {
+            let playback = PlaybackAudio::new(audio, speed_milli, join)?;
             let output_frame = playback.output_at(frame);
             self.start = output_frame;
             self.queued = output_frame;

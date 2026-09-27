@@ -120,3 +120,54 @@ pub fn write_cache(cache: &mut AudioCache, text: &str) -> Digest {
         .unwrap();
     b.audio_key
 }
+/// Caches `pcm` (little-endian i16 mono) as the completed audio for `text`.
+#[allow(dead_code)]
+pub fn write_cache_pcm(cache: &mut AudioCache, text: &str, pcm: &[u8]) -> Digest {
+    let b = binding(text);
+    let frames = (pcm.len() / 2) as u64;
+    let mut writer = cache.begin(b, identity(), text, frames).unwrap();
+    writer
+        .push(
+            event(
+                b,
+                0,
+                Event::Started {
+                    provider: identity().provider,
+                    format: AudioFormat::PCM24,
+                },
+            ),
+            &[],
+        )
+        .unwrap();
+    let mut sequence = 1;
+    for (i, chunk) in pcm.chunks(4096).enumerate() {
+        writer
+            .push(
+                event(
+                    b,
+                    sequence,
+                    Event::AudioChunk {
+                        first_frame: i as u64 * 2048,
+                        frames: (chunk.len() / 2) as u32,
+                    },
+                ),
+                chunk,
+            )
+            .unwrap();
+        sequence += 1;
+    }
+    writer
+        .finish(
+            event(
+                b,
+                sequence,
+                Event::Completed {
+                    frames,
+                    reason: FinishReason::Normal,
+                },
+            ),
+            None,
+        )
+        .unwrap();
+    b.audio_key
+}

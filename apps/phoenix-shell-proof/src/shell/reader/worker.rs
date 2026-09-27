@@ -308,6 +308,8 @@ fn run(
         ReaderRuntime::new(WaveOutput::open_default()?, plan, session, identity)?
     };
     runtime.bind_voices(table)?;
+    // Even sentence, paragraph and chapter pauses instead of each clip's tail.
+    runtime.shape_joins(true)?;
     if restart_segment.is_some() {
         runtime.checkpoint(&mut sessions, 0, true)?;
     }

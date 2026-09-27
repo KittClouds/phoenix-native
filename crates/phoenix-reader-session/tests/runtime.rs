@@ -481,3 +481,71 @@ fn cast_session_can_play_checkpoint_and_resume_the_exact_audio() {
         .attach(restored.epoch(), 0, cache.get(key).unwrap())
         .unwrap();
 }
+
+#[test]
+fn shaped_joins_pause_by_structure_and_keep_positions_exact() {
+    let root = tempfile::tempdir().unwrap();
+    let plan = plan_markdown(
+        [1; 32],
+        &lease("Hello there. Goodbye now.
+
+New paragraph.", 1),
+        PlannerConfig::default(),
+    )
+    .unwrap()
+    .plan;
+    assert_eq!(plan.spec().segments.len(), 3);
+    let mut cache = AudioCache::open(root.path(), 16 * 1024 * 1024).unwrap();
+    // One second of speech followed by 400 ms of arbitrary tail silence.
+    let mut pcm = Vec::new();
+    for n in 0..33_600u32 {
+        let sample: i16 = if n < 24_000 { 8_000 } else { 0 };
+        pcm.extend_from_slice(&sample.to_le_bytes());
+    }
+    let keys: Vec<_> = plan
+        .spec()
+        .segments
+        .iter()
+        .map(|s| write_cache_pcm(&mut cache, s.spoken.slice(&plan.spec().spoken).unwrap(), &pcm))
+        .collect();
+    let state = Rc::new(RefCell::new(State::default()));
+    let session = ReaderSession::new([7; 32], &plan, [6; 32]).unwrap();
+    let mut r = ReaderRuntime::new(Device(state.clone()), plan, session, identity()).unwrap();
+    r.shape_joins(true).unwrap();
+    r.attach(r.epoch(), 0, cache.get(keys[0]).unwrap()).unwrap();
+    r.enqueue(r.epoch(), 1, cache.get(keys[1]).unwrap()).unwrap();
+    r.enqueue(r.epoch(), 2, cache.get(keys[2]).unwrap()).unwrap();
+    // Sentence join: speech + 40 ms release + 300 ms pause. Paragraph join:
+    // + 620 ms. The last passage keeps its own tail.
+    let sentence = 24_000u64 + 960 + 7_200;
+    let paragraph = 24_000u64 + 960 + 14_880;
+    let present = |r: &mut ReaderRuntime<Device>, to: u64| {
+        loop {
+            r.tick().unwrap();
+            let next = (state.borrow().presented + 1024).min(to).min(state.borrow().queued);
+            state.borrow_mut().presented = next;
+            if next == to {
+                r.tick().unwrap();
+                break;
+            }
+        }
+    };
+    // Mid-pause of the first join maps into the source tail, inside the clip.
+    present(&mut r, 24_960 + 3_600);
+    assert_eq!(r.session().position().segment, 0);
+    assert!((24_960..=33_600).contains(&r.session().position().source_frame));
+    // Just before the join the first passage is still current; just after,
+    // the second passage starts at its first frame.
+    present(&mut r, sentence - 1);
+    assert_eq!(r.session().position().segment, 0);
+    present(&mut r, sentence + 10);
+    assert_eq!(r.session().position().segment, 1);
+    assert_eq!(r.session().position().source_frame, 10);
+    // The paragraph join is longer than the sentence join.
+    present(&mut r, sentence + paragraph - 1);
+    assert_eq!(r.session().position().segment, 1);
+    present(&mut r, sentence + paragraph + 5);
+    assert_eq!(r.session().position().segment, 2);
+    present(&mut r, sentence + paragraph + 33_600);
+    assert_eq!(r.tick().unwrap(), PlaybackState::Completed);
+}
