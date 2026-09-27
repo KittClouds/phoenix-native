@@ -41,6 +41,10 @@ impl PhoenixShell {
                 self.route_walk_status().and_then(|status| status.flow),
                 |controls, flow| controls.child(self.render_flow_strip(flow, cx)),
             )
+            .when_some(
+                self.route_walk_status().and_then(|status| status.story),
+                |controls, story| controls.child(self.render_story_strip(&story, cx)),
+            )
             .when(view.manifold == Manifold::Caps, |row| {
                 row.child(self.render_caps_space(cx))
             })

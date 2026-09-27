@@ -18,6 +18,7 @@ mod registry_editor;
 mod route_walk_ui;
 mod shell_state;
 mod source_local;
+mod story_ui;
 mod style_hub;
 mod view;
 
@@ -90,6 +91,7 @@ pub struct PhoenixShell {
     graph_provenance: Option<GraphProvenanceReceipt>,
     source_scope_cache: RefCell<phoenix_app_core::SourceScopeCache>,
     source_open: source_local::SourceOpenState,
+    story_strip: story_ui::StoryStrip,
     route_walk_dismissed: u64,
     graph_shelf: Option<graph_toolbar::GraphShelf>,
     drawer_tabs_hidden: bool,
@@ -313,6 +315,7 @@ impl PhoenixShell {
             graph_provenance: None,
             source_scope_cache: RefCell::default(),
             source_open: source_local::SourceOpenState::default(),
+            story_strip: story_ui::StoryStrip::default(),
             route_walk_dismissed: 0,
             graph_shelf: None,
             drawer_tabs_hidden: false,

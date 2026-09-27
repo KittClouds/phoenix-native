@@ -80,12 +80,16 @@ fn walk_glow(bits: u32) -> f32 {
 
 // Reader glow (4B): additive light on objects bound to the spoken segment.
 const READER_GLOW: u32 = 256u;
+// Story timeline (4C): untimed objects and the bloom of new arrivals.
+const STORY_UNTIMED: u32 = 512u;
 
 fn reader_glow(bits: u32) -> f32 {
+    // The story's arrival bloom reuses the reader halo.
+    let bloom = f32((bits >> 12u) & 15u) / 15.0;
     if ((bits & READER_GLOW) == 0u) {
-        return 0.0;
+        return bloom;
     }
-    return f32((bits >> 24u) & 255u) / 255.0;
+    return max(f32((bits >> 24u) & 255u) / 255.0, bloom);
 }
 
 // Screen-space geometry contract. Semantic radius may grow for hubs, centroids,
@@ -456,6 +460,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     } else if (lens.focus_active == 0u && lens.topology_emphasis != 0u
         && input.emphasis_match == 0u && !hovered && !selected && !neighbor && !route) {
         color.a *= 0.58;
+    }
+    if ((input.overlay_flags & STORY_UNTIMED) != 0u && !hovered && !selected) {
+        // Untimed: present but neutral, never placed in time.
+        let gray = dot(color.rgb, vec3<f32>(0.299, 0.587, 0.114));
+        color = vec4<f32>(mix(vec3<f32>(gray), color.rgb, 0.18), color.a * 0.42);
     }
     let spoken = reader_glow(input.overlay_flags);
     if (spoken > 0.0) {

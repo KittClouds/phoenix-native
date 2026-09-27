@@ -43,6 +43,9 @@ pub enum RouteWalkRequest {
     Exit,
     FlowStart,
     FlowExit,
+    StoryStart,
+    Story(graph_render_wgpu::StoryCommand),
+    StoryExit,
 }
 
 #[derive(Default)]

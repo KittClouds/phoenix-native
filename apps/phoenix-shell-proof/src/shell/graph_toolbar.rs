@@ -168,6 +168,7 @@ impl PhoenixShell {
         let walk_status = self.route_walk_status();
         let walk_active = walk_status.as_ref().is_some_and(|status| status.active);
         let flow_active = walk_status.as_ref().is_some_and(|status| status.flow.is_some());
+        let story_active = walk_status.as_ref().is_some_and(|status| status.story.is_some());
         let filters = active_filter_count(view);
         let shelf = self.graph_shelf;
         let atlas_visible = !self.drawer_layout.atlas_collapsed();
@@ -292,6 +293,23 @@ impl PhoenixShell {
                             RouteWalkRequest::FlowExit
                         } else {
                             RouteWalkRequest::FlowStart
+                        },
+                        cx,
+                    );
+                },
+                cx,
+            ))
+            .child(tool_button(
+                "graph-story",
+                "Story".into(),
+                story_active,
+                "Replay the atlas in reading order: scrub to see what the graph knew by then",
+                move |this, _, cx| {
+                    this.send_route_walk(
+                        if story_active {
+                            RouteWalkRequest::StoryExit
+                        } else {
+                            RouteWalkRequest::StoryStart
                         },
                         cx,
                     );

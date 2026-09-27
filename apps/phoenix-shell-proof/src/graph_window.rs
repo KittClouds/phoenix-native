@@ -373,6 +373,20 @@ impl EmbeddedGraphApp {
         })
     }
 
+    /// First appearances for the story timeline from the verified
+    /// generation's stored spans; `None` when no generation is installed.
+    fn story_data(&self) -> Option<graph_render_wgpu::StoryData> {
+        let snapshot = self.kernel.snapshot().ok()?;
+        let generation = snapshot.graph_generation_v2?;
+        let timeline = phoenix_app_core::StoryTimeline::build(&generation)?;
+        Some(graph_render_wgpu::StoryData {
+            appearances: timeline.appearances,
+            chapters: timeline.chapters,
+            end: timeline.end,
+            document_revision: timeline.document_revision,
+        })
+    }
+
     /// Mirrors the renderer's walk status to the shell when it changed and
     /// wakes the shell once; animation frames never reach the UI thread.
     fn publish_walk_status(&mut self) {
@@ -697,6 +711,9 @@ impl EmbeddedGraphApp {
                     window.request_redraw();
                 }
                 GraphWindowCommand::RouteWalk(request) => {
+                    let story_data = matches!(request, RouteWalkRequest::StoryStart)
+                        .then(|| self.story_data())
+                        .flatten();
                     if let Some(renderer) = self.renderer.as_mut() {
                         match request {
                             RouteWalkRequest::Start => {
@@ -713,6 +730,17 @@ impl EmbeddedGraphApp {
                             }
                             RouteWalkRequest::FlowExit => {
                                 renderer.exit_document_flow();
+                            }
+                            RouteWalkRequest::StoryStart => {
+                                if let Some(data) = story_data {
+                                    renderer.start_story(data);
+                                }
+                            }
+                            RouteWalkRequest::Story(command) => {
+                                renderer.story_command(command);
+                            }
+                            RouteWalkRequest::StoryExit => {
+                                renderer.exit_story();
                             }
                         }
                     }

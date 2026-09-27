@@ -176,6 +176,8 @@ impl GraphRenderer {
     }
 
     pub(super) fn end_route_walk(&mut self, _reason: Option<RouteWalkNotice>) {
+        // A walk and the story both own node overlays; the walk wins.
+        self.end_story();
         if self.walk.take().is_some() {
             self.scene.set_walk_overlay(false, Vec::new(), &self.queue);
             self.particles.clear();
@@ -203,6 +205,7 @@ impl GraphRenderer {
             next.endpoints = nodes.first().copied().zip(nodes.last().copied());
         }
         next.flow = self.flow.as_ref().map(super::flow::ActiveFlow::status);
+        next.story = self.story_status();
         if next != self.walk_status {
             next.revision = self.walk_status.revision.wrapping_add(1);
             self.walk_status = next;

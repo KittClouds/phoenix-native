@@ -75,6 +75,8 @@ pub struct RouteWalkStatus {
     pub endpoints: Option<(NodeId, NodeId)>,
     /// Present while the document flow is running or settled.
     pub flow: Option<FlowStatus>,
+    /// Present while the story timeline (4C) is open.
+    pub story: Option<crate::StoryStatus>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

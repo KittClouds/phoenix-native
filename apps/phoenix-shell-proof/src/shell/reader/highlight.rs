@@ -82,6 +82,13 @@ impl PhoenixShell {
 
     pub(super) fn refresh_reader_highlight(&mut self, cx: &mut Context<Self>) {
         self.sync_reader_glow();
+        // Story Follow Reader (4C) uses the same currency gate as the glow.
+        let spoken = self
+            .reader
+            .glow_sent
+            .and(self.reader.status.source_ranges.first())
+            .map(|range| range.start);
+        self.sync_story_follow(spoken, cx);
         if self.reader.selection_mode {
             return;
         }

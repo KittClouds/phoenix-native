@@ -63,6 +63,10 @@ pub const WALK_GLOW_SHIFT: u32 = 16;
 pub const READER_GLOW: u32 = 256;
 /// Reader glow intensity lives in bits 24..32.
 pub const READER_INTENSITY_SHIFT: u32 = 24;
+/// Story timeline (4C): an object with no stored span; shown neutral.
+pub const STORY_UNTIMED: u32 = 512;
+/// Story bloom intensity (0-15) lives in bits 12..16.
+pub const STORY_BLOOM_SHIFT: u32 = 12;
 
 /// Display-only source-local scope: node ids resolved from stored provenance.
 /// Nodes outside `members` stay resident and are ghosted, never removed.
