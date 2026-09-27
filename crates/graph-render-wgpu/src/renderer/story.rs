@@ -18,7 +18,7 @@ const READING_BYTES_PER_SEC: f32 = 16.0;
 const BLOOM_SECS: f32 = 0.9;
 /// Published positions move in steps of this fraction of the story so the
 /// shell wakes a bounded number of times per playthrough.
-const STATUS_STEPS: f32 = 800.0;
+const STATUS_STEPS: f32 = 200.0;
 
 /// Stored first-appearance data for one verified generation.
 #[derive(Clone, Debug)]
@@ -64,19 +64,42 @@ pub(crate) struct Story {
     introduced: usize,
     playing: bool,
     speed: u16,
-    blooms: Vec<(u32, f32)>,
+    /// Slot, remaining bloom (1..0) and the level last written.
+    blooms: Vec<(u32, f32, u32)>,
+    /// The word currently written for each node slot.
+    words: Vec<u32>,
 }
 
 impl Story {
+    /// Words for every slot at the current position, without blooms:
+    /// introduced and untimed slots are in scope, the rest ghost.
+    fn full_words(&self) -> Vec<u32> {
+        let mut words = vec![0u32; self.words.len()];
+        for slot in self.slots[..self.introduced].iter().flatten() {
+            if let Some(word) = words.get_mut(*slot as usize) {
+                *word = SOURCE_SCOPE_MEMBER;
+            }
+        }
+        for &slot in &self.untimed {
+            if let Some(word) = words.get_mut(slot as usize) {
+                *word = SOURCE_SCOPE_MEMBER | STORY_UNTIMED;
+            }
+        }
+        words
+    }
+
     fn status(&self) -> StoryStatus {
+        // Everything the strip shows moves in coarse steps, so the shell
+        // wakes a bounded number of times rather than every frame.
         let step = (self.data.end as f32 / STATUS_STEPS).max(1.0);
+        let position = (self.position / step).floor() * step;
         StoryStatus {
-            position: ((self.position / step).floor() * step) as u32,
+            position: position as u32,
             end: self.data.end,
             playing: self.playing,
             speed: self.speed,
             chapters: Arc::clone(&self.data.chapters),
-            introduced: self.slots[..self.introduced]
+            introduced: self.slots[..self.introduced_at(position)]
                 .iter()
                 .filter(|slot| slot.is_some())
                 .count(),
@@ -112,6 +135,7 @@ impl GraphRenderer {
             .map(|(slot, _)| slot as u32)
             .filter(|slot| timed.binary_search(slot).is_err())
             .collect();
+        let capacity = state.node_capacity_slots();
         self.story = Some(Story {
             data,
             slots,
@@ -121,10 +145,15 @@ impl GraphRenderer {
             playing: false,
             speed: 1,
             blooms: Vec::new(),
+            words: vec![0; capacity],
         });
         let story = self.story.as_mut().unwrap();
         story.introduced = story.introduced_at(0.0);
-        self.refresh_story(true);
+        let words = story.full_words();
+        story.words = words.clone();
+        self.scene.set_story_overlay(true, words, &self.queue);
+        self.labels.mark_dirty();
+        self.redraw_requested = true;
         self.publish_walk_status(None)
     }
 
@@ -200,7 +229,6 @@ impl GraphRenderer {
         for bloom in &mut story.blooms {
             bloom.1 -= dt / BLOOM_SECS;
         }
-        story.blooms.retain(|bloom| bloom.1 > 0.0);
         if story.playing {
             story.position += READING_BYTES_PER_SEC * story.speed as f32 * dt;
             if story.position >= story.data.end as f32 {
@@ -220,52 +248,61 @@ impl GraphRenderer {
             return;
         };
         let next = story.introduced_at(story.position);
+        let mut changes: Vec<(u32, u32)> = Vec::new();
         if jump || next < story.introduced {
+            // Rare (seek, chapter step, rewind): recompute and diff all slots.
             story.blooms.clear();
-        } else if story.playing {
-            for index in story.introduced..next {
-                if let Some(slot) = story.slots[index] {
-                    story.blooms.push((slot, 1.0));
+            story.introduced = next;
+            let words = story.full_words();
+            for (slot, (&old, &new)) in story.words.iter().zip(&words).enumerate() {
+                if old != new {
+                    changes.push((slot as u32, new));
                 }
             }
-        }
-        story.introduced = next;
-        self.refresh_story(false);
-    }
-
-    /// Writes story words: introduced slots in scope (with bloom), untimed
-    /// slots in scope with the neutral mark; every other slot ghosts.
-    fn refresh_story(&mut self, full: bool) {
-        let Some(story) = self.story.as_ref() else {
-            return;
-        };
-        let mut entries: Vec<(u32, u32)> = Vec::with_capacity(story.introduced + story.untimed.len());
-        entries.extend(
-            story.slots[..story.introduced]
-                .iter()
-                .flatten()
-                .map(|&slot| (slot, SOURCE_SCOPE_MEMBER)),
-        );
-        entries.extend(
-            story
-                .untimed
-                .iter()
-                .map(|&slot| (slot, SOURCE_SCOPE_MEMBER | STORY_UNTIMED)),
-        );
-        entries.sort_unstable_by_key(|entry| entry.0);
-        entries.dedup_by_key(|entry| entry.0);
-        for &(slot, level) in &story.blooms {
-            if let Ok(index) = entries.binary_search_by_key(&slot, |entry| entry.0) {
-                let bits = ((level.clamp(0.0, 1.0) * 15.0).round() as u32).max(1);
-                entries[index].1 |= bits << STORY_BLOOM_SHIFT;
+            story.words = words;
+        } else {
+            // Forward: only new arrivals and bloom steps change.
+            for index in story.introduced..next {
+                if let Some(slot) = story.slots[index] {
+                    if story.playing {
+                        story.blooms.push((slot, 1.0, 0));
+                    }
+                    let word = story.words[slot as usize] | SOURCE_SCOPE_MEMBER;
+                    story.words[slot as usize] = word;
+                    changes.push((slot, word));
+                }
             }
+            story.introduced = next;
+            for bloom in &mut story.blooms {
+                let level = if bloom.1 > 0.0 {
+                    ((bloom.1.clamp(0.0, 1.0) * 15.0).round() as u32).max(1)
+                } else {
+                    0
+                };
+                if level != bloom.2 {
+                    bloom.2 = level;
+                    let slot = bloom.0 as usize;
+                    let word = (story.words[slot] & !(15 << STORY_BLOOM_SHIFT))
+                        | (level << STORY_BLOOM_SHIFT);
+                    story.words[slot] = word;
+                    changes.push((bloom.0, word));
+                }
+            }
+            story.blooms.retain(|bloom| bloom.1 > 0.0);
         }
-        if full {
-            self.scene.set_story_overlay(false, Vec::new(), &self.queue);
+        changes.sort_unstable_by_key(|change| change.0);
+        changes.dedup_by(|later, earlier| {
+            // Keep the last write for a slot.
+            if later.0 == earlier.0 {
+                earlier.1 = later.1;
+                true
+            } else {
+                false
+            }
+        });
+        if self.scene.update_story_words(&changes, &self.queue) > 0 {
+            self.redraw_requested = true;
         }
-        self.scene.set_story_overlay(true, entries, &self.queue);
-        self.labels.mark_dirty();
-        self.redraw_requested = true;
     }
 
     /// Re-resolves slots after the resident scene changed, keeping the
@@ -306,6 +343,7 @@ mod tests {
             playing: false,
             speed: 1,
             blooms: Vec::new(),
+            words: vec![0; 16],
         }
     }
 
@@ -322,5 +360,10 @@ mod tests {
         let status = s.status();
         assert_eq!((status.introduced, status.timed, status.untimed), (3, 4, 1));
         assert_eq!(status.end, 100);
+        // Introduced and untimed slots are in scope; untimed is marked.
+        let words = s.full_words();
+        assert_eq!(words[0] & SOURCE_SCOPE_MEMBER, SOURCE_SCOPE_MEMBER);
+        assert_eq!(words[3], 0);
+        assert_eq!(words[9], SOURCE_SCOPE_MEMBER | STORY_UNTIMED);
     }
 }

@@ -122,7 +122,8 @@ pub struct GpuScene {
     reader_entries: Vec<(u32, u32)>,
     /// Story timeline (4C): while active its words replace the source bits.
     story_active: bool,
-    story_entries: Vec<(u32, u32)>,
+    /// One story word per node slot while active.
+    story_words: Vec<u32>,
 }
 
 impl GpuScene {
@@ -176,7 +177,7 @@ impl GpuScene {
             walk_dirty: Vec::new(),
             reader_entries: Vec::new(),
             story_active: false,
-            story_entries: Vec::new(),
+            story_words: Vec::new(),
         })
     }
 
@@ -350,64 +351,39 @@ impl GpuScene {
         dirty.len().saturating_mul(size_of::<NodeProductGpu>())
     }
 
-    /// Installs story words (sorted by slot). Entering or leaving restamps
-    /// every node; while active only slots whose word changed upload.
+    /// Enters or leaves the story (4C) with one word per node slot; this
+    /// restamps every node once.
     pub fn set_story_overlay(
         &mut self,
         active: bool,
-        entries: Vec<(u32, u32)>,
+        words: Vec<u32>,
         queue: &wgpu::Queue,
     ) -> usize {
-        if active != self.story_active {
-            self.story_active = active;
-            self.story_entries = entries;
-            self.stamp_overlays();
-            if self.node_product_data.is_empty() {
-                return 0;
-            }
-            self.node_product_buffer
-                .write(queue, 0, &self.node_product_data);
-            return self
-                .node_product_data
-                .len()
-                .saturating_mul(size_of::<NodeProductGpu>());
-        }
-        if entries == self.story_entries {
+        self.story_active = active;
+        self.story_words = words;
+        self.stamp_overlays();
+        if self.node_product_data.is_empty() {
             return 0;
         }
-        // Merge the sorted old and new lists; only differing slots change.
-        let mut dirty = Vec::new();
-        let (old, new) = (&self.story_entries, &entries);
-        let (mut i, mut j) = (0, 0);
-        while i < old.len() || j < new.len() {
-            match (old.get(i), new.get(j)) {
-                (Some(a), Some(b)) if a.0 == b.0 => {
-                    if a.1 != b.1 {
-                        dirty.push(a.0);
-                    }
-                    i += 1;
-                    j += 1;
-                }
-                (Some(a), Some(b)) if a.0 < b.0 => {
-                    dirty.push(a.0);
-                    i += 1;
-                }
-                (Some(_), Some(b)) => {
-                    dirty.push(b.0);
-                    j += 1;
-                }
-                (Some(a), None) => {
-                    dirty.push(a.0);
-                    i += 1;
-                }
-                (None, Some(b)) => {
-                    dirty.push(b.0);
-                    j += 1;
-                }
-                (None, None) => break,
+        self.node_product_buffer
+            .write(queue, 0, &self.node_product_data);
+        self.node_product_data
+            .len()
+            .saturating_mul(size_of::<NodeProductGpu>())
+    }
+
+    /// Updates changed story words (sorted by slot); only those slots upload.
+    pub fn update_story_words(&mut self, changes: &[(u32, u32)], queue: &wgpu::Queue) -> usize {
+        if !self.story_active || changes.is_empty() {
+            return 0;
+        }
+        let mut dirty = Vec::with_capacity(changes.len());
+        for &(slot, word) in changes {
+            if let Some(stored) = self.story_words.get_mut(slot as usize) {
+                *stored = word;
+                dirty.push(slot);
             }
         }
-        self.story_entries = entries;
         for &slot in &dirty {
             let word = self.overlay_word(slot);
             if let Some(product) = self.node_product_data.get_mut(slot as usize) {
@@ -425,11 +401,7 @@ impl GpuScene {
 
     fn overlay_word(&self, slot: u32) -> u32 {
         let source = if self.story_active {
-            SOURCE_SCOPE_ACTIVE
-                | self
-                    .story_entries
-                    .binary_search_by_key(&slot, |entry| entry.0)
-                    .map_or(0, |index| self.story_entries[index].1)
+            SOURCE_SCOPE_ACTIVE | self.story_words.get(slot as usize).copied().unwrap_or(0)
         } else {
             match (&self.source_scope, self.state.node_at_slot(slot)) {
                 (Some(scope), Some(node)) => scope.flags_for(node.id),
@@ -940,7 +912,7 @@ impl GpuScene {
         self.walk_entries.clear();
         self.reader_entries.clear();
         self.story_active = false;
-        self.story_entries.clear();
+        self.story_words.clear();
         self.stamp_overlays();
         self.context_node_slots.clear();
         self.context_node_dirty.clear();
@@ -1330,7 +1302,7 @@ impl GpuScene {
         self.walk_entries.clear();
         self.reader_entries.clear();
         self.story_active = false;
-        self.story_entries.clear();
+        self.story_words.clear();
         let node_product_reallocated = self
             .node_product_buffer
             .ensure_capacity(device, self.node_product_data.len())?;
