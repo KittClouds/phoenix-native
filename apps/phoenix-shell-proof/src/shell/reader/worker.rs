@@ -323,6 +323,12 @@ fn run(
     }
     stage.mark("runtime");
     let mut timeline = timeline::Timeline::new(runtime.plan());
+    for segment in 0..runtime.plan().spec().segments.len() as u32 {
+        if let Some(frames) = cache.clip_frames(runtime.required_key(segment)?) {
+            timeline.learn(segment, frames as f32 / 24_000.0);
+        }
+    }
+    stage.mark("timeline");
     let mut generator = Generator::new(provider, cache);
     let mut active = false;
     let mut priming = true;

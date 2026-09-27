@@ -111,6 +111,15 @@ impl AudioCache {
     pub fn contains(&self, key: Digest) -> bool {
         self.entries.contains_key(&key)
     }
+    /// A committed clip's length in frames from its PCM file size, without
+    /// mapping or verifying it (for display estimates only).
+    pub fn clip_frames(&self, key: Digest) -> Option<u64> {
+        if !self.entries.contains_key(&key) {
+            return None;
+        }
+        let pcm = self.root.join(hex(key)).join("audio.pcm");
+        std::fs::metadata(pcm).ok().map(|m| m.len() / 2)
+    }
     pub fn get(&mut self, key: Digest) -> Result<CachedAudio> {
         let path = self.root.join(hex(key));
         let entry = self
