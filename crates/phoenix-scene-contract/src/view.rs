@@ -80,6 +80,30 @@ pub enum GraphTopologyEmphasis {
     Discourse,
 }
 
+/// Display-only cues computed from the currently published and visible graph.
+/// These never add, remove, or reinterpret graph authority.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphNavigationOverlay {
+    #[default]
+    Off,
+    Backbone,
+    Bridges,
+    Both,
+}
+
+impl GraphNavigationOverlay {
+    #[must_use]
+    pub const fn shows_backbone(self) -> bool {
+        matches!(self, Self::Backbone | Self::Both)
+    }
+
+    #[must_use]
+    pub const fn shows_bridges(self) -> bool {
+        matches!(self, Self::Bridges | Self::Both)
+    }
+}
+
 impl GraphCanvas {
     #[must_use]
     pub const fn toggled(self) -> Self {
@@ -427,6 +451,9 @@ pub struct GraphViewState {
     pub edge_presentation: GraphEdgePresentation,
     #[serde(default)]
     pub topology_emphasis: GraphTopologyEmphasis,
+    /// Transient navigation display analysis over the current visible graph.
+    #[serde(default)]
+    pub navigation_overlay: GraphNavigationOverlay,
     /// Combined topology lanes selected by the Style Hub.
     ///
     /// `lens` remains as a compatibility name for a preferred lane, but it no
@@ -460,6 +487,7 @@ impl GraphViewState {
             projection: GraphProjection::Spatial,
             edge_presentation: GraphEdgePresentation::Manifold,
             topology_emphasis: GraphTopologyEmphasis::Off,
+            navigation_overlay: GraphNavigationOverlay::Off,
             families: FamilyMask::ALL,
             entity_families: FamilyMask::ENTITY_LANES,
             topology_families: FamilyMask::TOPOLOGY_LANES,

@@ -9,8 +9,9 @@ use crate::{EdgeProductGpu, NodeProductGpu, RenderError, SceneChanges, SceneStat
 use graph_model::{EdgeId, GraphDiff, GraphRevision, GraphSnapshot, NodeId};
 use phoenix_scene_archive::{ManifoldPageSet, PositionRecord};
 use phoenix_scene_contract::{
-    describe_node, primary_edge_family_mask, primary_node_family_mask, GraphPalette,
-    GraphReviewOverride, GraphViewState, VisualNodeLane,
+    describe_node, primary_edge_family_mask, primary_node_family_mask, FamilyMask,
+    GraphNavigationOverlay, GraphPalette, GraphReviewOverride, GraphViewState, RelationFamily,
+    VisualNodeLane,
 };
 use phoenix_scene_product_index::PhoenixSceneProductIndexV1;
 use std::mem::size_of;
@@ -230,7 +231,40 @@ impl GpuScene {
             self.secondary_selected_node,
             queue,
         );
-        context_bytes
+        let navigation_bytes = self.set_navigation_overlay(view.navigation_overlay, queue);
+        context_bytes.saturating_add(navigation_bytes)
+    }
+
+    pub fn set_navigation_overlay(
+        &mut self,
+        overlay: GraphNavigationOverlay,
+        queue: &wgpu::Queue,
+    ) -> usize {
+        let published_products_available = self.bound_product_hash.is_some();
+        let edge_products = &self.edge_product_data;
+        self.interaction.compute_navigation_overlay(
+            overlay,
+            self.state.edge_capacity_slots(),
+            |slot| {
+                published_products_available
+                    && edge_products
+                        .get(slot)
+                        .is_some_and(|product| is_published_document_structure(product))
+            },
+        );
+        self.sync_navigation_flags(queue)
+    }
+
+    fn sync_navigation_flags(&mut self, queue: &wgpu::Queue) -> usize {
+        let flags = self.interaction.navigation_flags();
+        let dirty = self.interaction.navigation_dirty();
+        for &slot in dirty {
+            if let Some(edge) = self.edge_gpu_data.get_mut(slot as usize) {
+                edge._padding0 = flags.get(slot as usize).copied().unwrap_or_default();
+            }
+        }
+        write_dirty_ranges(&self.edge_buffer, queue, &self.edge_gpu_data, dirty);
+        dirty.len().saturating_mul(size_of::<EdgeGpu>())
     }
 
     /// Computes the endpoint closure of the selected edge products without
@@ -827,6 +861,15 @@ impl GpuScene {
         self.interaction_node_dirty.dedup();
         self.interaction_edge_dirty.sort_unstable();
         self.interaction_edge_dirty.dedup();
+        let navigation_flags = self.interaction.navigation_flags();
+        for &slot in &self.interaction_edge_dirty {
+            if let Some(edge) = self.edge_gpu_data.get_mut(slot as usize) {
+                edge._padding0 = navigation_flags
+                    .get(slot as usize)
+                    .copied()
+                    .unwrap_or_default();
+            }
+        }
         write_dirty_ranges(
             &self.node_buffer,
             queue,
@@ -1080,6 +1123,12 @@ fn packed_mask(words: [u32; 2]) -> u64 {
     u64::from(words[0]) | (u64::from(words[1]) << 32)
 }
 
+fn is_published_document_structure(product: &EdgeProductGpu) -> bool {
+    product.enabled != 0
+        && packed_mask(product.family_mask) == FamilyMask::STRUCTURE.0
+        && packed_mask(product.relation_mask) == RelationFamily::Structural.mask().0
+}
+
 fn node_product_visible(product: &NodeProductGpu, view: GraphViewState) -> bool {
     node_product_primary_visible(product, view) || node_product_context_visible(product, view)
 }
@@ -1205,6 +1254,26 @@ mod visibility_tests {
             ..GraphViewState::default()
         };
         assert!(edge_product_visible(&EDGE, view));
+    }
+
+    #[test]
+    fn navigation_backbone_accepts_source_structure_but_not_semantic_structural_candidates() {
+        assert!(is_published_document_structure(&edge(
+            FamilyMask::STRUCTURE,
+            RelationFamily::Structural,
+        )));
+        assert!(!is_published_document_structure(&edge(
+            FamilyMask(FamilyMask::STRUCTURE.0 | FamilyMask::EPISODES.0),
+            RelationFamily::Structural,
+        )));
+        assert!(!is_published_document_structure(&edge(
+            FamilyMask::STRUCTURE,
+            RelationFamily::Observation,
+        )));
+
+        let mut disabled = edge(FamilyMask::STRUCTURE, RelationFamily::Structural);
+        disabled.enabled = 0;
+        assert!(!is_published_document_structure(&disabled));
     }
 
     #[test]

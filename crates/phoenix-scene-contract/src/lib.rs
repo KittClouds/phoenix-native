@@ -48,9 +48,9 @@ pub use topology::{
     TOPOLOGY_INVENTORY_CONTRACT,
 };
 pub use view::{
-    FamilyMask, GraphAction, GraphCanvas, GraphEdgePresentation, GraphLens, GraphProjection,
-    GraphReviewOverride, GraphScope, GraphSurface, GraphTopologyEmphasis, GraphViewState,
-    RelationFamily, RelationMask, ReviewMask, SceneAuthority, ScopeMask,
+    FamilyMask, GraphAction, GraphCanvas, GraphEdgePresentation, GraphLens, GraphNavigationOverlay,
+    GraphProjection, GraphReviewOverride, GraphScope, GraphSurface, GraphTopologyEmphasis,
+    GraphViewState, RelationFamily, RelationMask, ReviewMask, SceneAuthority, ScopeMask,
 };
 pub use visual::{visual_role, with_visual_role, VisualRole, VISUAL_ROLE_MASK, VISUAL_ROLE_SHIFT};
 pub use visual_v3::{

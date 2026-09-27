@@ -75,6 +75,7 @@ struct VertexOutput {
     @location(3) @interpolate(flat) flags: u32,
     @location(4) progress: f32,
     @location(5) @interpolate(flat) emphasis_match: u32,
+    @location(6) @interpolate(flat) navigation_flags: u32,
 };
 
 // Line width is relative to the smallest ordinary node, never to either endpoint.
@@ -174,8 +175,13 @@ fn vs_main(
     let at_target = vertex_index >= 2u;
     let side = select(1.0, -1.0, vertex_index == 1u || vertex_index == 3u);
     let center = select(source_screen, target_screen, at_target);
+    let navigation_scale = select(
+        select(1.0, 1.16, (edge._padding0 & 1u) != 0u),
+        1.32,
+        (edge._padding0 & 2u) != 0u,
+    );
     let edge_width = clamp(
-        edge.width * EDGE_WIDTH_SCALE,
+        edge.width * navigation_scale * EDGE_WIDTH_SCALE,
         MIN_EDGE_WIDTH_PX,
         BASE_NODE_DIAMETER_PX * MAX_EDGE_TO_BASE_NODE_RATIO,
     );
@@ -197,6 +203,7 @@ fn vs_main(
     );
     output.side = side;
     output.emphasis_match = select(0u, 1u, emphasis_matches(primary_edge_family(edge_products[instance_index])));
+    output.navigation_flags = edge._padding0;
     output.visible = select(0u, 1u, is_visible);
     output.flags = edge.kind_flags & 0xffffu;
     output.progress = progress;
@@ -212,6 +219,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let derivative = max(fwidth(edge_distance), 0.0001);
     var color = input.color;
     color.a = min(color.a, camera.edge_opacity);
+    if ((input.navigation_flags & 1u) != 0u) {
+        color = vec4<f32>(mix(color.rgb, vec3<f32>(0.38, 0.78, 0.64), 0.14), color.a);
+    }
+    if ((input.navigation_flags & 2u) != 0u) {
+        color = vec4<f32>(mix(color.rgb, vec3<f32>(0.90, 0.78, 0.51), 0.24), color.a);
+    }
     if ((input.flags & 32768u) != 0u) {
         color.a = max(color.a, 0.86);
     } else if ((input.flags & 16384u) != 0u) {

@@ -454,6 +454,7 @@ impl GraphRenderer {
         let canvas_changed = self.active_view.canvas != view.canvas;
         let projection_changed = self.active_view.projection != view.projection;
         let emphasis_changed = self.active_view.topology_emphasis != view.topology_emphasis;
+        let navigation_changed = self.active_view.navigation_overlay != view.navigation_overlay;
         let _index_hash = validate_view_authority(
             view,
             self.scene.revision(),
@@ -475,11 +476,18 @@ impl GraphRenderer {
             let context_bytes = self.scene.set_interaction_visibility(view, &self.queue);
             self.refresh_interaction_lens();
             context_bytes.saturating_add(size_of::<GraphLensUniform>())
-        } else if emphasis_changed {
-            self.refresh_interaction_lens();
-            size_of::<GraphLensUniform>()
         } else {
-            0
+            let mut bytes = 0;
+            if emphasis_changed {
+                self.refresh_interaction_lens();
+                bytes += size_of::<GraphLensUniform>();
+            }
+            if navigation_changed {
+                bytes += self
+                    .scene
+                    .set_navigation_overlay(view.navigation_overlay, &self.queue);
+            }
+            bytes
         };
         if visibility_changed || projection_changed || framing_changed {
             self.picking.invalidate();
@@ -503,7 +511,9 @@ impl GraphRenderer {
         } else if canvas_changed {
             self.write_camera();
         }
-        self.labels.mark_dirty();
+        if visibility_changed || emphasis_changed {
+            self.labels.mark_dirty();
+        }
         self.redraw_requested = true;
         let after = self.scene.allocation_stats();
         Ok(LensUpdateMetrics {
@@ -1238,6 +1248,31 @@ mod view_delta_tests {
                 assert!(!interaction_visibility_changed(current, next));
                 assert!(!graph_view_change_requires_fit(current, next));
                 assert_eq!(current.authority, next.authority);
+            }
+        }
+    }
+
+    #[test]
+    fn navigation_overlay_only_change_preserves_scene_filters_and_framing() {
+        for manifold in Manifold::ALL {
+            let current = GraphViewState {
+                manifold,
+                ..GraphViewState::default()
+            };
+            for overlay in [
+                phoenix_scene_contract::GraphNavigationOverlay::Backbone,
+                phoenix_scene_contract::GraphNavigationOverlay::Bridges,
+                phoenix_scene_contract::GraphNavigationOverlay::Both,
+            ] {
+                let next = GraphViewState {
+                    navigation_overlay: overlay,
+                    ..current
+                };
+                assert!(!interaction_visibility_changed(current, next));
+                assert!(!graph_view_change_requires_fit(current, next));
+                assert_eq!(current.authority, next.authority);
+                assert_eq!(current.families, next.families);
+                assert_eq!(current.topology_families, next.topology_families);
             }
         }
     }

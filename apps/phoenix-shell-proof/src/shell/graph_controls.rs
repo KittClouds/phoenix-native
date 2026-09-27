@@ -10,9 +10,9 @@ use gpui_component::{Disableable, Sizable};
 use phoenix_app_core::{GraphProvenanceReceipt, KernelCommand, KernelOutcome};
 use phoenix_scene_archive::{PageKey, PageKind};
 use phoenix_scene_contract::{
-    FamilyMask, GraphAction, GraphCanvas, GraphEdgePresentation, GraphProjection, GraphScope,
-    GraphSurface, GraphTopologyEmphasis, GraphViewState, Manifold, RelationFamily, ReviewMask,
-    SceneSource,
+    FamilyMask, GraphAction, GraphCanvas, GraphEdgePresentation, GraphNavigationOverlay,
+    GraphProjection, GraphScope, GraphSurface, GraphTopologyEmphasis, GraphViewState, Manifold,
+    RelationFamily, ReviewMask, SceneSource,
 };
 
 const CONTROL_BG: u32 = 0x111514;
@@ -138,6 +138,7 @@ impl PhoenixShell {
                 .child(self.edge_presentation_control(view, cx))
                 .when(view.surface == GraphSurface::Atlas, |row| {
                     row.child(topology_emphasis_control(view.topology_emphasis, cx))
+                        .child(navigation_overlay_control(view.navigation_overlay, cx))
                 })
                 .child(canvas_toggle(view.canvas, cx))
                 .child(self.provenance_popover(cx))
@@ -499,6 +500,44 @@ fn topology_emphasis_control(
             this.mutate_graph_view(
                 |next| next.topology_emphasis = next_topology_emphasis(next.topology_emphasis),
                 "EMPHASIS",
+                cx,
+            );
+        }))
+}
+
+const fn navigation_overlay_label(overlay: GraphNavigationOverlay) -> &'static str {
+    match overlay {
+        GraphNavigationOverlay::Off => "Off",
+        GraphNavigationOverlay::Backbone => "Backbone",
+        GraphNavigationOverlay::Bridges => "Bridges",
+        GraphNavigationOverlay::Both => "Both",
+    }
+}
+
+const fn next_navigation_overlay(overlay: GraphNavigationOverlay) -> GraphNavigationOverlay {
+    match overlay {
+        GraphNavigationOverlay::Off => GraphNavigationOverlay::Backbone,
+        GraphNavigationOverlay::Backbone => GraphNavigationOverlay::Bridges,
+        GraphNavigationOverlay::Bridges => GraphNavigationOverlay::Both,
+        GraphNavigationOverlay::Both => GraphNavigationOverlay::Off,
+    }
+}
+
+fn navigation_overlay_control(
+    overlay: GraphNavigationOverlay,
+    cx: &mut Context<PhoenixShell>,
+) -> impl IntoElement {
+    Button::new("graph-navigation-overlay-cycle")
+        .label(format!("Nav · {}", navigation_overlay_label(overlay)))
+        .tooltip(
+            "Backbone: published structure. Bridges: undirected visible graph cuts. Navigation only; no semantic or causal claim.",
+        )
+        .small()
+        .ghost()
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.mutate_graph_view(
+                |next| next.navigation_overlay = next_navigation_overlay(next.navigation_overlay),
+                "NAVIGATION",
                 cx,
             );
         }))
@@ -877,6 +916,24 @@ mod tests {
             emphasis = next_topology_emphasis(emphasis);
             assert_eq!(emphasis, expected);
         }
+    }
+
+    #[test]
+    fn navigation_control_cycles_through_display_analysis_modes() {
+        let mut overlay = GraphNavigationOverlay::Off;
+        for expected in [
+            GraphNavigationOverlay::Backbone,
+            GraphNavigationOverlay::Bridges,
+            GraphNavigationOverlay::Both,
+            GraphNavigationOverlay::Off,
+        ] {
+            overlay = next_navigation_overlay(overlay);
+            assert_eq!(overlay, expected);
+        }
+        assert_eq!(
+            navigation_overlay_label(GraphNavigationOverlay::Bridges),
+            "Bridges"
+        );
     }
 
     #[test]

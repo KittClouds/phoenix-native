@@ -1,8 +1,11 @@
 use crate::SceneState;
+use phoenix_scene_contract::GraphNavigationOverlay;
 use std::collections::VecDeque;
 
 const UNSET: u32 = u32::MAX;
 const MAX_ROUTE_EDGES: usize = 64;
+pub(crate) const NAV_BACKBONE: u32 = 1;
+pub(crate) const NAV_BRIDGE: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct InteractionIndexStats {
@@ -32,6 +35,16 @@ pub(crate) struct InteractionIndex {
     route_edges: Vec<u32>,
     active_nodes: Vec<u64>,
     active_edges: Vec<u64>,
+    navigation_flags: Vec<u32>,
+    discovery: Vec<u32>,
+    low_link: Vec<u32>,
+    parent_nodes: Vec<u32>,
+    dfs_parent_edges: Vec<u32>,
+    adjacency_cursor: Vec<u32>,
+    dfs_stack: Vec<u32>,
+    bridge_edges: Vec<u32>,
+    previous_navigation_flags: Vec<u32>,
+    navigation_dirty: Vec<u32>,
 }
 
 impl InteractionIndex {
@@ -89,7 +102,7 @@ impl InteractionIndex {
         }
         self.visited.resize(node_count, 0);
         self.parents.resize(node_count, UNSET);
-        self.parent_edges.resize(node_count, UNSET);
+        self.dfs_parent_edges.resize(node_count, UNSET);
         self.route_nodes.clear();
         self.route_edges.clear();
         if self.route_nodes.capacity() < MAX_ROUTE_EDGES + 1 {
@@ -107,6 +120,21 @@ impl InteractionIndex {
         self.active_edges.resize(edge_count.div_ceil(64), u64::MAX);
         clear_unused_bits(&mut self.active_nodes, node_count);
         clear_unused_bits(&mut self.active_edges, edge_count);
+        self.navigation_flags.clear();
+        self.navigation_flags.resize(edge_count, 0);
+        self.previous_navigation_flags.clear();
+        self.previous_navigation_flags.resize(edge_count, 0);
+        self.navigation_dirty.clear();
+        self.bridge_edges.clear();
+        self.discovery.resize(node_count, 0);
+        self.low_link.resize(node_count, 0);
+        self.parent_nodes.resize(node_count, UNSET);
+        self.parent_edges.resize(node_count, UNSET);
+        self.adjacency_cursor.resize(node_count, 0);
+        self.dfs_stack.clear();
+        if self.dfs_stack.capacity() < node_count {
+            self.dfs_stack.reserve_exact(node_count);
+        }
     }
 
     pub(crate) fn neighbors(&self, node_slot: u32) -> &[Adjacency] {
@@ -143,6 +171,129 @@ impl InteractionIndex {
     ) {
         fill_visibility_bits(&mut self.active_nodes, node_count, node_visible);
         fill_visibility_bits(&mut self.active_edges, edge_count, edge_visible);
+    }
+
+    pub(crate) fn compute_navigation_overlay(
+        &mut self,
+        overlay: GraphNavigationOverlay,
+        edge_count: usize,
+        mut is_published_structure: impl FnMut(usize) -> bool,
+    ) -> &[u32] {
+        self.previous_navigation_flags.clear();
+        self.previous_navigation_flags
+            .extend_from_slice(&self.navigation_flags);
+        self.navigation_flags.resize(edge_count, 0);
+        self.navigation_flags.fill(0);
+        if overlay.shows_backbone() {
+            for slot in 0..edge_count {
+                if self.edge_is_active(slot as u32) && is_published_structure(slot) {
+                    self.navigation_flags[slot] |= NAV_BACKBONE;
+                }
+            }
+        }
+        if overlay.shows_bridges() {
+            self.compute_visible_bridges();
+            for &slot in &self.bridge_edges {
+                if let Some(flags) = self.navigation_flags.get_mut(slot as usize) {
+                    *flags |= NAV_BRIDGE;
+                }
+            }
+        } else {
+            self.bridge_edges.clear();
+        }
+        self.navigation_dirty.clear();
+        for (slot, (&before, &after)) in self
+            .previous_navigation_flags
+            .iter()
+            .zip(&self.navigation_flags)
+            .enumerate()
+        {
+            if before != after {
+                self.navigation_dirty.push(slot as u32);
+            }
+        }
+        &self.navigation_flags
+    }
+
+    fn compute_visible_bridges(&mut self) {
+        let node_count = self.offsets.len().saturating_sub(1);
+        self.discovery.resize(node_count, 0);
+        self.discovery.fill(0);
+        self.low_link.resize(node_count, 0);
+        self.parent_nodes.resize(node_count, UNSET);
+        self.parent_nodes.fill(UNSET);
+        self.dfs_parent_edges.resize(node_count, UNSET);
+        self.dfs_parent_edges.fill(UNSET);
+        self.adjacency_cursor.resize(node_count, 0);
+        self.adjacency_cursor[..node_count].copy_from_slice(&self.offsets[..node_count]);
+        self.dfs_stack.clear();
+        self.bridge_edges.clear();
+        let mut clock = 0_u32;
+
+        for start in 0..node_count {
+            let start = start as u32;
+            if !self.node_is_active(start) || self.discovery[start as usize] != 0 {
+                continue;
+            }
+            clock = clock.saturating_add(1);
+            self.discovery[start as usize] = clock;
+            self.low_link[start as usize] = clock;
+            self.dfs_stack.push(start);
+
+            while let Some(&node) = self.dfs_stack.last() {
+                let node_index = node as usize;
+                let adjacency_end = self.offsets[node_index + 1];
+                let mut descended = false;
+                while self.adjacency_cursor[node_index] < adjacency_end {
+                    let arc_index = self.adjacency_cursor[node_index] as usize;
+                    self.adjacency_cursor[node_index] += 1;
+                    let arc = self.adjacency[arc_index];
+                    if !self.node_is_active(arc.node_slot)
+                        || !self.edge_is_active(arc.edge_slot)
+                        || arc.edge_slot == self.dfs_parent_edges[node_index]
+                    {
+                        continue;
+                    }
+                    let neighbor = arc.node_slot as usize;
+                    if self.discovery[neighbor] == 0 {
+                        self.parent_nodes[neighbor] = node;
+                        self.dfs_parent_edges[neighbor] = arc.edge_slot;
+                        clock = clock.saturating_add(1);
+                        self.discovery[neighbor] = clock;
+                        self.low_link[neighbor] = clock;
+                        self.dfs_stack.push(arc.node_slot);
+                        descended = true;
+                        break;
+                    }
+                    self.low_link[node_index] =
+                        self.low_link[node_index].min(self.discovery[neighbor]);
+                }
+                if descended {
+                    continue;
+                }
+
+                self.dfs_stack.pop();
+                let parent = self.parent_nodes[node_index];
+                if parent != UNSET {
+                    let parent_index = parent as usize;
+                    self.low_link[parent_index] =
+                        self.low_link[parent_index].min(self.low_link[node_index]);
+                    if self.low_link[node_index] > self.discovery[parent_index] {
+                        self.bridge_edges.push(self.dfs_parent_edges[node_index]);
+                    }
+                }
+            }
+        }
+        self.bridge_edges.sort_unstable();
+        self.bridge_edges.dedup();
+    }
+
+    pub(crate) fn navigation_flags(&self) -> &[u32] {
+        &self.navigation_flags
+    }
+
+    pub(crate) fn navigation_dirty(&self) -> &[u32] {
+        &self.navigation_dirty
     }
 
     pub(crate) fn node_is_active(&self, slot: u32) -> bool {
@@ -331,6 +482,43 @@ mod visibility_tests {
 mod tests {
     use super::*;
     use graph_model::{EdgeId, EdgeVisual, GraphRevision, GraphSnapshot, NodeId, NodeVisual};
+    use phoenix_scene_contract::GraphNavigationOverlay;
+
+    fn topology_scene(
+        node_count: u64,
+        edges: &[(u64, u64)],
+    ) -> Result<SceneState, crate::RenderError> {
+        let nodes = (0..node_count)
+            .map(|id| NodeVisual {
+                id: NodeId(id),
+                position: [id as f32, 0.0, 0.0],
+                radius: 1.0,
+                color: [1.0; 4],
+                kind: 1,
+                flags: 0,
+            })
+            .collect();
+        let edges = edges
+            .iter()
+            .enumerate()
+            .map(|(slot, &(source, target))| EdgeVisual {
+                id: EdgeId(1000 + slot as u64),
+                source: NodeId(source),
+                target: NodeId(target),
+                width: 1.0,
+                color: [1.0; 4],
+                kind: 1,
+                flags: 0,
+            })
+            .collect();
+        let mut scene = SceneState::default();
+        scene.set_snapshot(&GraphSnapshot {
+            revision: GraphRevision(1),
+            nodes,
+            edges,
+        })?;
+        Ok(scene)
+    }
 
     #[test]
     fn bounded_route_uses_stable_slots() -> Result<(), crate::RenderError> {
@@ -368,6 +556,75 @@ mod tests {
         index.compute_route(0, 3);
         assert_eq!(index.route_edges().len(), 3);
         assert_eq!(index.route_nodes().len(), 4);
+        Ok(())
+    }
+
+    #[test]
+    fn bridge_overlay_is_deterministic_and_handles_disconnected_dense_and_parallel_edges(
+    ) -> Result<(), crate::RenderError> {
+        // A triangle is dense and has no bridges; a disconnected single edge
+        // is a bridge; parallel edges correctly protect each other.
+        let scene = topology_scene(7, &[(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (4, 5)])?;
+        let mut index = InteractionIndex::default();
+        index.rebuild(&scene);
+        index.set_visibility(&[true; 7], &[true; 6]);
+        let first = index
+            .compute_navigation_overlay(GraphNavigationOverlay::Bridges, 6, |_| false)
+            .to_vec();
+        let first_ids: Vec<_> = scene
+            .edges()
+            .enumerate()
+            .filter(|(slot, _)| first[*slot] & NAV_BRIDGE != 0)
+            .map(|(_, edge)| edge.id.0)
+            .collect();
+        let second = index
+            .compute_navigation_overlay(GraphNavigationOverlay::Bridges, 6, |_| false)
+            .to_vec();
+        let second_ids: Vec<_> = scene
+            .edges()
+            .enumerate()
+            .filter(|(slot, _)| second[*slot] & NAV_BRIDGE != 0)
+            .map(|(_, edge)| edge.id.0)
+            .collect();
+        assert_eq!(first_ids, vec![1003]);
+        assert_eq!(second_ids, first_ids);
+
+        // Hiding one triangle edge turns the remaining visible chain into
+        // bridges; hidden edges never enter the derived result.
+        index.set_visibility(&[true; 7], &[true, true, false, true, true, true]);
+        let filtered = index
+            .compute_navigation_overlay(GraphNavigationOverlay::Bridges, 6, |_| false)
+            .to_vec();
+        assert_eq!(
+            filtered
+                .iter()
+                .enumerate()
+                .filter(|(slot, flags)| **flags & NAV_BRIDGE != 0 && *slot < 3)
+                .map(|(slot, _)| 1000 + slot as u64)
+                .collect::<Vec<_>>(),
+            vec![1000, 1001]
+        );
+        assert_eq!(filtered[2] & NAV_BRIDGE, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn backbone_is_a_published_visible_edge_subset_and_both_composes_flags(
+    ) -> Result<(), crate::RenderError> {
+        let scene = topology_scene(3, &[(0, 1), (1, 2)])?;
+        let mut index = InteractionIndex::default();
+        index.rebuild(&scene);
+        index.set_visibility(&[true; 3], &[true, false]);
+        let flags = index
+            .compute_navigation_overlay(GraphNavigationOverlay::Both, 2, |slot| slot == 0)
+            .to_vec();
+        assert_eq!(flags, vec![NAV_BACKBONE | NAV_BRIDGE, 0]);
+
+        index.set_visibility(&[true; 3], &[true, true]);
+        let flags = index
+            .compute_navigation_overlay(GraphNavigationOverlay::Both, 2, |slot| slot == 0)
+            .to_vec();
+        assert_eq!(flags, vec![NAV_BACKBONE | NAV_BRIDGE, NAV_BRIDGE]);
         Ok(())
     }
 }
