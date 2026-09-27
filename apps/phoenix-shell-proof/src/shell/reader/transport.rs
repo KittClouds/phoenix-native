@@ -143,6 +143,7 @@ impl PhoenixShell {
                 s.segments
             )
         };
+        let narrow_dock = self.reader.sidebar || self.reader.settings || self.right_open;
         let location = if self.reader.glow_stale {
             format!("{location} \u{b7} Graph is behind the note \u{b7} glow paused")
         } else {
@@ -279,21 +280,22 @@ impl PhoenixShell {
                             .flex_1()
                             .flex_basis(px(0.))
                             .justify_end()
-                            // Clip rather than spill over the play controls
-                            // when a side panel narrows the dock. Clipping
-                            // starts at the left, so CAST (the voice picker
-                            // opens the same panel) goes first and Follow stays.
+                            // Clip rather than spill over the play controls.
                             .overflow_hidden()
-                            .child(
-                                Button::new("reader-cast-badge")
-                                    .label("CAST")
-                                    .small()
-                                    .ghost()
-                                    .tooltip("Open voices and passage casting")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.show_reader_sidebar(false, cx)
-                                    })),
-                            )
+                            // A side panel narrows the dock; the voice picker
+                            // opens the same panel, so CAST steps aside.
+                            .when(!narrow_dock, |row| {
+                                row.child(
+                                    Button::new("reader-cast-badge")
+                                        .label("CAST")
+                                        .small()
+                                        .ghost()
+                                        .tooltip("Open voices and passage casting")
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.show_reader_sidebar(false, cx)
+                                        })),
+                                )
+                            })
                             .child(
                                 Button::new("reader-glow-follow")
                                     .icon(IconName::Eye)
