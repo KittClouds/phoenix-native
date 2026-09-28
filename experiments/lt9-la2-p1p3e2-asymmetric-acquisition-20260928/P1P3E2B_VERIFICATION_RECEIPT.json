@@ -1,0 +1,24 @@
+{
+  "status": "PASS_LABELS_UNOPENED",
+  "primary": 216,
+  "reserve": 108,
+  "review_packets": 216,
+  "labels_present": false,
+  "duplicate_base_groups": 0,
+  "candidate_term_leaks": 0,
+  "excluded_identity_overlap": 0,
+  "cross_split_identity_overlap": {
+    "TRAIN-NEW&DEV-NEW": 0,
+    "TRAIN-NEW&TEST-NEW": 0,
+    "DEV-NEW&TEST-NEW": 0
+  },
+  "split_row_counts": {
+    "DEV-NEW": 45,
+    "TRAIN-NEW": 126,
+    "TEST-NEW": 45
+  },
+  "corpus_cap_max_primary": 12,
+  "corpus_cap_max_reserve": 6,
+  "artifact_root": "D:\\phoenix-evals\\lt9-la2-p1p3e2b-acquisition-20260928\\bank-v1",
+  "receipt_sha256": "7d969672591c4d007955a04269b0b3e55ef005a48c7ad5f0255c4c1db2b2f922"
+}
