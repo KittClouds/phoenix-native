@@ -17,17 +17,17 @@ Inputs are the original P1P3E2 context bank and the later A1 fit-only context re
 
 ## Frozen variants
 
-For each unique natural FIT context pair, produce four synthetic examples:
+For each unique natural FIT context pair, produce two synthetic UNKNOWN examples:
 
-1. `QUERY_SIDE_ABSENT`: query context is empty; document context remains.
-2. `DOCUMENT_SIDE_ABSENT`: document context is empty; query context remains.
-3. `BOTH_SIDES_ABSENT`: both contexts are empty.
-4. `BOTH_SIDES_REDACTED`: each side is represented by one opaque `[CONTEXT_REDACTED]` sentinel.
+1. `BOTH_SIDES_ABSENT`: both contexts are empty.
+2. `BOTH_ENDPOINT_MARKERS_ONLY`: query and document contain only `[SOURCE]` and `[TARGET]` placeholders. The current feature extractor treats these as focal markers and excludes them from lexical context features; no word-like redaction sentinel is used.
 
 Every variant has `target=UNKNOWN`, `target_semantics=INSUFFICIENT_OBSERVABLE_LOCAL_CONTEXT`, and `label_origin=SYNTHETIC_BY_CONTEXT_ERASURE`. These cases train/check abstention under information loss; they do not estimate how frequently natural text is genuinely ambiguous.
 
+One-sided erasures are written to a separate `one-sided-boundary-audit.jsonl` file with `target=null`. They are not UNKNOWN training labels. The frozen E1 selective rule has no context-completeness guard: it returns REFUSE when its tree predicts DIFFERENT and may ALLOW when a SAME prediction reaches a pure-SAME leaf. Therefore one-sided inputs must be audited against that rule before assigning them an operational target.
+
 ## Split and use constraints
 
-All variants derived from one `base_group_id` must remain in the same future train/dev/test partition. Do not split variants independently. This artifact is an UNKNOWN-only supplement; it cannot be used alone to fit a compatibility gate. Do not infer relation support, promote lexical authority, run retrieval, or change serving from this bank.
+All rows derived from one `base_group_id`—both UNKNOWN variants and one-sided audit rows—must remain in the same future train/dev/test partition. Do not split variants independently. The audit file is not for fitting until its decision policy is resolved. The UNKNOWN bank cannot be used alone to fit a compatibility gate. Do not infer relation support, promote lexical authority, run retrieval, or change serving from these artifacts.
 
 The two sealed `credit→loan` HOLDOUT rows remain excluded. Output is an external evaluation artifact; Git records the builder, protocol, tests, and hashes only.

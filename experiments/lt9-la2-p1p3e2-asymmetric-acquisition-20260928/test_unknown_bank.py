@@ -7,7 +7,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from build_unknown_bank import VARIANTS, canonical_json, make_examples, read_fit_bases
+from build_unknown_bank import (
+    ONE_SIDED_VARIANTS,
+    UNKNOWN_VARIANTS,
+    canonical_json,
+    make_examples,
+    read_fit_bases,
+)
 
 
 class UnknownBankTests(unittest.TestCase):
@@ -49,11 +55,13 @@ class UnknownBankTests(unittest.TestCase):
             )
             bases = read_fit_bases("fixture", packets_path, ledger_path)
             self.assertEqual([base["source_packet_id"] for base in bases], ["fit-1"])
-            examples, counts = make_examples(bases)
-            self.assertEqual(len(examples), len(VARIANTS))
+            examples, one_sided, counts = make_examples(bases)
+            self.assertEqual(len(examples), len(UNKNOWN_VARIANTS))
+            self.assertEqual(len(one_sided), len(ONE_SIDED_VARIANTS))
             self.assertEqual(counts["unique_natural_fit_bases"], 1)
             self.assertTrue(all(row["target"] == "UNKNOWN" for row in examples))
-            serialized = json.dumps(examples)
+            self.assertTrue(all(row["target"] is None for row in one_sided))
+            serialized = json.dumps(examples + one_sided)
             self.assertNotIn("THIS FIELD MUST BE IGNORED", serialized)
             self.assertNotIn("999", serialized)
             self.assertNotIn("sealed", serialized)
@@ -68,18 +76,27 @@ class UnknownBankTests(unittest.TestCase):
             "source_key": "fixture",
             "base_content_sha256": "f" * 64,
         }
-        examples, _ = make_examples([base])
+        examples, one_sided, _ = make_examples([base])
         by_variant = {row["variant"]: row for row in examples}
-        self.assertEqual(by_variant["QUERY_SIDE_ABSENT"]["model_input"]["query_contexts"], [])
-        self.assertEqual(by_variant["DOCUMENT_SIDE_ABSENT"]["model_input"]["document_contexts"], [])
         self.assertEqual(by_variant["BOTH_SIDES_ABSENT"]["model_input"], {
             "query_contexts": [], "document_contexts": []
         })
-        self.assertEqual(by_variant["BOTH_SIDES_REDACTED"]["model_input"], {
-            "query_contexts": ["[CONTEXT_REDACTED]"],
-            "document_contexts": ["[CONTEXT_REDACTED]"],
+        self.assertEqual(by_variant["BOTH_ENDPOINT_MARKERS_ONLY"]["model_input"], {
+            "query_contexts": ["[SOURCE]"],
+            "document_contexts": ["[TARGET]"],
         })
         self.assertEqual(len({row["metadata"]["base_group_id"] for row in examples}), 1)
+        self.assertTrue(all(row["target"] is None for row in one_sided))
+        self.assertTrue(all(row["status"] == "UNLABELED_DECISION_RULE_AUDIT_ONLY" for row in one_sided))
+        audit_by_variant = {row["variant"]: row for row in one_sided}
+        self.assertEqual(
+            audit_by_variant["QUERY_SIDE_ABSENT"]["model_input"]["document_contexts"],
+            ["far [TARGET] context"],
+        )
+        self.assertEqual(
+            audit_by_variant["DOCUMENT_SIDE_ABSENT"]["model_input"]["query_contexts"],
+            ["near [SOURCE] context"],
+        )
         self.assertEqual(
             b"\n".join(canonical_json(row) for row in examples),
             b"\n".join(canonical_json(row) for row in make_examples([base])[0]),
@@ -96,8 +113,9 @@ class UnknownBankTests(unittest.TestCase):
             "base_content_sha256": "a" * 64,
         }
         duplicate = {**base, "source_packet_id": "fit-2", "source_key": "second"}
-        examples, counts = make_examples([base, duplicate])
-        self.assertEqual(len(examples), len(VARIANTS))
+        examples, one_sided, counts = make_examples([base, duplicate])
+        self.assertEqual(len(examples), len(UNKNOWN_VARIANTS))
+        self.assertEqual(len(one_sided), len(ONE_SIDED_VARIANTS))
         self.assertEqual(counts["unique_natural_fit_bases"], 1)
         self.assertEqual(len(examples[0]["metadata"]["source_refs"]), 2)
 

@@ -16,7 +16,8 @@ RANKS = EVAL / "lt9-la2-p1p3e2-asymmetric-acq-ranks-20260928"
 RANKS_RERUN = EVAL / "lt9-la2-p1p3e2-asymmetric-acq-ranks-rerun-20260928"
 PACKETS = EVAL / "lt9-la2-p1p3e2-asym-fit-context-review-20260928"
 BASE_CONTEXTS = EVAL / "lt9-la2-p1p3e2-context-bank-final-20260928"
-UNKNOWN_BANK = EVAL / "lt9-la2-p1p3e2-unknown-bank-20260928"
+UNKNOWN_BANK_V1 = EVAL / "lt9-la2-p1p3e2-unknown-bank-20260928"
+UNKNOWN_BANK_V2 = EVAL / "lt9-la2-p1p3e2-unknown-bank-v2-20260928"
 
 
 def sha256(path: Path) -> str:
@@ -48,12 +49,32 @@ def main() -> None:
         "make_manifest.py",
         "P1P3E2A1_DISCOVERY_REPORT.md",
         "UNKNOWN_BANK_PROTOCOL.md",
+        "UNKNOWN_EVALUATION_PROTOCOL.md",
         "UNKNOWN_BANK_REPORT.md",
+        "audit_unknown_gate_rule.rs",
+        "unknown-gate-audit/Cargo.toml",
+        "unknown-gate-audit/Cargo.lock",
     ]
     sources = [
         record(EXPERIMENT / name, f"experiments/{EXPERIMENT.name}/{name}")
         for name in source_names
     ]
+    sources.append(
+        record(
+            ROOT / "apps/phoenix-memory-lock/src/bin/lt9_la2p1p3e1_transport.rs",
+            "apps/phoenix-memory-lock/src/bin/lt9_la2p1p3e1_transport.rs",
+        )
+    )
+    for name in [
+        "lt9_la2p1o2_features.rs",
+        "lt9_la2p1o2_analyze_core.rs",
+    ]:
+        sources.append(
+            record(
+                ROOT / "apps/phoenix-memory-lock/src/bin" / name,
+                f"apps/phoenix-memory-lock/src/bin/{name}",
+            )
+        )
     external_paths = [
         (SCREEN / "opportunity-screen-receipt.json", "screen"),
         (SCREEN / "qrels-counterpart-candidates.jsonl", "screen"),
@@ -69,8 +90,13 @@ def main() -> None:
         (PACKETS / "rubric.md", "fit-only-context-review"),
         (BASE_CONTEXTS / "review-packets.json", "synthetic-unknown-bank-source-contexts"),
         (BASE_CONTEXTS / "private-ledger.json", "synthetic-unknown-bank-source-partition-hash-only"),
-        (UNKNOWN_BANK / "synthetic-unknown-bank.jsonl", "synthetic-unknown-bank-external"),
-        (UNKNOWN_BANK / "build-receipt.json", "synthetic-unknown-bank-receipt"),
+        (UNKNOWN_BANK_V1 / "synthetic-unknown-bank.jsonl", "synthetic-unknown-bank-v1-superseded"),
+        (UNKNOWN_BANK_V1 / "build-receipt.json", "synthetic-unknown-bank-v1-receipt"),
+        (UNKNOWN_BANK_V2 / "synthetic-unknown-bank.jsonl", "synthetic-unknown-bank-v2-external"),
+        (UNKNOWN_BANK_V2 / "one-sided-boundary-audit.jsonl", "synthetic-one-sided-boundary-audit"),
+        (UNKNOWN_BANK_V2 / "build-receipt.json", "synthetic-unknown-bank-v2-receipt"),
+        (UNKNOWN_BANK_V2 / "one-sided-gate-audit-v3.json", "frozen-e1-tree-boundary-diagnostic"),
+        (Path(r"D:\phoenix-evals\lt9-la2-p1p3e1-20260928-context-retrieval-final-v2") / "transport-receipt.json", "frozen-e1-transport-receipt"),
     ]
     external = [
         {**record(path), "role": role}
@@ -81,7 +107,8 @@ def main() -> None:
     primary_rank = RANKS / "ranked-opportunity-candidates.jsonl"
     rerun_rank = RANKS_RERUN / "ranked-opportunity-candidates.jsonl"
     packet_receipt = json.loads((PACKETS / "acquisition-receipt.json").read_text(encoding="utf-8"))
-    unknown_receipt = json.loads((UNKNOWN_BANK / "build-receipt.json").read_text(encoding="utf-8"))
+    unknown_receipt_v1 = json.loads((UNKNOWN_BANK_V1 / "build-receipt.json").read_text(encoding="utf-8"))
+    unknown_receipt_v2 = json.loads((UNKNOWN_BANK_V2 / "build-receipt.json").read_text(encoding="utf-8"))
     manifest = {
         "schema": "phoenix.lexical.lt9-la2-p1p3e2a1-artifact-manifest/v1",
         "date": "2026-09-28",
@@ -99,12 +126,16 @@ def main() -> None:
         "sealed_holdout_candidate_rows": packet_receipt["holdout_candidate_rows_excluded"],
         "sealed_holdout_opportunity_rows": packet_receipt["holdout_opportunity_rows_excluded"],
         "synthetic_unknown_bank": {
-            "path": str(UNKNOWN_BANK / "synthetic-unknown-bank.jsonl"),
-            "sha256": unknown_receipt["bank"]["sha256"],
-            "rows": unknown_receipt["example_count"],
-            "unique_fit_bases": unknown_receipt["deduplicated_base_rows"],
+            "path": str(UNKNOWN_BANK_V2 / "synthetic-unknown-bank.jsonl"),
+            "sha256": unknown_receipt_v2["bank"]["sha256"],
+            "rows": unknown_receipt_v2["example_count"],
+            "unique_fit_bases": unknown_receipt_v2["deduplicated_base_rows"],
+            "one_sided_audit_path": str(UNKNOWN_BANK_V2 / "one-sided-boundary-audit.jsonl"),
+            "one_sided_audit_sha256": unknown_receipt_v2["one_sided_audit"]["sha256"],
+            "one_sided_audit_rows": unknown_receipt_v2["one_sided_audit_count"],
             "human_labeled": False,
             "created_review_packets": False,
+            "supersedes_v1_sha256": unknown_receipt_v1["bank"]["sha256"],
         },
         "external_artifacts": external,
     }

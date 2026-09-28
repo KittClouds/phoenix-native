@@ -15,18 +15,13 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA = "phoenix.lexical.p1p3e2.unknown-bank/v1"
+SCHEMA = "phoenix.lexical.p1p3e2.unknown-bank/v2"
 TARGET = "UNKNOWN"
 TARGET_SEMANTICS = "INSUFFICIENT_OBSERVABLE_LOCAL_CONTEXT"
 LABEL_ORIGIN = "SYNTHETIC_BY_CONTEXT_ERASURE"
-REDACTED = "[CONTEXT_REDACTED]"
+UNKNOWN_VARIANTS = ("BOTH_SIDES_ABSENT", "BOTH_ENDPOINT_MARKERS_ONLY")
+ONE_SIDED_VARIANTS = ("QUERY_SIDE_ABSENT", "DOCUMENT_SIDE_ABSENT")
 TOKEN_RE = re.compile(r"\w+", re.UNICODE)
-VARIANTS = (
-    "QUERY_SIDE_ABSENT",
-    "DOCUMENT_SIDE_ABSENT",
-    "BOTH_SIDES_ABSENT",
-    "BOTH_SIDES_REDACTED",
-)
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -130,7 +125,9 @@ def relation_id(relation: list[str]) -> str:
     return stable_id("rel", normalized[0], normalized[1])
 
 
-def make_examples(bases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
+def make_examples(
+    bases: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
     # Deduplicate exact relation/context payloads so duplicate source rows do not
     # multiply the synthetic UNKNOWN class. Keep every opaque source reference.
     grouped: dict[str, dict[str, Any]] = {}
@@ -153,19 +150,24 @@ def make_examples(bases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], di
         )
 
     examples: list[dict[str, Any]] = []
+    one_sided_audit: list[dict[str, Any]] = []
     for base_id in sorted(grouped):
         base = grouped[base_id]
         query = base["query_contexts"]
         document = base["document_contexts"]
-        variants = {
+        unknown_variants = {
+            "BOTH_SIDES_ABSENT": ([], []),
+            # The focal placeholders are removed by the existing feature code;
+            # unlike a word-like sentinel, they cannot create shared lexical cues.
+            "BOTH_ENDPOINT_MARKERS_ONLY": (["[SOURCE]"], ["[TARGET]"]),
+        }
+        one_sided_variants = {
             "QUERY_SIDE_ABSENT": ([], document),
             "DOCUMENT_SIDE_ABSENT": (query, []),
-            "BOTH_SIDES_ABSENT": ([], []),
-            "BOTH_SIDES_REDACTED": ([REDACTED], [REDACTED]),
         }
         relation_group = relation_id(base["lexical_relation"])
-        for variant in VARIANTS:
-            q_contexts, d_contexts = variants[variant]
+        for variant in UNKNOWN_VARIANTS:
+            q_contexts, d_contexts = unknown_variants[variant]
             example_id = stable_id("unk", base_id, variant)
             examples.append(
                 {
@@ -192,23 +194,69 @@ def make_examples(bases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], di
                     },
                 }
             )
+        for variant in ONE_SIDED_VARIANTS:
+            q_contexts, d_contexts = one_sided_variants[variant]
+            one_sided_audit.append(
+                {
+                    "schema": SCHEMA,
+                    "example_id": stable_id("audit", base_id, variant),
+                    "target": None,
+                    "status": "UNLABELED_DECISION_RULE_AUDIT_ONLY",
+                    "variant": variant,
+                    "model_input": {
+                        "query_contexts": q_contexts,
+                        "document_contexts": d_contexts,
+                    },
+                    "metadata": {
+                        "base_group_id": base_id,
+                        "relation_group_id": relation_group,
+                        "source_orientation": base["orientation"],
+                        "source_refs": sorted(
+                            base["source_refs"],
+                            key=lambda item: (item["source_key"], item["packet_id"]),
+                        ),
+                        "base_content_sha256": base["base_content_sha256"],
+                        "feature_firewall": "Only model_input is feature data; metadata is never a model feature.",
+                    },
+                }
+            )
     examples.sort(key=lambda row: row["example_id"])
-    variant_counts = {variant: 0 for variant in VARIANTS}
+    one_sided_audit.sort(key=lambda row: row["example_id"])
+    variant_counts = {variant: 0 for variant in UNKNOWN_VARIANTS}
     for row in examples:
         variant_counts[row["variant"]] += 1
-    return examples, {"unique_natural_fit_bases": len(grouped), **variant_counts}
+    return examples, one_sided_audit, {
+        "unique_natural_fit_bases": len(grouped),
+        **variant_counts,
+        **{f"audit_{variant}": len(grouped) for variant in ONE_SIDED_VARIANTS},
+    }
 
 
-def write_bank(output_dir: Path, examples: list[dict[str, Any]], receipt: dict[str, Any]) -> None:
+def write_bank(
+    output_dir: Path,
+    examples: list[dict[str, Any]],
+    one_sided_audit: list[dict[str, Any]],
+    receipt: dict[str, Any],
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=False)
     bank_path = output_dir / "synthetic-unknown-bank.jsonl"
+    audit_path = output_dir / "one-sided-boundary-audit.jsonl"
     bank_bytes = b"".join(canonical_json(row) + b"\n" for row in examples)
+    audit_bytes = b"".join(canonical_json(row) + b"\n" for row in one_sided_audit)
     bank_path.write_bytes(bank_bytes)
+    audit_path.write_bytes(audit_bytes)
     receipt["bank"] = {
         "path": bank_path.name,
         "rows": len(examples),
         "sha256": sha256_bytes(bank_bytes),
         "bytes": len(bank_bytes),
+    }
+    receipt["one_sided_audit"] = {
+        "path": audit_path.name,
+        "rows": len(one_sided_audit),
+        "sha256": sha256_bytes(audit_bytes),
+        "bytes": len(audit_bytes),
+        "labels_assigned": False,
     }
     (output_dir / "build-receipt.json").write_text(
         json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -254,7 +302,7 @@ def main() -> int:
             }
         )
 
-    examples, counts = make_examples(all_bases)
+    examples, one_sided_audit, counts = make_examples(all_bases)
     receipt: dict[str, Any] = {
         "schema": SCHEMA,
         "status": "SYNTHETIC_ENGINEERING_ABSTENTION_BANK_ONLY",
@@ -264,14 +312,17 @@ def main() -> int:
             "not human-reviewed natural UNKNOWN evidence",
             "not a semantic claim that the underlying lexical relation is ambiguous",
             "not a compatibility-model result or authority update",
+            "one-sided variants are not assigned UNKNOWN or REFUSE labels",
         ],
         "inputs": inputs,
         "source_fit_rows": len(all_bases),
         "source_non_fit_rows_excluded": sum(row["non_fit_rows_excluded"] for row in inputs),
         "deduplicated_base_rows": counts["unique_natural_fit_bases"],
         "deduplicated_source_rows": len(all_bases) - counts["unique_natural_fit_bases"],
-        "variant_counts": {key: counts[key] for key in VARIANTS},
+        "variant_counts": {key: counts[key] for key in UNKNOWN_VARIANTS},
+        "one_sided_audit_counts": {key: counts[f"audit_{key}"] for key in ONE_SIDED_VARIANTS},
         "example_count": len(examples),
+        "one_sided_audit_count": len(one_sided_audit),
         "grouping_rule": "All derived variants from one base_group_id must remain in one future split.",
         "feature_rule": "Use model_input only; relation/source references in metadata are grouping/provenance only.",
         "forbidden_inputs": [
@@ -282,26 +333,36 @@ def main() -> int:
         ],
     }
     expected_bank = b"".join(canonical_json(row) + b"\n" for row in examples)
+    expected_audit = b"".join(canonical_json(row) + b"\n" for row in one_sided_audit)
     if args.verify_existing:
         bank_path = args.output_dir / "synthetic-unknown-bank.jsonl"
+        audit_path = args.output_dir / "one-sided-boundary-audit.jsonl"
         receipt_path = args.output_dir / "build-receipt.json"
-        if not bank_path.is_file() or not receipt_path.is_file():
+        if not bank_path.is_file() or not audit_path.is_file() or not receipt_path.is_file():
             raise SystemExit("verification directory is missing generated bank files")
         actual_receipt = read_json(receipt_path)
         expected_hash = sha256_bytes(expected_bank)
         if bank_path.read_bytes() != expected_bank:
             raise SystemExit("existing UNKNOWN bank differs from deterministic rebuild")
+        if audit_path.read_bytes() != expected_audit:
+            raise SystemExit("existing one-sided audit differs from deterministic rebuild")
         if actual_receipt.get("bank", {}).get("sha256") != expected_hash:
             raise SystemExit("existing receipt does not bind the deterministic bank hash")
+        if actual_receipt.get("one_sided_audit", {}).get("sha256") != sha256_bytes(expected_audit):
+            raise SystemExit("existing receipt does not bind the one-sided audit hash")
         if actual_receipt.get("example_count") != len(examples):
             raise SystemExit("existing receipt has the wrong example count")
-        print(f"verified deterministic bank rows={len(examples)} sha256={expected_hash}")
+        print(
+            f"verified deterministic bank rows={len(examples)} "
+            f"one-sided-audit rows={len(one_sided_audit)} sha256={expected_hash}"
+        )
         return 0
-    write_bank(args.output_dir, examples, receipt)
+    write_bank(args.output_dir, examples, one_sided_audit, receipt)
     print(f"wrote {args.output_dir / 'synthetic-unknown-bank.jsonl'}")
-    print(f"natural FIT bases={counts['unique_natural_fit_bases']} rows={len(examples)}")
-    for variant in VARIANTS:
+    print(f"natural FIT bases={counts['unique_natural_fit_bases']} UNKNOWN rows={len(examples)}")
+    for variant in UNKNOWN_VARIANTS:
         print(f"{variant}={counts[variant]}")
+    print(f"one-sided unlabeled audit rows={len(one_sided_audit)}")
     print(f"sha256={sha256_bytes((args.output_dir / 'synthetic-unknown-bank.jsonl').read_bytes())}")
     return 0
 
