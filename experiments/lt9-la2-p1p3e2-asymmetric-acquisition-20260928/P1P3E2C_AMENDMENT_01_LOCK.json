@@ -1,0 +1,50 @@
+{
+  "schema": "phoenix.lt9.la2.p1p3e2c.amendment-lock.v1",
+  "status": "FROZEN_PRE_ACQUISITION",
+  "date": "2026-09-28",
+  "scope": "diagnostic-only LFM zero-exact-overlap arm and single-review wording clarification",
+  "parent": {
+    "commit": "1d016b972c5e32ce1621511c657e572406eb482f",
+    "protocol": {
+      "path": "P1P3E2C_SELECTIVE_GATE_PROTOCOL.md",
+      "bytes": 18503,
+      "sha256": "5a7ef3ec359fc013d67b7f9ef06d7a414e0f482a911f5e24888cf2cb7b8f6214"
+    },
+    "lock": {
+      "path": "P1P3E2C_LOCK.json",
+      "bytes": 30079,
+      "sha256": "d71af90bdb45aa2179ad4901a13365a8ce0f7c73324d8728020cad0abd265634"
+    }
+  },
+  "amendment_file": {
+    "path": "P1P3E2C_AMENDMENT_01_LFM_ZERO_OVERLAP_DIAGNOSTIC.md",
+    "sha256": "7cc13907fc479893dcd2b0d49c3b76a48de1cee760b3972713ddbf3b98bbd5d9"
+  },
+  "lfm_zero_overlap_diagnostic": {
+    "models": [
+      "LFM2.5-230M-Base",
+      "LFM2.5-1.2B-Base"
+    ],
+    "same_frozen_backbone_readouts_partitions_and_thresholds": true,
+    "gate0_relation_support_enforced": true,
+    "gate1_evidence_sufficiency_enforced": true,
+    "exact_shared_content_token_or_ngram_guard": "BYPASS_DIAGNOSTIC_ONLY",
+    "function_word_only_or_empty_side_allow": false,
+    "each_side_requires_visible_non_stopword_content_token": true,
+    "new_fit_or_threshold": false,
+    "can_affect_model_selection": false,
+    "can_affect_retrieval_authority_or_serving": false,
+    "test_predictions_sealed_before_label_join": true,
+    "no_frozen_primary_threshold_action": "REPORT_NO_FROZEN_THRESHOLD"
+  },
+  "single_review_clarification": {
+    "reviewer_quorum": 1,
+    "discordant_label_applicable": false,
+    "unknown_missing_or_invalid_judgment": "CONSUMES_FIXED_SLOT; NO_REPLACEMENT; CLASS_FLOOR_MAY_FAIL",
+    "existing_dev_and_test_underpower_actions_unchanged": true
+  },
+  "acquisition_contract_unchanged": true,
+  "retrieval_authorized": false,
+  "authority_updates_authorized": false,
+  "serving_changes_authorized": false
+}
