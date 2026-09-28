@@ -165,7 +165,7 @@ pub(super) struct ViewReceipt {
     fit_classes_present: usize,
     fit_accuracy: Option<f64>,
     holdout: Metrics,
-    tree: Tree,
+    pub(super) tree: Tree,
 }
 
 #[derive(Serialize)]

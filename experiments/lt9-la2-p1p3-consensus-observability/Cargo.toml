@@ -8,6 +8,10 @@ publish = false
 name = "lt9_la2p1p3_acquire"
 path = "../../apps/phoenix-memory-lock/src/bin/lt9_la2p1p3_acquire.rs"
 
+[[bin]]
+name = "lt9_la2p1p3_engineering"
+path = "../../apps/phoenix-memory-lock/src/bin/lt9_la2p1p3_engineering.rs"
+
 [dependencies]
 anyhow = "=1.0.104"
 hashbrown = "=0.16.1"
