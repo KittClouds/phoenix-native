@@ -1,5 +1,5 @@
 {
-  "base_commit": "416f149ea6c3da228746a09377565c851767d1e6",
+  "base_commit": "75004efa2abfd4addd855a4e9693bb5492dcdf78",
   "branch": "codex/phoenix-native-p1p3e2-asymmetric-acquisition-20260928",
   "date": "2026-09-28",
   "external_artifacts": [
@@ -74,6 +74,30 @@
       "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\rubric.md",
       "role": "fit-only-context-review",
       "sha256": "6f3641ce987732dd81aad9611959c5afa5fb92e1a6c5ace9185706294c7bc292"
+    },
+    {
+      "bytes": 28218,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-final-20260928\\review-packets.json",
+      "role": "synthetic-unknown-bank-source-contexts",
+      "sha256": "f33ec16afe2bd73202518f096a8f4f8713a86e0df463fb1beb9c236ba3381b12"
+    },
+    {
+      "bytes": 22695,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-final-20260928\\private-ledger.json",
+      "role": "synthetic-unknown-bank-source-partition-hash-only",
+      "sha256": "4e948e71d929892f5a1bab331b8788cd65cd023e5f13e459747264dd74616285"
+    },
+    {
+      "bytes": 297722,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-unknown-bank-20260928\\synthetic-unknown-bank.jsonl",
+      "role": "synthetic-unknown-bank-external",
+      "sha256": "1cb5622bb56f176a88214d92456aaf9865542cb600788664c517956249a47336"
+    },
+    {
+      "bytes": 1889,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-unknown-bank-20260928\\build-receipt.json",
+      "role": "synthetic-unknown-bank-receipt",
+      "sha256": "21394412b429e2d2d0ac87fa16b2a6e8efc4913b2ef1fb5d4bf5578b5669d8de"
     }
   ],
   "fit_opportunity_packet_count": 43,
@@ -118,15 +142,43 @@
       "sha256": "79028ff6983b8201e9e52700f37e338f706687f8fac44ece395e216ce425d2c1"
     },
     {
-      "bytes": 4344,
+      "bytes": 13289,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/build_unknown_bank.py",
+      "sha256": "3980e3316cc9c30064c8796b24cece9663abd2bc2f71bffa0798500309505b1e"
+    },
+    {
+      "bytes": 4672,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/test_unknown_bank.py",
+      "sha256": "fef18080fc515ba6650f3ce7061a2cd6302e1f2f3849a4f96b7c9dcf430cd7f5"
+    },
+    {
+      "bytes": 5483,
       "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/make_manifest.py",
-      "sha256": "345335d394cf5844c29f4f77a539e6bab4a226ff70591a4d93821e28012a3d74"
+      "sha256": "b5c47ba8f4f105fe3a0d5f938f21f8f1ac5f90da136592fdfe796c62c3f576d4"
     },
     {
       "bytes": 3849,
       "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/P1P3E2A1_DISCOVERY_REPORT.md",
       "sha256": "cbda226bac2889d5e066259dffd23946c55bc3548961788f339327d1a22750ac"
+    },
+    {
+      "bytes": 2707,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/UNKNOWN_BANK_PROTOCOL.md",
+      "sha256": "63865395088b70789d476512edd9ed5929a6108affc0a7a6da261834dfa35033"
+    },
+    {
+      "bytes": 2332,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/UNKNOWN_BANK_REPORT.md",
+      "sha256": "5b5b930b00442ea7b21d205b6960c0824329106587041fe188ff46ca424af1cc"
     }
   ],
-  "status": "DISCOVERY_ONLY_NO_MODEL_FIT_NO_HOLDOUT_REVIEWED"
+  "status": "DISCOVERY_ONLY_SYNTHETIC_UNKNOWN_BANK_NO_MODEL_FIT_NO_AUTHORITY_UPDATE",
+  "synthetic_unknown_bank": {
+    "created_review_packets": false,
+    "human_labeled": false,
+    "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-unknown-bank-20260928\\synthetic-unknown-bank.jsonl",
+    "rows": 368,
+    "sha256": "1cb5622bb56f176a88214d92456aaf9865542cb600788664c517956249a47336",
+    "unique_fit_bases": 92
+  }
 }

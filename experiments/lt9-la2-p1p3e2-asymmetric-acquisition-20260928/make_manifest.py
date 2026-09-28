@@ -15,6 +15,8 @@ SCREEN = EVAL / "lt9-la2-p1p3e2-asymmetric-acq-screen-20260928"
 RANKS = EVAL / "lt9-la2-p1p3e2-asymmetric-acq-ranks-20260928"
 RANKS_RERUN = EVAL / "lt9-la2-p1p3e2-asymmetric-acq-ranks-rerun-20260928"
 PACKETS = EVAL / "lt9-la2-p1p3e2-asym-fit-context-review-20260928"
+BASE_CONTEXTS = EVAL / "lt9-la2-p1p3e2-context-bank-final-20260928"
+UNKNOWN_BANK = EVAL / "lt9-la2-p1p3e2-unknown-bank-20260928"
 
 
 def sha256(path: Path) -> str:
@@ -41,8 +43,12 @@ def main() -> None:
         "candidate-relations.json",
         "context-rubric.md",
         "make_fit_review_packets.py",
+        "build_unknown_bank.py",
+        "test_unknown_bank.py",
         "make_manifest.py",
         "P1P3E2A1_DISCOVERY_REPORT.md",
+        "UNKNOWN_BANK_PROTOCOL.md",
+        "UNKNOWN_BANK_REPORT.md",
     ]
     sources = [
         record(EXPERIMENT / name, f"experiments/{EXPERIMENT.name}/{name}")
@@ -61,6 +67,10 @@ def main() -> None:
         (PACKETS / "private-ledger.json", "fit-only-context-review-private"),
         (PACKETS / "transport-opportunity-bank.jsonl", "fit-only-context-review-private"),
         (PACKETS / "rubric.md", "fit-only-context-review"),
+        (BASE_CONTEXTS / "review-packets.json", "synthetic-unknown-bank-source-contexts"),
+        (BASE_CONTEXTS / "private-ledger.json", "synthetic-unknown-bank-source-partition-hash-only"),
+        (UNKNOWN_BANK / "synthetic-unknown-bank.jsonl", "synthetic-unknown-bank-external"),
+        (UNKNOWN_BANK / "build-receipt.json", "synthetic-unknown-bank-receipt"),
     ]
     external = [
         {**record(path), "role": role}
@@ -71,12 +81,13 @@ def main() -> None:
     primary_rank = RANKS / "ranked-opportunity-candidates.jsonl"
     rerun_rank = RANKS_RERUN / "ranked-opportunity-candidates.jsonl"
     packet_receipt = json.loads((PACKETS / "acquisition-receipt.json").read_text(encoding="utf-8"))
+    unknown_receipt = json.loads((UNKNOWN_BANK / "build-receipt.json").read_text(encoding="utf-8"))
     manifest = {
         "schema": "phoenix.lexical.lt9-la2-p1p3e2a1-artifact-manifest/v1",
         "date": "2026-09-28",
         "branch": git("branch", "--show-current"),
         "base_commit": git("rev-parse", "HEAD"),
-        "status": "DISCOVERY_ONLY_NO_MODEL_FIT_NO_HOLDOUT_REVIEWED",
+        "status": "DISCOVERY_ONLY_SYNTHETIC_UNKNOWN_BANK_NO_MODEL_FIT_NO_AUTHORITY_UPDATE",
         "source_files": sources,
         "screen_runner_source_sha256": screen_receipt["runner_source_sha256"],
         "screen_runner_binary_sha256": screen_receipt["runner_binary_sha256"],
@@ -87,6 +98,14 @@ def main() -> None:
         "fit_opportunity_packet_count": packet_receipt["opportunity_count"],
         "sealed_holdout_candidate_rows": packet_receipt["holdout_candidate_rows_excluded"],
         "sealed_holdout_opportunity_rows": packet_receipt["holdout_opportunity_rows_excluded"],
+        "synthetic_unknown_bank": {
+            "path": str(UNKNOWN_BANK / "synthetic-unknown-bank.jsonl"),
+            "sha256": unknown_receipt["bank"]["sha256"],
+            "rows": unknown_receipt["example_count"],
+            "unique_fit_bases": unknown_receipt["deduplicated_base_rows"],
+            "human_labeled": False,
+            "created_review_packets": False,
+        },
         "external_artifacts": external,
     }
     path = EXPERIMENT / "P1P3E2A1_ARTIFACT_MANIFEST.json"
