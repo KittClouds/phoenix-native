@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/phoenix-vault-adapter",
     "crates/phoenix-tts-native",
     "crates/phoenix-tts-contract",
     "crates/phoenix-reader-session",

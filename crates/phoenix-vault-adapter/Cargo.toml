@@ -1,0 +1,19 @@
+[package]
+name = "phoenix-vault-adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+kammi-client = { path = "../../vendor/kammi-client-0.1.0", version = "=0.1.0" }
+phoenix-workspace = { path = "../phoenix-workspace" }
+phoenix-reader-session = { path = "../phoenix-reader-session" }
+phoenix-scene-publisher = { path = "../phoenix-scene-publisher" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile = "3"
+
+[dev-dependencies]
+uuid.workspace = true
