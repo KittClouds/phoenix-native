@@ -1,0 +1,64 @@
+{
+  "schema": "phoenix.lt9.la2.p1p3e2c.acquisition-seal.v1",
+  "status": "ACQUIRED_LABELS_UNOPENED_REVIEW_READY",
+  "date": "2026-09-28",
+  "acquisition_commit": "1c84d8710a9f0e98ba597565b4cdee01eb986faa",
+  "amendment_commit": "4e5fd78023df099a6e69bded2f6bb1a354e568e6",
+  "external_artifact_root": "D:/phoenix-evals/lt9-la2-p1p3e2c-extension-20260928/p1p3e2c-extension-v1",
+  "acquisition_receipt": {
+    "path": "acquisition-receipt.json",
+    "bytes": 9874,
+    "sha256": "463119a106f58844234d174a503391a96b90b3c52f04e5628b60228da9365d4b"
+  },
+  "review_packet": {
+    "path": "review-packets.json",
+    "bytes": 39564,
+    "sha256": "1c61d77b02b4a9b1ff247bcd01140f6d855b5900156b8e9b2b3995645668181e",
+    "packet_count": 108,
+    "fields": [
+      "packet_id",
+      "lexical_relation",
+      "query_context",
+      "document_context"
+    ]
+  },
+  "judgment_template": {
+    "path": "judgments-template.json",
+    "bytes": 7671,
+    "sha256": "628c42a6af6ef17427851d3a5903ca3fa10d91190e61c8d913825bf5c2b06094",
+    "packet_count": 108,
+    "allowed_values": [
+      "SAME",
+      "DIFFERENT",
+      "UNKNOWN"
+    ],
+    "all_values_initially_null": true
+  },
+  "private_candidate_ledger": {
+    "path": "private-candidate-ledger.jsonl",
+    "bytes": 77299,
+    "sha256": "5a2962f8ff2e8c9fead4d0299d4682568b0ecb9a842255f4de1dc92e0b8e0917",
+    "not_for_review": true
+  },
+  "selection_checks": {
+    "selected_total": 108,
+    "dev_ext": 48,
+    "test_ext": 60,
+    "per_relation": {
+      "engine->motor": 36,
+      "insurance->coverage": 36,
+      "stock->bond": 36
+    },
+    "lane_quotas_exact": true,
+    "per_corpus_caps_pass": true,
+    "query_document_identity_overlap_dev_test": 0,
+    "underfilled_slots": 0,
+    "source_datasets_hash_verified": 9,
+    "source_files_hash_verified": 18,
+    "labels_joined": false,
+    "qrels_or_ranks_opened": false,
+    "features_joined_or_models_contacted": false,
+    "retrieval_authority_or_serving_changed": false
+  },
+  "reviewer_provenance": "Record reviewer/source/count when returning the completed template; no independent-human consensus claim is implied."
+}
