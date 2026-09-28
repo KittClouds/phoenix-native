@@ -123,9 +123,22 @@ int enroll(int argc, char **argv) {
     while ((got = fread(buf, 1, sizeof buf, tf)) > 0) transcript.append(buf, got);
     fclose(tf);
     if (transcript.empty() || transcript.size() > 16384) { free(audio); qt_free(q); return 4; }
-    qt_voice_ref ref = {};
-    const qt_status rc = qt_extract_voice_ref(q, audio, n, &ref);
+    // Clone mode continues from the reference, so a recording that stops
+    // mid-sound makes every generated line open by finishing that sound (a
+    // short grunt before the words). Refuse it, and always end the reference
+    // in half a second of silence.
+    float peak = 0.0f;
+    for (int i = 0; i < n; i++) peak = std::max(peak, std::fabs(audio[i]));
+    const int tail = 24000 * 60 / 1000;
+    double energy = 0.0;
+    for (int i = n - tail; i < n; i++) energy += double(audio[i]) * audio[i];
+    const double tail_rms = std::sqrt(energy / tail);
+    if (peak <= 0.0f || tail_rms > 0.05 * peak) { free(audio); qt_free(q); return 7; }
+    std::vector<float> padded(audio, audio + n);
     free(audio);
+    padded.resize(size_t(n) + 12000, 0.0f);
+    qt_voice_ref ref = {};
+    const qt_status rc = qt_extract_voice_ref(q, padded.data(), int(padded.size()), &ref);
     if (rc != QT_STATUS_OK || ref.ref_T < 1 || ref.ref_T > 375) { qt_voice_ref_free(&ref); qt_free(q); return 5; }
     std::string out = "QWNV";
     put32(out, 1);

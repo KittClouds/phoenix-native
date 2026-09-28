@@ -258,6 +258,10 @@ fn enroll_qwen(
         }
         thread::sleep(Duration::from_millis(40));
     };
+    anyhow::ensure!(
+        status.code() != Some(7),
+        "The recording ends mid-sound. Trim it to end on a pause after the last word."
+    );
     anyhow::ensure!(status.success(), "Qwen could not encode this WAV and transcript");
     anyhow::ensure!(
         fs::metadata(&encoded_path)?.len() <= MAX_VOICE_BYTES,

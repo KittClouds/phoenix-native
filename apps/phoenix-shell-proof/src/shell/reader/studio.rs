@@ -293,7 +293,7 @@ impl PhoenixShell {
                     })))))
             .child(div().text_sm().text_color(rgb(0x9ca8a2)).child(
                 if inputs.qwen {
-                    "Use a clean WAV and its exact spoken words. Qwen keeps the recording's delivery and runs lighter on the GPU."
+                    "Use a clean WAV that ends on a pause after the last word, and its exact spoken words. Qwen keeps the recording's delivery and runs lighter on the GPU."
                 } else if inputs.mode == StudioMode::Clone {
                     "Use a clean WAV and its exact spoken words. The clone is saved locally and appears in this voice list."
                 } else {
