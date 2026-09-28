@@ -3,7 +3,7 @@ use super::{voices::VoiceSpec, Config};
 use phoenix_reader_session::{NarrationPlan, VoiceChoice};
 use phoenix_tts_native::{
     supertonic::{SupertonicBundle, SupertonicProvider},
-    Bundle, Cancellation, NativeProvider, VoiceAsset,
+    Bundle, Cancellation, Engine, NativeProvider, VoiceAsset,
 };
 use std::path::PathBuf;
 #[derive(serde::Deserialize)]
@@ -11,8 +11,21 @@ pub struct CpuConfig {
     pub runner: PathBuf,
     pub models: PathBuf,
 }
+/// Qwen3-TTS Base: the PBN1 worker (DLLs beside it), talker and codec GGUFs.
+#[derive(Clone, serde::Deserialize)]
+pub struct QwenConfig {
+    pub worker: PathBuf,
+    pub talker: PathBuf,
+    pub codec: PathBuf,
+}
+impl QwenConfig {
+    pub fn open(&self, cancel: &Cancellation) -> anyhow::Result<Bundle> {
+        Ok(Bundle::open_qwen(&self.worker, &self.talker, &self.codec, cancel)?)
+    }
+}
+/// At most one GPU engine per session: Breeze or Qwen, plus Supertonic on CPU.
 pub struct Bundles {
-    pub breeze: Option<Bundle>,
+    pub gpu: Option<Bundle>,
     pub cpu: Option<SupertonicBundle>,
 }
 impl Bundles {
@@ -21,7 +34,21 @@ impl Bundles {
         used: &[&VoiceSpec],
         cancel: &Cancellation,
     ) -> anyhow::Result<Self> {
-        let breeze = if used.iter().any(|v| v.supertonic_style.is_none()) {
+        let breeze = used
+            .iter()
+            .any(|v| v.supertonic_style.is_none() && !v.qwen);
+        let qwen = used.iter().any(|v| v.qwen);
+        anyhow::ensure!(
+            !(breeze && qwen),
+            "This book mixes Breeze and Qwen voices. Cast it with one GPU engine."
+        );
+        let gpu = if qwen {
+            let qwen = config
+                .qwen
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Install the Qwen runtime to use this voice"))?;
+            Some(qwen.open(cancel)?)
+        } else if breeze {
             Some(Bundle::open_cancellable(
                 &config.worker,
                 &config.model,
@@ -39,7 +66,7 @@ impl Bundles {
         } else {
             None
         };
-        Ok(Self { breeze, cpu })
+        Ok(Self { gpu, cpu })
     }
     pub fn for_plan(
         config: &Config,
@@ -95,9 +122,13 @@ impl Bundles {
                 .identity(style, 1_440_000)?)
         } else {
             let bundle = self
-                .breeze
+                .gpu
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Breeze engine not enrolled"))?;
+                .ok_or_else(|| anyhow::anyhow!("GPU voice engine not enrolled"))?;
+            anyhow::ensure!(
+                (bundle.engine() == Engine::Qwen) == spec.qwen,
+                "Voice engine mismatch"
+            );
             Ok(match asset {
                 Some(asset) => asset.identity(bundle, instruction, spec.profile.seed, 1_440_000)?,
                 None => bundle.identity(instruction, spec.profile.seed, 1_440_000)?,
@@ -106,7 +137,8 @@ impl Bundles {
     }
 }
 pub struct Providers {
-    pub breeze: Option<NativeProvider>,
+    /// The session's GPU engine worker (Breeze or Qwen).
+    pub gpu: Option<NativeProvider>,
     pub cpu: Option<SupertonicProvider>,
 }
 impl Providers {
@@ -114,8 +146,8 @@ impl Providers {
     /// goes back to the warm slot when these providers drop.
     pub fn new(bundles: Bundles, storage: PathBuf) -> anyhow::Result<Self> {
         Ok(Self {
-            breeze: bundles
-                .breeze
+            gpu: bundles
+                .gpu
                 .map(|b| match super::warm::take(&b) {
                     Some(provider) => Ok(provider),
                     None => NativeProvider::new(
@@ -135,7 +167,7 @@ impl Providers {
 }
 impl Drop for Providers {
     fn drop(&mut self) {
-        if let Some(provider) = self.breeze.take() {
+        if let Some(provider) = self.gpu.take() {
             super::warm::give_back(provider);
         }
     }

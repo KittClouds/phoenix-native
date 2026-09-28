@@ -31,7 +31,7 @@ pub(super) struct ReaderPanel {
     studio: Option<studio::StudioInputs>,
     voice_book: Option<[u8; 32]>,
     voice_details: Vec<VoiceDetail>,
-    cpu_voices: bool,
+    voice_tab: VoiceTab,
     notice: String,
     audition: Option<audition::Audition>,
     audition_then_listen: bool,
@@ -295,10 +295,18 @@ impl PhoenixShell {
         cx.notify();
     }
 }
+/// Which engine's voices the voice panel lists.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::shell) enum VoiceTab {
+    #[default]
+    Breeze,
+    Qwen,
+    Cpu,
+}
 struct VoiceDetail {
     description: String,
     reference: bool,
-    cpu: bool,
+    tab: VoiceTab,
     directed: bool,
 }
 mod highlight;
@@ -338,7 +346,13 @@ impl PhoenixShell {
             .map(|v| VoiceDetail {
                 description: v.profile.description.clone(),
                 reference: v.profile.reference.is_some(),
-                cpu: v.supertonic_style.is_some(),
+                tab: if v.supertonic_style.is_some() {
+                    VoiceTab::Cpu
+                } else if v.qwen {
+                    VoiceTab::Qwen
+                } else {
+                    VoiceTab::Breeze
+                },
                 directed: v.profile.reference.is_some() && !v.profile.default_delivery.is_empty(),
             })
             .collect();

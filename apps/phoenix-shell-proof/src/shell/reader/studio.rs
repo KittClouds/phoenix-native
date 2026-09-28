@@ -25,6 +25,8 @@ pub(super) struct StudioInputs {
     segment: u32,
     excerpt: String,
     casting: bool,
+    /// Qwen clones only: no design mode and no direction.
+    qwen: bool,
 }
 impl PhoenixShell {
     pub(super) fn reader_book_key(&self) -> [u8; 32] {
@@ -79,9 +81,11 @@ impl PhoenixShell {
                     .collect::<String>()
             })
             .unwrap_or_else(|| "Start listening to choose a passage.".into());
+        let qwen = self.reader.voice_tab == super::VoiceTab::Qwen;
         self.reader.studio = Some(StudioInputs {
             casting,
-            mode: StudioMode::Design,
+            qwen,
+            mode: if qwen { StudioMode::Clone } else { StudioMode::Design },
             reference_path: None,
             segment,
             excerpt,
@@ -179,7 +183,12 @@ impl PhoenixShell {
             .ok_or_else(|| anyhow::anyhow!("Open Voice Studio"))?;
         let name = inputs.name.read(cx).value().trim().to_owned();
         let transcript = inputs.transcript.read(cx).value().trim().to_owned();
-        let direction = inputs.direction.read(cx).value().trim().to_owned();
+        let qwen = inputs.qwen;
+        let direction = if qwen {
+            String::new()
+        } else {
+            inputs.direction.read(cx).value().trim().to_owned()
+        };
         let audio = inputs
             .reference_path
             .clone()
@@ -208,6 +217,7 @@ impl PhoenixShell {
             name,
             transcript,
             direction,
+            qwen,
         };
         let previous = self.reader.bridge.take();
         let audition = self.reader.audition.take();
@@ -262,8 +272,9 @@ impl PhoenixShell {
             .border_t_1()
             .border_color(rgb(0x303633))
             .when(!inputs.casting, |view| view
-            .child(div().text_lg().text_color(rgb(0xf1f3ef)).child("Create a Breeze voice"))
-            .child(div().flex().gap_2()
+            .child(div().text_lg().text_color(rgb(0xf1f3ef)).child(
+                if inputs.qwen { "Clone a Qwen voice" } else { "Create a Breeze voice" }))
+            .when(!inputs.qwen, |view| view.child(div().flex().gap_2()
                 .child(Button::new("reader-design-tab").label("Design").small()
                     .disabled(self.reader.enrollment.is_some())
                     .when(inputs.mode == StudioMode::Design, |b| b.primary())
@@ -279,9 +290,11 @@ impl PhoenixShell {
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(studio) = this.reader.studio.as_mut() { studio.mode = StudioMode::Clone; }
                         cx.notify();
-                    }))))
+                    })))))
             .child(div().text_sm().text_color(rgb(0x9ca8a2)).child(
-                if inputs.mode == StudioMode::Clone {
+                if inputs.qwen {
+                    "Use a clean WAV and its exact spoken words. Qwen keeps the recording's delivery and runs lighter on the GPU."
+                } else if inputs.mode == StudioMode::Clone {
                     "Use a clean WAV and its exact spoken words. The clone is saved locally and appears in this voice list."
                 } else {
                     "Describe its sound and delivery. Designs can vary between passages."
@@ -315,8 +328,9 @@ impl PhoenixShell {
             .child(div().text_xs().text_color(rgb(0x72d6b3)).child("EXACT SPOKEN WORDS"))
             .child(Input::new(&inputs.transcript).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0())
             .child(div().text_xs().text_color(rgb(0x9ca8a2)).child("Include punctuation. A clean 3–30 second excerpt works best."))
-            .child(div().text_xs().text_color(rgb(0x72d6b3)).child("VOICE DIRECTION · OPTIONAL"))
-            .child(Input::new(&inputs.direction).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0())
+            .when(!inputs.qwen, |view| view
+                .child(div().text_xs().text_color(rgb(0x72d6b3)).child("VOICE DIRECTION · OPTIONAL"))
+                .child(Input::new(&inputs.direction).w(px((self.reader.panel_width - 64.).max(100.))).h(px(36.)).flex_shrink_0()))
             .child(Button::new("reader-save-clone").label("Save reference voice").small().primary()
                 .disabled(self.reader.enrollment.is_some())
                 .on_click(cx.listener(|this, _, _, cx| {

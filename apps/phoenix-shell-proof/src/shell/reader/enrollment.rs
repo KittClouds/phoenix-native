@@ -1,5 +1,6 @@
-//! User-initiated Breeze reference enrollment. The book worker is retired
-//! before this cold path starts so two model instances never contend for VRAM.
+//! User-initiated reference enrollment for Breeze or Qwen. The book worker is
+//! retired before this cold path starts so two model instances never contend
+//! for VRAM.
 use super::worker;
 use anyhow::{Context as _, Result};
 use phoenix_reader_session::{VoiceChoice, VoiceLibrary, VoiceProfile, VoiceReference};
@@ -20,6 +21,8 @@ pub(super) struct Request {
     pub name: String,
     pub transcript: String,
     pub direction: String,
+    /// Enroll a Qwen clone (`.qwen`) instead of a Breeze one.
+    pub qwen: bool,
 }
 
 pub(super) struct Enrollment {
@@ -79,7 +82,11 @@ fn enroll(request: Request, cancel: &Cancellation) -> Result<VoiceChoice> {
         name,
         transcript,
         direction,
+        qwen,
     } = request;
+    if qwen {
+        return enroll_qwen(config, audio, name, transcript, cancel);
+    }
     anyhow::ensure!(
         !config.worker.as_os_str().is_empty(),
         "Breeze worker is not configured"
@@ -189,6 +196,118 @@ fn enroll(request: Request, cancel: &Cancellation) -> Result<VoiceChoice> {
     };
     let library = VoiceLibrary::open(&root)?;
     Ok(library.save(&profile)?)
+}
+
+/// Qwen clone: the pinned Qwen worker's `--enroll` mode encodes the WAV and
+/// transcript into a QWNV asset (speaker embedding + codec codes).
+fn enroll_qwen(
+    config: worker::Config,
+    audio: PathBuf,
+    name: String,
+    transcript: String,
+    cancel: &Cancellation,
+) -> Result<VoiceChoice> {
+    let qwen = config
+        .qwen
+        .clone()
+        .context("Install the Qwen runtime to clone Qwen voices")?;
+    let original = read_reference(&audio)?;
+    anyhow::ensure!(!cancel.is_cancelled(), "Enrollment cancelled");
+    let bundle = qwen.open(cancel)?;
+    let identity = bundle.identity("", 42, 1_440_000)?;
+    drop(bundle);
+    let root = config.storage.join("voices");
+    fs::create_dir_all(&root)?;
+    let temporary = tempfile::tempdir_in(&root)?;
+    let transcript_path = temporary.path().join("transcript.txt");
+    fs::write(&transcript_path, transcript.as_bytes())?;
+    let encoded_path = temporary.path().join("reference.qwen");
+    let worker_dir = qwen
+        .worker
+        .parent()
+        .context("Qwen worker directory")?
+        .to_path_buf();
+    let mut child = Command::new(&qwen.worker)
+        .current_dir(&worker_dir)
+        .arg("--enroll")
+        .arg(&qwen.talker)
+        .arg(&qwen.codec)
+        .arg(&audio)
+        .arg(&transcript_path)
+        .arg(&encoded_path)
+        .env("QT_MAX_CTX", "1280")
+        .creation_flags(0x08000000)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("Start Qwen reference encoder")?;
+    let deadline = Instant::now() + Duration::from_secs(240);
+    let status = loop {
+        if cancel.is_cancelled() || Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!(if cancel.is_cancelled() {
+                "Enrollment cancelled"
+            } else {
+                "Reference encoding timed out"
+            });
+        }
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        thread::sleep(Duration::from_millis(40));
+    };
+    anyhow::ensure!(status.success(), "Qwen could not encode this WAV and transcript");
+    anyhow::ensure!(
+        fs::metadata(&encoded_path)?.len() <= MAX_VOICE_BYTES,
+        "Encoded voice too large"
+    );
+    let encoded_bytes = fs::read(&encoded_path)?;
+    let encoded = *blake3::hash(&encoded_bytes).as_bytes();
+    let asset = VoiceAsset::open(&encoded_path, encoded, identity.model, identity.codec)?;
+    anyhow::ensure!(asset.transcript() == transcript, "Encoded transcript differs");
+    drop(asset);
+    anyhow::ensure!(!cancel.is_cancelled(), "Enrollment cancelled");
+    let destination = root.join(format!("{}.qwen", blake3::Hash::from(encoded).to_hex()));
+    publish(&root, &destination, &encoded_bytes)?;
+    let original_hash = *blake3::hash(&original).as_bytes();
+    let source_copy = root.join(format!("{}.wav", blake3::Hash::from(original_hash).to_hex()));
+    publish(&root, &source_copy, &original)?;
+    let mut id = blake3::Hasher::new();
+    id.update(b"phoenix.user-qwen-reference-profile/v1\0");
+    id.update(name.as_bytes());
+    id.update(&encoded);
+    let profile = VoiceProfile {
+        id: *id.finalize().as_bytes(),
+        revision: 1,
+        name,
+        description: "Qwen reference voice created from your recording.".into(),
+        reference: Some(VoiceReference {
+            encoded,
+            original_audio: original_hash,
+            transcript: *blake3::hash(transcript.as_bytes()).as_bytes(),
+            model: identity.model,
+            codec: identity.codec,
+        }),
+        default_delivery: String::new(),
+        seed: 42,
+    };
+    Ok(VoiceLibrary::open(&root)?.save(&profile)?)
+}
+
+/// Reads and validates the reference WAV.
+fn read_reference(audio: &Path) -> Result<Vec<u8>> {
+    let source = OpenOptions::new().read(true).share_mode(1).open(audio)?;
+    let size = source.metadata()?.len();
+    anyhow::ensure!(
+        (44..=16 * 1024 * 1024).contains(&size),
+        "Reference WAV must be under 16 MiB"
+    );
+    let mut original = Vec::with_capacity(size as usize);
+    (&source).read_to_end(&mut original)?;
+    validate_wav(&original)?;
+    Ok(original)
 }
 
 fn publish(root: &Path, path: &Path, bytes: &[u8]) -> Result<()> {

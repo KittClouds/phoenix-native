@@ -120,7 +120,9 @@ fn sample(
         .find(|v| VoiceChoice::of(&v.profile).ok() == Some(choice))
         .ok_or_else(|| anyhow::anyhow!("Voice is no longer installed"))?;
     let bundle = worker::engines::Bundles::open(&config, &[spec], cancel)?;
-    let instruction = if spec.profile.reference.is_some() {
+    let instruction = if spec.qwen {
+        String::new()
+    } else if spec.profile.reference.is_some() {
         spec.profile.default_delivery.clone()
     } else if !spec.profile.default_delivery.is_empty() {
         format!(
@@ -161,9 +163,9 @@ fn sample(
             .generate(request, style, &mut cache, cancel, |_| Ok(()))?
     } else {
         provider
-            .breeze
+            .gpu
             .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Breeze provider unavailable"))?
+            .ok_or_else(|| anyhow::anyhow!("GPU voice engine unavailable"))?
             .generate_voiced_streamed(request, asset.as_ref(), &mut cache, cancel, |_| Ok(()))?
     };
     let audio = cache.get(key)?;

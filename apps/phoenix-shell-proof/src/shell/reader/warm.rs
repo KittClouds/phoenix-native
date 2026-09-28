@@ -7,7 +7,7 @@
 //! closes, so the GPU memory returns to the graph and analysis.
 use super::Config;
 use phoenix_reader_session::{AudioCache, VoiceChoice};
-use phoenix_tts_native::{Bundle, Cancellation, NativeProvider, Request};
+use phoenix_tts_native::{Bundle, Cancellation, NativeProvider, Request, VoiceAsset};
 use std::{
     path::PathBuf,
     sync::{Condvar, Mutex},
@@ -176,21 +176,37 @@ fn warm_up(workspace: PathBuf, narrator: Option<VoiceChoice>) -> anyhow::Result<
             .find(|voice| VoiceChoice::of(&voice.profile).ok() == Some(choice)),
         None => config.voices.first(),
     };
-    anyhow::ensure!(
-        spec.is_some_and(|voice| voice.supertonic_style.is_none()),
-        "the narrator is not a Breeze voice"
-    );
+    let spec = spec
+        .filter(|voice| voice.supertonic_style.is_none())
+        .ok_or_else(|| anyhow::anyhow!("the narrator runs on the CPU"))?;
     phoenix_tts_native::use_digest_memo(config.storage.join("pinned-digests.memo"));
     let cancel = Cancellation::default();
-    let bundle =
-        Bundle::open_cancellable(&config.worker, &config.model, &config.dll_directory, &cancel)?;
+    let bundle = if spec.qwen {
+        config
+            .qwen
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no Qwen runtime configured"))?
+            .open(&cancel)?
+    } else {
+        Bundle::open_cancellable(&config.worker, &config.model, &config.dll_directory, &cancel)?
+    };
+    // Qwen only clones: warm it with the narrator's own reference.
+    let voice = match (&spec.profile.reference, &spec.asset) {
+        (Some(reference), Some(path)) if spec.qwen => Some(VoiceAsset::open(
+            path,
+            reference.encoded,
+            reference.model,
+            reference.codec,
+        )?),
+        _ => None,
+    };
     let mut provider = NativeProvider::new(bundle, STARTUP_TIMEOUT, REQUEST_TIMEOUT)?;
     // A fresh seed misses the cache, so the worker really runs every stage.
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(1, |t| t.subsec_nanos() | 1);
     let mut cache = AudioCache::open(config.storage.join("warmup-cache"), 16 * 1024 * 1024)?;
-    provider.generate(
+    provider.generate_voiced_streamed(
         Request {
             epoch: 1,
             plan: *blake3::hash(b"phoenix.reader-warmup/v1").as_bytes(),
@@ -200,8 +216,10 @@ fn warm_up(workspace: PathBuf, narrator: Option<VoiceChoice>) -> anyhow::Result<
             seed,
             max_frames: 1920 * 125,
         },
+        voice.as_ref(),
         &mut cache,
         &cancel,
+        |_| Ok(()),
     )?;
     Ok(provider)
 }

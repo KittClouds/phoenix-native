@@ -190,17 +190,21 @@ impl PhoenixShell {
                     div().flex().items_center().justify_between()
                         .child(div().text_xs().text_color(rgb(MUTED)).child("YOUR VOICES"))
                         .child(div().text_xs().text_color(rgb(ACCENT)).child(format!("{} voices",
-                            self.reader.voice_details.iter().filter(|detail| detail.cpu == self.reader.cpu_voices).count())))))
+                            self.reader.voice_details.iter().filter(|detail| detail.tab == self.reader.voice_tab).count())))))
                 .child(div().flex().flex_wrap().gap_2()
-                    .child(Button::new("voices-breeze-tab").label("Breeze").small()
-                        .when(!self.reader.cpu_voices, |b| b.primary())
-                        .when(self.reader.cpu_voices, |b| b.ghost())
-                        .on_click(cx.listener(|this,_,_,cx| { this.reader.cpu_voices = false; cx.notify(); })))
-                    .child(Button::new("voices-cpu-tab").label("Supertonic · CPU").small()
-                        .when(self.reader.cpu_voices, |b| b.primary())
-                        .when(!self.reader.cpu_voices, |b| b.ghost())
-                        .on_click(cx.listener(|this,_,_,cx| { this.reader.cpu_voices = true; cx.notify(); }))))
-                .when(!self.reader.cpu_voices && self.reader.studio.is_none(), |view| view.child(
+                    .children([
+                        ("voices-breeze-tab", "Breeze", super::VoiceTab::Breeze),
+                        ("voices-qwen-tab", "Qwen \u{b7} light", super::VoiceTab::Qwen),
+                        ("voices-cpu-tab", "Supertonic \u{b7} CPU", super::VoiceTab::Cpu),
+                    ].map(|(id, label, tab)| Button::new(id).label(label).small()
+                        .when(self.reader.voice_tab == tab, |b| b.primary())
+                        .when(self.reader.voice_tab != tab, |b| b.ghost())
+                        .on_click(cx.listener(move |this,_,_,cx| { this.reader.voice_tab = tab; cx.notify(); })))))
+                .when(self.reader.voice_tab == super::VoiceTab::Qwen && self.reader.studio.is_none(), |view| view.child(
+                    div().text_xs().text_color(rgb(MUTED)).child(
+                        "Qwen clones run lighter on the GPU. A book uses Breeze or Qwen voices, not both."
+                    )))
+                .when(self.reader.voice_tab == super::VoiceTab::Breeze && self.reader.studio.is_none(), |view| view.child(
                     div().text_xs().text_color(rgb(MUTED)).child(
                         "Voice designs can vary between passages. Choose a reference voice for a steadier narrator."
                     )))
@@ -215,14 +219,15 @@ impl PhoenixShell {
                     div().w_full().min_w_0().flex_shrink_0().flex().flex_col()
                         .children(self.reader.voice_choices.iter().enumerate()
                             .filter(|(i,_)| self.reader.voice_details.get(*i)
-                                .is_some_and(|detail| detail.cpu == self.reader.cpu_voices))
+                                .is_some_and(|detail| detail.tab == self.reader.voice_tab))
                             .map(|(index, (name, choice))| {
                                 let choice = *choice;
                                 let selected = self.reader.selected_voice == Some(choice);
-                                let (description, reference, cpu, directed) = self.reader.voice_details.get(index)
-                                    .map(|detail| (detail.description.as_str(), detail.reference, detail.cpu, detail.directed))
-                                    .unwrap_or(("", false, false, false));
-                                let subtitle = if cpu { "Supertonic · local".to_owned() }
+                                let (description, reference, tab, directed) = self.reader.voice_details.get(index)
+                                    .map(|detail| (detail.description.as_str(), detail.reference, detail.tab, detail.directed))
+                                    .unwrap_or(("", false, super::VoiceTab::Breeze, false));
+                                let subtitle = if tab == super::VoiceTab::Cpu { "Supertonic · local".to_owned() }
+                                    else if tab == super::VoiceTab::Qwen { "Qwen · reference".to_owned() }
                                     else if directed { "Breeze · directed reference".to_owned() }
                                     else if reference { "Breeze · reference".to_owned() }
                                     else if description.is_empty() { "Breeze · voice design".to_owned() }

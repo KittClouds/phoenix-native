@@ -112,6 +112,9 @@ pub(super) struct Config {
     cast: Option<CastProfile>,
     #[serde(default)]
     pub supertonic: Option<engines::CpuConfig>,
+    /// Qwen3-TTS Base worker: the lighter GPU engine for cloned voices.
+    #[serde(default)]
+    pub qwen: Option<engines::QwenConfig>,
 }
 impl Config {
     pub fn read(workspace: &std::path::Path) -> anyhow::Result<Self> {

@@ -6,7 +6,7 @@ mod supervisor;
 mod voice;
 pub use voice::{VoiceAsset, MAX_VOICE_BYTES};
 pub mod wire;
-pub use bundle::{use_digest_memo, Bundle};
+pub use bundle::{use_digest_memo, Bundle, Engine};
 pub use supervisor::{Cancellation, NativeProvider, PcmChunk, Request};
 
 #[derive(Debug, thiserror::Error)]

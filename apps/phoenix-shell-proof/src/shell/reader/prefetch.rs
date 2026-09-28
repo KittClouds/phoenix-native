@@ -58,7 +58,7 @@ impl Generator {
                             && !thread_active.load(Ordering::Acquire)
                             && last_request.elapsed() >= BREEZE_IDLE_RELEASE
                         {
-                            if let Some(breeze) = provider.breeze.as_mut() {
+                            if let Some(breeze) = provider.gpu.as_mut() {
                                 if breeze.pid().is_some() {
                                     if let Err(error) = breeze.stop() {
                                         tracing::warn!(%error, "Breeze idle release failed");
@@ -96,9 +96,9 @@ impl Generator {
                                 .generate(request, style, &mut cache, &job.cancel, |_| Ok(()))?;
                         } else {
                             provider
-                                .breeze
+                                .gpu
                                 .as_mut()
-                                .ok_or_else(|| anyhow::anyhow!("Breeze provider unavailable"))?
+                                .ok_or_else(|| anyhow::anyhow!("GPU voice engine unavailable"))?
                                 .generate_voiced_streamed(
                                     request,
                                     job.voice.asset.as_ref(),

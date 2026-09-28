@@ -11,6 +11,9 @@ pub struct VoiceSpec {
     pub asset: Option<PathBuf>,
     #[serde(default)]
     pub supertonic_style: Option<String>,
+    /// The reference is a Qwen clone (`.qwen`) rather than a Breeze one.
+    #[serde(default)]
+    pub qwen: bool,
 }
 impl Default for VoiceSpec {
     fn default() -> Self {
@@ -26,6 +29,7 @@ impl Default for VoiceSpec {
             },
             asset: None,
             supertonic_style: None,
+            qwen: false,
         }
     }
 }
@@ -91,7 +95,15 @@ pub fn prepare(
         } else {
             delivery
         };
-        let instruction = if profile.reference.is_some() {
+        if spec.qwen {
+            anyhow::ensure!(
+                delivery.is_empty(),
+                "Qwen clones keep their recording's delivery; directions need a Breeze voice"
+            );
+        }
+        let instruction = if spec.qwen {
+            String::new()
+        } else if profile.reference.is_some() {
             delivery.to_owned()
         } else if delivery.is_empty() {
             profile.description.clone()
@@ -159,10 +171,18 @@ pub fn load_library(storage: &std::path::Path, specs: &mut Vec<VoiceSpec>) -> an
         {
             continue;
         }
-        let asset = profile
-            .reference
+        let asset = profile.reference.as_ref().map(|r| {
+            let stem = blake3::Hash::from(r.encoded).to_hex();
+            let qwen = root.join(format!("{stem}.qwen"));
+            if qwen.exists() {
+                qwen
+            } else {
+                root.join(format!("{stem}.breeze"))
+            }
+        });
+        let qwen = asset
             .as_ref()
-            .map(|r| root.join(format!("{}.breeze", blake3::Hash::from(r.encoded).to_hex())));
+            .is_some_and(|path| path.extension().is_some_and(|x| x == "qwen"));
         let supertonic_style = phoenix_tts_native::supertonic::STYLES
             .iter()
             .find(|style| profile.id == cpu_id(style))
@@ -171,6 +191,7 @@ pub fn load_library(storage: &std::path::Path, specs: &mut Vec<VoiceSpec>) -> an
             profile,
             asset,
             supertonic_style,
+            qwen,
         });
     }
     anyhow::ensure!(specs.len() <= 257, "Voice catalog bounds");
@@ -199,6 +220,7 @@ pub fn add_cpu_voices(specs: &mut Vec<VoiceSpec>) {
             },
             asset: None,
             supertonic_style: Some(style.into()),
+            qwen: false,
         });
     }
 }

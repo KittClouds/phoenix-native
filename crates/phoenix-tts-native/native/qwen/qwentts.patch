@@ -1,0 +1,39 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 30c3375..e3de243 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -184,6 +184,13 @@ add_executable(qwen-tts tools/qwen-tts.cpp)
+ target_link_libraries(qwen-tts PRIVATE qwen-core)
+ link_ggml_backends(qwen-tts)
+ 
++# Phoenix: the Reader's PBN1 worker, built only when its source is given.
++if(PHOENIX_QWEN_WORKER_SOURCE)
++    add_executable(phoenix-qwen-worker ${PHOENIX_QWEN_WORKER_SOURCE})
++    target_link_libraries(phoenix-qwen-worker PRIVATE qwen-core ws2_32)
++    link_ggml_backends(phoenix-qwen-worker)
++endif()
++
+ # tts-server : OpenAI-compatible HTTP server over the TTS pipeline.
+ # Always built : it is part of the project, not an optional add-on.
+ add_executable(tts-server tools/tts-server.cpp)
+diff --git a/src/pipeline-tts.cpp b/src/pipeline-tts.cpp
+index 7e64d76..6b77873 100644
+--- a/src/pipeline-tts.cpp
++++ b/src/pipeline-tts.cpp
+@@ -253,8 +253,15 @@ bool pipeline_tts_load(PipelineTTS * pt,
+     // to 4096 positions (the longest ICL prompt observed is ~250 +
+     // max_new_tokens ~ 1500, so 4096 has 60% headroom). Predictor holds
+     // one frame of 16 sub-steps per slot.
++    // Phoenix: QT_MAX_CTX bounds the talker context (default 4096). The
++    // Reader never exceeds ~250 prompt + 750 frames, so it runs smaller.
++    int max_ctx = 4096;
++    if (const char * env = std::getenv("QT_MAX_CTX")) {
++        const int v = std::atoi(env);
++        if (v >= 512 && v <= 4096) max_ctx = v;
++    }
+     if (!kv_cache_init(&pt->talker_kv, pt->talker.num_hidden_layers, pt->talker.num_key_value_heads,
+-                       pt->talker.head_dim, 4096, pt->max_batch, pt->backend)) {
++                       pt->talker.head_dim, max_ctx, pt->max_batch, pt->backend)) {
+         ggml_backend_sched_free(pt->sched);
+         pt->sched = NULL;
+         pipeline_codec_free(&pt->codec);

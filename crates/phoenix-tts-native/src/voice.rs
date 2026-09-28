@@ -1,5 +1,6 @@
-//! Immutable, bounded upstream BRZV voice asset. Keep the original WAV separately.
-use crate::{Bundle, Error, Result};
+//! Immutable, bounded voice assets: Breeze BRZV and Qwen QWNV clones. Keep the
+//! original WAV separately.
+use crate::{Bundle, Engine, Error, Result};
 use memmap2::{Mmap, MmapOptions};
 use phoenix_tts_contract::{Digest, SynthesisIdentity};
 use std::{
@@ -12,6 +13,8 @@ pub const MAX_VOICE_BYTES: u64 = 512 * 1024;
 pub struct VoiceAsset {
     map: Mmap,
     _file: File,
+    engine: Engine,
+    transcript_start: usize,
     transcript_end: usize,
     hash: Digest,
     transcript_hash: Digest,
@@ -30,15 +33,22 @@ impl VoiceAsset {
         }
         // SAFETY: retained Windows handle denies writes and replacement.
         let map = unsafe { MmapOptions::new().map(&file)? };
-        let transcript_end = validate(&map)?;
+        let (engine, transcript_start, transcript_end) = if map.starts_with(b"QWNV") {
+            let (start, end) = validate_qwen(&map)?;
+            (Engine::Qwen, start, end)
+        } else {
+            (Engine::Breeze, 24, validate(&map)?)
+        };
         let hash = *blake3::hash(&map).as_bytes();
         if hash != expected {
             return Err(Error::Invalid("voice file hash mismatch"));
         }
-        let transcript_hash = *blake3::hash(&map[24..transcript_end]).as_bytes();
+        let transcript_hash = *blake3::hash(&map[transcript_start..transcript_end]).as_bytes();
         Ok(Self {
             map,
             _file: file,
+            engine,
+            transcript_start,
             transcript_end,
             hash,
             transcript_hash,
@@ -50,7 +60,11 @@ impl VoiceAsset {
         &self.map
     }
     pub fn transcript(&self) -> &str {
-        std::str::from_utf8(&self.map[24..self.transcript_end]).unwrap()
+        std::str::from_utf8(&self.map[self.transcript_start..self.transcript_end]).unwrap()
+    }
+    /// The engine this voice was enrolled for.
+    pub fn engine(&self) -> Engine {
+        self.engine
     }
     pub fn hash(&self) -> Digest {
         self.hash
@@ -62,6 +76,9 @@ impl VoiceAsset {
         seed: u32,
         max_frames: u64,
     ) -> Result<SynthesisIdentity> {
+        if bundle.engine() != self.engine {
+            return Err(Error::Invalid("voice belongs to another engine"));
+        }
         let mut identity = bundle.identity(instruction, seed, max_frames)?;
         if identity.model != self.model || identity.codec != self.codec {
             return Err(Error::Invalid("voice belongs to another model or codec"));
@@ -72,6 +89,45 @@ impl VoiceAsset {
         identity.validate()?;
         Ok(identity)
     }
+}
+/// QWNV: "QWNV" | version 1 | rate 24000 | books 16 | frames | transcript
+/// bytes | speaker dim | transcript | f32 speaker[dim] | i32 codes[books*frames].
+/// Returns the transcript range.
+fn validate_qwen(bytes: &[u8]) -> Result<(usize, usize)> {
+    let invalid = || Error::Invalid("invalid QWNV voice");
+    if bytes.len() < 28 || bytes.len() as u64 > MAX_VOICE_BYTES || &bytes[..4] != b"QWNV" {
+        return Err(invalid());
+    }
+    let word = |at| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize;
+    let (version, rate, books, frames, text, dim) =
+        (word(4), word(8), word(12), word(16), word(20), word(24));
+    if version != 1
+        || rate != 24000
+        || books != 16
+        || !(1..=375).contains(&frames)
+        || !(1..=16384).contains(&text)
+        || !(1..=4096).contains(&dim)
+    {
+        return Err(invalid());
+    }
+    let end = 28 + text;
+    if bytes.len() != end + dim * 4 + books * frames * 4 {
+        return Err(invalid());
+    }
+    let transcript = std::str::from_utf8(&bytes[28..end]).map_err(|_| invalid())?;
+    if transcript.trim().is_empty() || transcript.contains('\0') {
+        return Err(invalid());
+    }
+    if bytes[end..end + dim * 4]
+        .chunks_exact(4)
+        .any(|c| !f32::from_le_bytes(c.try_into().unwrap()).is_finite())
+        || bytes[end + dim * 4..]
+            .chunks_exact(4)
+            .any(|c| u32::from_le_bytes(c.try_into().unwrap()) >= 2048)
+    {
+        return Err(invalid());
+    }
+    Ok((28, end))
 }
 fn validate(bytes: &[u8]) -> Result<usize> {
     let invalid = || Error::Invalid("invalid BRZV voice");
@@ -144,5 +200,32 @@ mod tests {
         let voice = VoiceAsset::open(&p, *blake3::hash(&b).as_bytes(), [2; 32], [2; 32]).unwrap();
         assert_eq!(voice.transcript(), "Hi");
         assert!(std::fs::write(&p, b"changed").is_err());
+    }
+    #[test]
+    fn qwen_voice_validates_layout_and_reports_its_engine() {
+        let transcript = b"Hello there.";
+        let mut bytes = b"QWNV".to_vec();
+        for word in [1u32, 24000, 16, 2, transcript.len() as u32, 4] {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+        bytes.extend_from_slice(transcript);
+        for value in [0.5f32, -0.25, 1.0, 0.0] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        for code in 0..32u32 {
+            bytes.extend_from_slice(&code.to_le_bytes());
+        }
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("v.qwen");
+        std::fs::write(&path, &bytes).unwrap();
+        let hash = *blake3::hash(&bytes).as_bytes();
+        let voice = VoiceAsset::open(&path, hash, [2; 32], [3; 32]).unwrap();
+        assert_eq!(voice.engine(), Engine::Qwen);
+        assert_eq!(voice.transcript(), "Hello there.");
+        drop(voice);
+        // A truncated code matrix is rejected.
+        let short = &bytes[..bytes.len() - 4];
+        std::fs::write(&path, short).unwrap();
+        assert!(VoiceAsset::open(&path, *blake3::hash(short).as_bytes(), [2; 32], [3; 32]).is_err());
     }
 }

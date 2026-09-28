@@ -148,6 +148,9 @@ impl NativeProvider {
         self.next_request = id
             .checked_add(1)
             .ok_or(Error::Invalid("request counter exhausted"))?;
+        if self.bundle.engine == crate::Engine::Qwen && (voice.is_none() || !r.instruction.is_empty()) {
+            return Err(Error::Invalid("Qwen voices are clones without a direction"));
+        }
         let identity = match voice {
             Some(voice) => voice.identity(&self.bundle, r.instruction, r.seed, r.max_frames)?,
             None => self.bundle.identity(r.instruction, r.seed, r.max_frames)?,
@@ -339,16 +342,30 @@ impl NativeProvider {
             std::path::PathBuf::from(&system).join("System32"),
         ])
         .map_err(|_| Error::Invalid("DLL search path"))?;
-        let mut child = Command::new(&self.bundle.executable)
+        let mut command = Command::new(&self.bundle.executable);
+        command
             .current_dir(&self.bundle.dll_directory)
-            .arg(&self.bundle.model_path)
+            .arg(&self.bundle.model_path);
+        if let Some(codec) = &self.bundle.codec_path {
+            command.arg(codec);
+        }
+        command
             .arg(listener.local_addr()?.port().to_string())
             .arg(nonce_hex)
             .env_clear()
             .env("SystemRoot", system)
-            .env("PATH", path)
-            .env("GGML_VK_DISABLE_HOST_VISIBLE_VIDMEM", "1")
-            .env("GGML_VK_DISABLE_COOPMAT2", "1")
+            .env("PATH", path);
+        match self.bundle.engine {
+            crate::Engine::Breeze => {
+                command
+                    .env("GGML_VK_DISABLE_HOST_VISIBLE_VIDMEM", "1")
+                    .env("GGML_VK_DISABLE_COOPMAT2", "1");
+            }
+            crate::Engine::Qwen => {
+                command.env("QT_MAX_CTX", crate::bundle::QWEN_MAX_CTX);
+            }
+        }
+        let mut child = command
             .creation_flags(0x08000000)
             .stdin(Stdio::null())
             .stdout(Stdio::null())

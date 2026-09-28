@@ -31,7 +31,7 @@ fn shell_cast_persists_and_changes_only_assigned_passage() {
     .unwrap();
     let first = voices::VoiceSpec::default();
     let bundle = worker::engines::Bundles {
-        breeze: Some(bundle),
+        gpu: Some(bundle),
         cpu: None,
     };
     let mut second = first.clone();
@@ -123,7 +123,7 @@ fn cpu_only_book_enrolls_without_any_breeze_paths() {
     let bundles =
         worker::engines::Bundles::for_plan(&config, &plan, Some(narrator), &Default::default())
             .unwrap();
-    assert!(bundles.breeze.is_none());
+    assert!(bundles.gpu.is_none());
     assert!(bundles.cpu.is_some());
     let prepared = voices::prepare(
         &config.voices,
