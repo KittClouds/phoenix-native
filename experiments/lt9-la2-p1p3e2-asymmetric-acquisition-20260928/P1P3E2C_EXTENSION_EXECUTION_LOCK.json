@@ -1,0 +1,50 @@
+{
+  "schema": "phoenix.lt9.la2.p1p3e2c.extension-execution-lock.v1",
+  "status": "FROZEN_PRE_ACQUISITION",
+  "date": "2026-09-28",
+  "authorized_by_commit": "4e5fd78023df099a6e69bded2f6bb1a354e568e6",
+  "builder": {
+    "path": "build_e2c_extension.py",
+    "bytes": 17656,
+    "sha256": "f573e9e98acf1c4df402a6d93b7c47285bce6fe028d2cad5d16e636d9219a534"
+  },
+  "p1p3e2c_protocol": {
+    "path": "P1P3E2C_SELECTIVE_GATE_PROTOCOL.md",
+    "bytes": 18503,
+    "sha256": "5a7ef3ec359fc013d67b7f9ef06d7a414e0f482a911f5e24888cf2cb7b8f6214"
+  },
+  "p1p3e2c_lock": {
+    "path": "P1P3E2C_LOCK.json",
+    "bytes": 30079,
+    "sha256": "d71af90bdb45aa2179ad4901a13365a8ce0f7c73324d8728020cad0abd265634"
+  },
+  "amendment_lock": {
+    "path": "P1P3E2C_AMENDMENT_01_LOCK.json",
+    "bytes": 1973,
+    "sha256": "2d4d6c7c58d5bffcb99f2bcfc0a0128e39776d633bf739160ce678175848718e"
+  },
+  "amendment_text": {
+    "path": "P1P3E2C_AMENDMENT_01_LFM_ZERO_OVERLAP_DIAGNOSTIC.md",
+    "bytes": 4111,
+    "sha256": "7cc13907fc479893dcd2b0d49c3b76a48de1cee760b3972713ddbf3b98bbd5d9"
+  },
+  "e2b_lock": {
+    "path": "P1P3E2B_ACQUISITION_LOCK.json",
+    "bytes": 15530,
+    "sha256": "33dfd6045388ff05948cdf739546b70b2c3c5034260fe2dea38fcef0f9588a7b"
+  },
+  "e2b_spec": {
+    "path": "P1P3E2B_ACQUISITION_SPEC.md",
+    "bytes": 9054,
+    "sha256": "88eace3e96a95f70d5f6aa59359545ffcc9c35a700923ef758e3eaadfd87b853"
+  },
+  "e2b_builder": {
+    "path": "build_e2b_natural_bank.py",
+    "bytes": 25514,
+    "sha256": "368f503f8c705f836aca9a3124edb872fb137f737df4d51024f61abad139ba64"
+  },
+  "output_root": "D:/phoenix-evals/lt9-la2-p1p3e2c-extension-20260928/p1p3e2c-extension-v1",
+  "duplicate_survivor_rule": "Within relation plus NFC masked context duplicates, retain the candidate with the lowest namespaced frozen PAIR key, then canonical pair identity.",
+  "release_rule": "Only release reviewer packets when all 108 locked slots fill; otherwise write a private underpowered receipt and no review packet/template.",
+  "data_firewall": "Read locked query/corpus text and only the inherited identity fields; never open qrels, ranks, judgments, retrieval results, features, or model outputs."
+}
