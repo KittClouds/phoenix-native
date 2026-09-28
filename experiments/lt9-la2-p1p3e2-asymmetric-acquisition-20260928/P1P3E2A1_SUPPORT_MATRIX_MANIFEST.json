@@ -1,0 +1,98 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e2a1-support-matrix-manifest/v1",
+  "date": "2026-09-28",
+  "status": "DISCOVERY_SUPPORT_MAP_NO_FIT_NO_RETRIEVAL_NO_AUTHORITY_CHANGE",
+  "included_populations": {
+    "prior_natural_context_review_fit_rows": 46,
+    "a1_fiqa_codex_proxy_fit_rows": 47,
+    "combined_fit_event_rows": 93,
+    "unique_exact_context_pairs": 92,
+    "non_fit_rows_aggregated": 0,
+    "sealed_retrieval_holdout_contexts_used": 0
+  },
+  "label_provenance": {
+    "prior_context_bank": "One user-supplied pass; identity and reviewer independence unverified.",
+    "a1_fiqa_bank": "One Codex model-origin pass. Prior hypotheses and relation-level results were present in conversation; A1 item labels and private ledger were not accessed before sealing.",
+    "consensus_claim": false
+  },
+  "result_counts": {
+    "combined_event_rows": {
+      "SAME": 76,
+      "DIFFERENT": 17,
+      "UNKNOWN": 0
+    },
+    "deduplicated_unique_context_pairs": {
+      "SAME": 75,
+      "DIFFERENT": 17,
+      "UNKNOWN": 0
+    },
+    "retrieval_opportunity_events": {
+      "total": 60,
+      "SAME": 49,
+      "DIFFERENT": 11,
+      "UNKNOWN": 0
+    },
+    "top10_control_events": 29,
+    "natural_sparse_context_unique_pairs": {
+      "0-2": 0,
+      "3-5": 5,
+      "6+": 87
+    },
+    "discordant_duplicate_context_groups": 0
+  },
+  "policy_boundary": {
+    "suggested_8_same_8_different_support_floor_frozen": false,
+    "model_fitted": false,
+    "threshold_selected": false,
+    "retrieval_transport_run": false,
+    "authority_updated": false,
+    "serving_changed": false
+  },
+  "artifacts": [
+    {
+      "role": "model_origin_judgments",
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\judgments-codex-proxy-pass1.json",
+      "sha256": "3B9DFE392D508ED6155A013C5AAD563830FBCBFED0AAE84D695BCAA7EE393F2C"
+    },
+    {
+      "role": "model_origin_label_seal_v2",
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\proxy-label-seal-receipt-v2.json",
+      "sha256": "E1C6FEE45D44114AF749D1AFB7768A17FC69175D61864E2E1A37B6440AB2647C"
+    },
+    {
+      "role": "external_support_matrix_json",
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-support-map-final-20260928\\relation-support-matrix.json",
+      "sha256": "4EA80EF9C2E1B17AB4AD5D0364A93DA0AACE3C6806D32849DBEA95D606F36C18"
+    },
+    {
+      "role": "external_support_matrix_report",
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-support-map-final-20260928\\relation-support-matrix.md",
+      "sha256": "3A9BCFE875A96F2CAC7223A56F208959AA83CBBAF1944140276A5A7F3BFC41E7"
+    },
+    {
+      "role": "repo_summary_report",
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/P1P3E2_RELATION_SUPPORT_REPORT.md",
+      "sha256": "A54DA5E3C7032341577B3F1290DD619545C03FF29EBF0767B6099C0CF3FBEDCA"
+    },
+    {
+      "role": "support_matrix_builder",
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/build_relation_support_matrix.py",
+      "sha256": "0DE0DB988F998C1F35B79F4EE0EA2578741BFE6147B51BF883C9BAA627E8FC18"
+    },
+    {
+      "role": "judgment_sealer",
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/seal_proxy_judgments.py",
+      "sha256": "ED1FF1CCC56B47957B13C5FAD8D0CF6F0D1E9825D6F68F527F94554B48DA6585"
+    },
+    {
+      "role": "unit_tests",
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/test_relation_support_matrix.py",
+      "sha256": "0185D90025DB7753201EF4C3074A59E3EDEEFDED051F67FA9F2C729BE046CD9F"
+    }
+  ],
+  "validation": {
+    "unit_tests_passed": 5,
+    "python_compile_passed": true,
+    "deterministic_source_join_checks_passed": true
+  }
+}
