@@ -377,7 +377,7 @@ impl PhoenixShell {
                             .child(
                                 Button::new("reader-back-15")
                                     .icon(Icon::empty().path("icons/rotate-ccw.svg"))
-                                    .label("15")
+                                    .when(!narrow_dock, |button| button.label("15"))
                                     .ghost()
                                     .small()
                                     .tooltip("Back 15 seconds")
@@ -409,7 +409,7 @@ impl PhoenixShell {
                             .child(
                                 Button::new("reader-forward-15")
                                     .icon(Icon::empty().path("icons/rotate-cw.svg"))
-                                    .label("15")
+                                    .when(!narrow_dock, |button| button.label("15"))
                                     .ghost()
                                     .small()
                                     .tooltip("Forward 15 seconds")
