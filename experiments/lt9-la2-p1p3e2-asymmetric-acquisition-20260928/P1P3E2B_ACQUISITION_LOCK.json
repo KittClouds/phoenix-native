@@ -1,0 +1,442 @@
+{
+  "schema": "phoenix.lt9.la2.p1p3e2b-acquisition-lock.v1",
+  "status": "FROZEN_BEFORE_CANDIDATE_MINING",
+  "protocol_date": "2026-09-28",
+  "seed": 2026092801,
+  "rng_and_ordering": {
+    "algorithm": "SHA-256 deterministic ordering; UTF-8 canonical fields joined by ASCII unit separator; ascending 64-hex digest then canonical key",
+    "seed_encoding": "decimal ASCII 2026092801",
+    "hash_key": "sha256(seed + US + namespace + US + dataset + US + relation + US + item_key)",
+    "pair_hash_key": "sha256(seed + US + PAIR + US + dataset + US + relation + US + query_id + US + document_id)",
+    "no_runtime_rng": true,
+    "canonicalization": "Unicode NFC for text; lowercase for identity-free lane tokens; IDs preserved byte-for-byte after JSON decoding"
+  },
+  "protocol_file": {
+    "path": "P1P3E2B_ACQUISITION_SPEC.md",
+    "bytes": 9054,
+    "sha256": "88eace3e96a95f70d5f6aa59359545ffcc9c35a700923ef758e3eaadfd87b853"
+  },
+  "rubric_file": {
+    "path": "context-rubric.md",
+    "bytes": 1231,
+    "sha256": "6f3641ce987732dd81aad9611959c5afa5fb92e1a6c5ace9185706294c7bc292"
+  },
+  "source_cohort": [
+    {
+      "name": "fiqa",
+      "queries": {
+        "path": "D:\\phoenix-evals\\beir\\fiqa\\queries.jsonl",
+        "bytes": 706247,
+        "sha256": "eede1e61d4a0188940239b53ebc2da91f577a6a34679c812d1eb9090c29877bc"
+      },
+      "corpus": {
+        "path": "D:\\phoenix-evals\\beir\\fiqa\\corpus.jsonl",
+        "bytes": 47949497,
+        "sha256": "ff593e4df9933955dc3af83be0c3fa28ac7465f627e08c2e53593e734d506517"
+      }
+    },
+    {
+      "name": "scifact",
+      "queries": {
+        "path": "D:\\phoenix-evals\\beir\\scifact\\queries.jsonl",
+        "bytes": 209731,
+        "sha256": "8ff84a7c903f722981cd8d595c022660140c51867b27608a6d4910db86080313"
+      },
+      "corpus": {
+        "path": "D:\\phoenix-evals\\beir\\scifact\\corpus.jsonl",
+        "bytes": 8106566,
+        "sha256": "dec31c8182f3d744c7d2c09423756fd1d17cbef75808db13ba01cc0aab4d1ac6"
+      }
+    },
+    {
+      "name": "arguana",
+      "queries": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\queries.jsonl",
+        "bytes": 1805776,
+        "sha256": "f8b7c903f95d9a2d291de3915a8fac25085e9db679f19f59fea4145bfd1df618"
+      },
+      "corpus": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\corpus.jsonl",
+        "bytes": 9829628,
+        "sha256": "0627982cec4ee896df6dc98604ef6b499c83fd87a19eaaeb3f23b88bbef6cbce"
+      }
+    },
+    {
+      "name": "hotpotqa",
+      "queries": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\queries.jsonl",
+        "bytes": 27458928,
+        "sha256": "26bd91dd9ad69592c02e07180e62096f572b6814f5f413695151485b4ab40a2c"
+      },
+      "corpus": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\corpus.jsonl",
+        "bytes": 2149313046,
+        "sha256": "3e776d2343352f83341878202b8c49cc1ebe6e2ad4c2a77a21c116cafa229334"
+      }
+    },
+    {
+      "name": "nfcorpus",
+      "queries": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\queries.jsonl",
+        "bytes": 441466,
+        "sha256": "d024e6621b84925d485ae473d316a0c3af31c62c8068a59fb29d22f7613aef2a"
+      },
+      "corpus": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\corpus.jsonl",
+        "bytes": 6219364,
+        "sha256": "10cc83ef1826b1425e6a87090b5140b39b27755d5a27e48215a88611c899991f"
+      }
+    },
+    {
+      "name": "nq",
+      "queries": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nq\\queries.jsonl",
+        "bytes": 330995,
+        "sha256": "72f08f0cd333a47e393dac61cf1e56d4fb41eabf1d6ad5ca99f40250b0b491c8"
+      },
+      "corpus": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nq\\corpus.jsonl",
+        "bytes": 1503763328,
+        "sha256": "f7e3588dd416772c9830baf67e827d49678f8d5a6ccf6e101b9ce990cc7b208c"
+      }
+    },
+    {
+      "name": "quora",
+      "queries": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\queries.jsonl",
+        "bytes": 1460859,
+        "sha256": "760e53709ef5ae73e82a3a651111c49dfb837b3a2f803559b79246b57187a14b"
+      },
+      "corpus": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\corpus.jsonl",
+        "bytes": 63335960,
+        "sha256": "e2586c8e2f09c994a03d8e77842072b0f67f6f48403768be745157579d74aae4"
+      }
+    },
+    {
+      "name": "scidocs",
+      "queries": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\queries.jsonl",
+        "bytes": 3166530,
+        "sha256": "3c85b68419bd579ff52edb58f9e7b32eb3d18bc83435edb71dbb68aaf79531d6"
+      },
+      "corpus": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\corpus.jsonl",
+        "bytes": 257334350,
+        "sha256": "328bb38854179c83ee40d4f49fae2ef7209ede7163785193cbdcd5906b28eecc"
+      }
+    },
+    {
+      "name": "trec-covid",
+      "queries": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\queries.jsonl",
+        "bytes": 16552,
+        "sha256": "78f4b76bfef251a0baf37a6cea5c4ba8376cb4536c34635709aaa4a2783b208c"
+      },
+      "corpus": {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\corpus.jsonl",
+        "bytes": 221370065,
+        "sha256": "aded69896598665082316d00df487d22212cc5a8611db05db34eb40d04ed00d7"
+      }
+    }
+  ],
+  "excluded_sources": [
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\private-ledger.json",
+      "bytes": 21375,
+      "sha256": "b613447abb2d6ccca9a519bce9750407f3f23a52be38c3fcd6aecf7e82f4fd83",
+      "read_fields_only": [
+        "dataset",
+        "query_id",
+        "document_id"
+      ],
+      "purpose": "identity exclusion only; all label/rank/qrels/outcome fields ignored"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-final-20260928\\private-ledger.json",
+      "bytes": 22695,
+      "sha256": "4e948e71d929892f5a1bab331b8788cd65cd023e5f13e459747264dd74616285",
+      "read_fields_only": [
+        "dataset",
+        "query_id",
+        "document_id"
+      ],
+      "purpose": "identity exclusion only; all label/rank/qrels/outcome fields ignored"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-expanded-final-20260928\\qrels-counterpart-candidates.jsonl",
+      "bytes": 46377,
+      "sha256": "adbfa47030b9a71aaffbc95208c5d45e5de57d33c2cecf27a139310cf26e3f52",
+      "read_fields_only": [
+        "dataset",
+        "query_id",
+        "document_id"
+      ],
+      "purpose": "identity exclusion only; all label/rank/qrels/outcome fields ignored"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asymmetric-acq-ranks-20260928\\ranked-opportunity-candidates.jsonl",
+      "bytes": 47777,
+      "sha256": "316d6964339042db08460d3c00d4ee791b8e08573672525d4c0443f0ad9d7fef",
+      "read_fields_only": [
+        "dataset",
+        "query_id",
+        "document_id"
+      ],
+      "purpose": "identity exclusion only; all label/rank/qrels/outcome fields ignored"
+    }
+  ],
+  "excluded_identity_projection": {
+    "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2b-acquisition-20260928\\excluded-identities.json",
+    "bytes": 10240,
+    "sha256": "f3b03b2b1f1a6a6fc378ded1704c17c3e237120565a7027424db5323e087aad5",
+    "unique_identity_count": 184,
+    "identity_kinds": {
+      "query": 88,
+      "document": 96
+    },
+    "canonicalization": "sorted unique (dataset,kind,id) triples as compact UTF-8 JSON plus final LF"
+  },
+  "sealed_source_exclusions": [
+    "webis-touche2020",
+    "all non-text qrels/rank/retrieval artifacts"
+  ],
+  "relations": [
+    {
+      "source": "bank",
+      "target": "lender",
+      "legacy_same": 6,
+      "legacy_different": 0,
+      "search_need": "DIFFERENT"
+    },
+    {
+      "source": "bank",
+      "target": "water",
+      "legacy_same": 0,
+      "legacy_different": 2,
+      "search_need": "SAME"
+    },
+    {
+      "source": "car",
+      "target": "vehicle",
+      "legacy_same": 25,
+      "legacy_different": 1,
+      "search_need": "DIFFERENT"
+    },
+    {
+      "source": "credit",
+      "target": "loan",
+      "legacy_same": 2,
+      "legacy_different": 3,
+      "search_need": "BOTH"
+    },
+    {
+      "source": "engine",
+      "target": "motor",
+      "legacy_same": 0,
+      "legacy_different": 5,
+      "search_need": "SAME"
+    },
+    {
+      "source": "insurance",
+      "target": "coverage",
+      "legacy_same": 3,
+      "legacy_different": 0,
+      "search_need": "DIFFERENT"
+    },
+    {
+      "source": "loan",
+      "target": "debt",
+      "legacy_same": 14,
+      "legacy_different": 0,
+      "search_need": "DIFFERENT"
+    },
+    {
+      "source": "stock",
+      "target": "bond",
+      "legacy_same": 0,
+      "legacy_different": 6,
+      "search_need": "SAME"
+    },
+    {
+      "source": "vehicle",
+      "target": "car",
+      "legacy_same": 25,
+      "legacy_different": 0,
+      "search_need": "DIFFERENT"
+    }
+  ],
+  "candidate_quotas": {
+    "primary_per_relation": 24,
+    "reserve_per_relation": 12,
+    "primary_total": 216,
+    "reserve_total": 108,
+    "corpus_cap_primary_per_relation": 12,
+    "corpus_cap_reserve_per_relation": 6,
+    "reserve_per_lane_per_relation": 4
+  },
+  "lanes": [
+    {
+      "name": "SEMANTIC_NEAR",
+      "quota_per_relation": 8,
+      "selection": "high noncandidate lexical-context overlap"
+    },
+    {
+      "name": "SENSE_CONTRAST",
+      "quota_per_relation": 8,
+      "selection": "low noncandidate lexical-context overlap"
+    },
+    {
+      "name": "SPARSE_OR_BOUNDARY",
+      "quota_per_relation": 8,
+      "selection": "short/asymmetric/fragment/boundary natural contexts"
+    }
+  ],
+  "split": {
+    "order": "freeze candidate pools and base_group_id values; rank each relation/lane pool by its frozen lane key and use seeded SHA-256 pair key as tie-break; fill TRAIN-NEW, DEV-NEW, TEST-NEW quotas in order while rejecting cross-split reuse of any dataset-scoped query or document identity",
+    "per_relation_lane_quota": {
+      "SEMANTIC_NEAR": {
+        "TRAIN-NEW": 5,
+        "DEV-NEW": 1,
+        "TEST-NEW": 2
+      },
+      "SENSE_CONTRAST": {
+        "TRAIN-NEW": 5,
+        "DEV-NEW": 2,
+        "TEST-NEW": 1
+      },
+      "SPARSE_OR_BOUNDARY": {
+        "TRAIN-NEW": 4,
+        "DEV-NEW": 2,
+        "TEST-NEW": 2
+      }
+    },
+    "reserve": "separate frozen deterministic queue; when opened mechanically, TRAIN-NEW only; never alter DEV-NEW or TEST-NEW",
+    "legacy": "LEGACY-TRAIN only; never DEV or TEST",
+    "canary": "RETRIEVAL-CANARY outside all populations",
+    "assignment_details": {
+      "selection": "rank within each lane by its frozen lane key; use seeded pair-hash and canonical IDs as tie-break; greedily fill TRAIN-NEW, DEV-NEW, TEST-NEW quotas in order",
+      "identity_rule": "a dataset-scoped query or document identity may be assigned to only one split; reuse within that split is allowed",
+      "corpus_cap_rule": "12 primary and 6 reserve per relation/corpus; never exceed; underfill is reported",
+      "reserve_lane_quotas": {
+        "SEMANTIC_NEAR": 4,
+        "SENSE_CONTRAST": 4,
+        "SPARSE_OR_BOUNDARY": 4
+      },
+      "reserve_assignment": "after primary selection, reserve candidates may use only identities not assigned to DEV-NEW or TEST-NEW; reserves are TRAIN-only"
+    }
+  },
+  "review": {
+    "train_passes": 1,
+    "dev_test_independent_passes": 2,
+    "concordance": "identical labels produce SAME, DIFFERENT, or UNKNOWN",
+    "disagreement": "REVIEW_DISCORDANT; blind third-pass adjudication or diagnostic-only exclusion; never auto-convert to UNKNOWN",
+    "model_origin": "permitted as explicitly labeled proxy engineering evidence; never independent-human validation",
+    "visible_fields": [
+      "packet_id",
+      "directed_relation",
+      "masked_query_context",
+      "masked_document_context"
+    ],
+    "hidden_fields": [
+      "corpus",
+      "query_id",
+      "document_id",
+      "partition",
+      "lane",
+      "qrels",
+      "rank",
+      "opportunity status",
+      "legacy support",
+      "prior judgments",
+      "predictions",
+      "other reviewer labels"
+    ]
+  },
+  "support_contract": {
+    "natural_train_same_min": 8,
+    "natural_train_different_min": 8,
+    "train_new_same_min": 4,
+    "train_new_different_min": 4,
+    "legacy_may_contribute": true,
+    "synthetic_unknown_contribution": 0,
+    "dev_test_contribution": 0,
+    "unsupported_action": "ABSTAIN"
+  },
+  "natural_unknown_monitor": {
+    "minimum_count": 20,
+    "minimum_relations": 4,
+    "if_below": "record outcome; any new sparse/unknown bank requires a separately frozen protocol"
+  },
+  "synthetic_unknown": {
+    "legacy_184": "LEGACY-TRAIN only",
+    "new_transformations": [
+      "BOTH_SIDES_ABSENT",
+      "BOTH_ENDPOINT_MARKERS_ONLY"
+    ],
+    "partition_inheritance": "inherit natural base partition",
+    "one_sided": "audit-only and unlabeled",
+    "support_contribution": 0
+  },
+  "prohibitions_until_acquisition_seal": [
+    "feature join",
+    "model fitting",
+    "threshold selection",
+    "E1 inspection",
+    "neural or frozen-model contact",
+    "qrels/rank access",
+    "retrieval run",
+    "authority update",
+    "serving change"
+  ],
+  "extraction_contract": {
+    "jsonl_keys": {
+      "query": [
+        "_id",
+        "text"
+      ],
+      "document": [
+        "_id",
+        "title",
+        "text"
+      ]
+    },
+    "query_window_radius_tokens": 18,
+    "document_window_radius_tokens": 18,
+    "window_max_tokens": 37,
+    "occurrence_choice": "earliest case-insensitive whole-token source occurrence in query and target occurrence in title+text",
+    "masking": "replace all whole-token occurrences of both candidate forms in each selected window with [SOURCE] and [TARGET]",
+    "tokenizer": "lowercase ASCII alphanumeric tokens; frozen stop list is embedded in acquisition builder and lock-linked by file hash",
+    "per_dataset_relation_caps": {
+      "query_occurrences": 512,
+      "document_occurrences": 2048,
+      "document_pairs_per_query": 96
+    },
+    "lane_pair_features": [
+      "content-token Jaccard",
+      "shared content-token count",
+      "per-side visible token count",
+      "side-count imbalance"
+    ],
+    "duplicate_collapse_key": "relation + NFC masked query context + NFC masked document context"
+  },
+  "builder_file": {
+    "path": "build_e2b_natural_bank.py",
+    "bytes": 25514,
+    "sha256": "368f503f8c705f836aca9a3124edb872fb137f737df4d51024f61abad139ba64"
+  },
+  "support_matrix_source": {
+    "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-support-map-final-20260928\\relation-support-matrix.json",
+    "bytes": 82122,
+    "sha256": "4ea80ef9c2e1b17ab4ad5d0364a93da0aace3c6806d32849dbea95d606f36c18",
+    "used_for": "legacy support counts and search priorities only"
+  },
+  "runtime": {
+    "python": "3.13.15",
+    "dependencies": "Python standard library only"
+  },
+  "repository": {
+    "branch": "codex/phoenix-native-p1p3e2-asymmetric-acquisition-20260928",
+    "base_commit": "9b2ac2e25bd5888ba08c46807cd346684caa0542"
+  }
+}
