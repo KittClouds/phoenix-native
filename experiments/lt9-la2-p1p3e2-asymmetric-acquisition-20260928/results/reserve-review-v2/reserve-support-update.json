@@ -1,0 +1,376 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e2b-reserve-support-update/v1",
+  "status": "TRAIN_SUPPORT_UPDATED_NO_FEATURE_JOIN_NO_FIT",
+  "reserve_opening_status": "FROZEN_RESERVES_OPENED_FOR_TRAIN_SUPPORT_ONLY",
+  "counts": {
+    "primary_packets": 216,
+    "opened_reserve_packets": 96,
+    "primary_labels": {
+      "SAME": 141,
+      "DIFFERENT": 59,
+      "UNKNOWN": 16
+    },
+    "reserve_labels": {
+      "SAME": 67,
+      "DIFFERENT": 27,
+      "UNKNOWN": 2
+    },
+    "combined_new_labels": {
+      "SAME": 208,
+      "DIFFERENT": 86,
+      "UNKNOWN": 18
+    },
+    "natural_unknown_relations_across_primary_and_opened_reserve": 5,
+    "natural_unknown_monitor": {
+      "observed_count": 18,
+      "minimum_count": 20,
+      "observed_relations": 5,
+      "minimum_relations": 4,
+      "passed": false
+    }
+  },
+  "relations": {
+    "bank->lender": {
+      "train_new_counts": {
+        "SAME": 26,
+        "DIFFERENT": 0,
+        "UNKNOWN": 0
+      },
+      "dev_new_counts_unchanged": {
+        "SAME": 5,
+        "DIFFERENT": 0,
+        "UNKNOWN": 0
+      },
+      "test_new_counts_unchanged": {
+        "SAME": 2,
+        "DIFFERENT": 1,
+        "UNKNOWN": 2
+      },
+      "train_new_distinct_base_groups": {
+        "SAME": 26,
+        "DIFFERENT": 0,
+        "UNKNOWN": 0
+      },
+      "legacy_support": {
+        "SAME": 6,
+        "DIFFERENT": 0
+      },
+      "combined_train_support": {
+        "SAME": 32,
+        "DIFFERENT": 0
+      },
+      "support_state": "UNSUPPORTED_ABSTAIN"
+    },
+    "bank->water": {
+      "train_new_counts": {
+        "SAME": 1,
+        "DIFFERENT": 25,
+        "UNKNOWN": 0
+      },
+      "dev_new_counts_unchanged": {
+        "SAME": 0,
+        "DIFFERENT": 5,
+        "UNKNOWN": 0
+      },
+      "test_new_counts_unchanged": {
+        "SAME": 0,
+        "DIFFERENT": 5,
+        "UNKNOWN": 0
+      },
+      "train_new_distinct_base_groups": {
+        "SAME": 1,
+        "DIFFERENT": 25,
+        "UNKNOWN": 0
+      },
+      "legacy_support": {
+        "SAME": 0,
+        "DIFFERENT": 2
+      },
+      "combined_train_support": {
+        "SAME": 1,
+        "DIFFERENT": 27
+      },
+      "support_state": "UNSUPPORTED_ABSTAIN"
+    },
+    "car->vehicle": {
+      "train_new_counts": {
+        "SAME": 15,
+        "DIFFERENT": 4,
+        "UNKNOWN": 7
+      },
+      "dev_new_counts_unchanged": {
+        "SAME": 5,
+        "DIFFERENT": 0,
+        "UNKNOWN": 0
+      },
+      "test_new_counts_unchanged": {
+        "SAME": 4,
+        "DIFFERENT": 0,
+        "UNKNOWN": 1
+      },
+      "train_new_distinct_base_groups": {
+        "SAME": 15,
+        "DIFFERENT": 4,
+        "UNKNOWN": 7
+      },
+      "legacy_support": {
+        "SAME": 25,
+        "DIFFERENT": 1
+      },
+      "combined_train_support": {
+        "SAME": 40,
+        "DIFFERENT": 5
+      },
+      "support_state": "UNSUPPORTED_ABSTAIN"
+    },
+    "credit->loan": {
+      "train_new_counts": {
+        "SAME": 23,
+        "DIFFERENT": 1,
+        "UNKNOWN": 2
+      },
+      "dev_new_counts_unchanged": {
+        "SAME": 3,
+        "DIFFERENT": 0,
+        "UNKNOWN": 2
+      },
+      "test_new_counts_unchanged": {
+        "SAME": 4,
+        "DIFFERENT": 1,
+        "UNKNOWN": 0
+      },
+      "train_new_distinct_base_groups": {
+        "SAME": 23,
+        "DIFFERENT": 1,
+        "UNKNOWN": 2
+      },
+      "legacy_support": {
+        "SAME": 2,
+        "DIFFERENT": 3
+      },
+      "combined_train_support": {
+        "SAME": 25,
+        "DIFFERENT": 4
+      },
+      "support_state": "UNSUPPORTED_ABSTAIN"
+    },
+    "engine->motor": {
+      "train_new_counts": {
+        "SAME": 16,
+        "DIFFERENT": 7,
+        "UNKNOWN": 3
+      },
+      "dev_new_counts_unchanged": {
+        "SAME": 2,
+        "DIFFERENT": 3,
+        "UNKNOWN": 0
+      },
+      "test_new_counts_unchanged": {
+        "SAME": 2,
+        "DIFFERENT": 3,
+        "UNKNOWN": 0
+      },
+      "train_new_distinct_base_groups": {
+        "SAME": 16,
+        "DIFFERENT": 7,
+        "UNKNOWN": 3
+      },
+      "legacy_support": {
+        "SAME": 0,
+        "DIFFERENT": 5
+      },
+      "combined_train_support": {
+        "SAME": 16,
+        "DIFFERENT": 12
+      },
+      "support_state": "SUPPORTED"
+    },
+    "insurance->coverage": {
+      "train_new_counts": {
+        "SAME": 16,
+        "DIFFERENT": 10,
+        "UNKNOWN": 0
+      },
+      "dev_new_counts_unchanged": {
+        "SAME": 3,
+        "DIFFERENT": 2,
+        "UNKNOWN": 0
+      },
+      "test_new_counts_unchanged": {
+        "SAME": 2,
+        "DIFFERENT": 3,
+        "UNKNOWN": 0
+      },
+      "train_new_distinct_base_groups": {
+        "SAME": 16,
+        "DIFFERENT": 10,
+        "UNKNOWN": 0
+      },
+      "legacy_support": {
+        "SAME": 3,
+        "DIFFERENT": 0
+      },
+      "combined_train_support": {
+        "SAME": 19,
+        "DIFFERENT": 10
+      },
+      "support_state": "SUPPORTED"
+    },
+    "loan->debt": {
+      "train_new_counts": {
+        "SAME": 25,
+        "DIFFERENT": 1,
+        "UNKNOWN": 0
+      },
+      "dev_new_counts_unchanged": {
+        "SAME": 4,
+        "DIFFERENT": 1,
+        "UNKNOWN": 0
+      },
+      "test_new_counts_unchanged": {
+        "SAME": 4,
+        "DIFFERENT": 1,
+        "UNKNOWN": 0
+      },
+      "train_new_distinct_base_groups": {
+        "SAME": 25,
+        "DIFFERENT": 1,
+        "UNKNOWN": 0
+      },
+      "legacy_support": {
+        "SAME": 14,
+        "DIFFERENT": 0
+      },
+      "combined_train_support": {
+        "SAME": 39,
+        "DIFFERENT": 1
+      },
+      "support_state": "UNSUPPORTED_ABSTAIN"
+    },
+    "stock->bond": {
+      "train_new_counts": {
+        "SAME": 9,
+        "DIFFERENT": 4,
+        "UNKNOWN": 1
+      },
+      "dev_new_counts_unchanged": {
+        "SAME": 3,
+        "DIFFERENT": 2,
+        "UNKNOWN": 0
+      },
+      "test_new_counts_unchanged": {
+        "SAME": 2,
+        "DIFFERENT": 3,
+        "UNKNOWN": 0
+      },
+      "train_new_distinct_base_groups": {
+        "SAME": 9,
+        "DIFFERENT": 4,
+        "UNKNOWN": 1
+      },
+      "legacy_support": {
+        "SAME": 0,
+        "DIFFERENT": 6
+      },
+      "combined_train_support": {
+        "SAME": 9,
+        "DIFFERENT": 10
+      },
+      "support_state": "SUPPORTED"
+    },
+    "vehicle->car": {
+      "train_new_counts": {
+        "SAME": 23,
+        "DIFFERENT": 3,
+        "UNKNOWN": 0
+      },
+      "dev_new_counts_unchanged": {
+        "SAME": 4,
+        "DIFFERENT": 1,
+        "UNKNOWN": 0
+      },
+      "test_new_counts_unchanged": {
+        "SAME": 5,
+        "DIFFERENT": 0,
+        "UNKNOWN": 0
+      },
+      "train_new_distinct_base_groups": {
+        "SAME": 23,
+        "DIFFERENT": 3,
+        "UNKNOWN": 0
+      },
+      "legacy_support": {
+        "SAME": 25,
+        "DIFFERENT": 0
+      },
+      "combined_train_support": {
+        "SAME": 48,
+        "DIFFERENT": 3
+      },
+      "support_state": "UNSUPPORTED_ABSTAIN"
+    }
+  },
+  "gate": {
+    "relations_supported": [
+      "engine->motor",
+      "insurance->coverage",
+      "stock->bond"
+    ],
+    "relations_unsupported": [
+      "bank->lender",
+      "bank->water",
+      "car->vehicle",
+      "credit->loan",
+      "loan->debt",
+      "vehicle->car"
+    ],
+    "all_relations_supported": false,
+    "next_action": "KEEP_UNSUPPORTED_RELATIONS_ABSTAIN; ANY_NEW_ACQUISITION_REQUIRES_A_NEW_FROZEN_PROTOCOL",
+    "reserve_status": {
+      "opened_relations": [
+        "bank->lender",
+        "bank->water",
+        "car->vehicle",
+        "credit->loan",
+        "engine->motor",
+        "insurance->coverage",
+        "loan->debt",
+        "vehicle->car"
+      ],
+      "unopened_relation_queues": {
+        "stock->bond": 12
+      },
+      "unsupported_relations_with_unopened_reserve": [],
+      "all_reserve_rows_for_unsupported_relations_consumed": true
+    }
+  },
+  "boundaries": {
+    "joined_fields": [
+      "packet_id",
+      "base_group_id",
+      "relation",
+      "population",
+      "split"
+    ],
+    "context_text_or_feature_fields_joined": false,
+    "packet_text_discarded_before_label_metadata_join": true,
+    "only_train_new_reserve_labels_added": true,
+    "dev_test_labels_used_for_support": false,
+    "dev_test_identities_or_assignments_changed": false,
+    "stock_bond_reserve_opened": false,
+    "synthetic_unknown_counted_as_relation_support": false,
+    "model_fit_or_threshold_selection": false,
+    "retrieval_or_serving_run": false,
+    "retrieval_canaries_opened": false
+  },
+  "input_hashes": {
+    "primary_judgments": "070d654ff4fad6ce907d2bdbdb7356a52a2b12ee7078ebae7815f56b7d05e0c7",
+    "primary_judgment_seal": "295963eb51c5b6b2397ac17dc0e9c9f9702db5a95e21630891a31000fb255bcc",
+    "primary_ledger": "d481a5845f028ae6141559112ad1eb70e88f1efe2160fc7b5e50cdf011c85f84",
+    "reserve_judgments": "f247e4f8c57b42deba27e89b9b73133e92b0f2359f56930bac842391edbf25e9",
+    "reserve_judgment_seal": "bd45573cc10a257c453c8e7c3abc0218bc59d014737925f2193ecec8ecce9863",
+    "reserve_opening_receipt": "7aa31568e221926f4908329d236f134b26ad74004e37077a09f6ba04430bba3d",
+    "acquisition_lock": "33dfd6045388ff05948cdf739546b70b2c3c5034260fe2dea38fcef0f9588a7b",
+    "assessor_script": "9a8cd98b579ec65d89dc170cb6d39b99a13e0227668280367d6ce7ee3172a9d7"
+  }
+}
