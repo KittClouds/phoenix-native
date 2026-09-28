@@ -1,0 +1,439 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e2-artifact-manifest/v1",
+  "date": "2026-09-28",
+  "branch": "codex/phoenix-native-p1p3e2-opportunity-bank-20260928",
+  "base_commit": "9f60207bb8e88187905049c3dac63c7a20234f2b",
+  "status": "DISCOVERY_ONLY_OPPORTUNITIES_FOUND_CONTEXT_REVIEW_READY_NO_FIT",
+  "source_files": [
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/PROTOCOL.md",
+      "sha256": "b8994eef3bc45d7c3bd48bbae259e4b7a83ad05a9ba6e6388551f88e7ba305a5",
+      "bytes": 5551
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/EXPANDED_DISCOVERY_PROTOCOL.md",
+      "sha256": "9ba7562ca083e958bff9fdbfb2c252ad43ef983643da088668b676b2dfb6983c",
+      "bytes": 2048
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/CONTEXT_REVIEW_PROTOCOL.md",
+      "sha256": "95c2a1e107c9d3948d020cb4a6af7aa6a62695e4e5c92e0a65334cb167179caa",
+      "bytes": 2058
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/BASELINE_BUILD.md",
+      "sha256": "f1b44582f286b1b90e382155da498ff0889a9a21bedf4a23130c2d742002d1e3",
+      "bytes": 2199
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/P1P3E2_DISCOVERY_REPORT.md",
+      "sha256": "f9399c48bcc2772c727ba4717615e8fae4bc088d91506944be3fb50bf8415c19",
+      "bytes": 3894
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/cohort.json",
+      "sha256": "4b1d4148425ccb63a05652e2694bb946408823ce9f7bfd8b330cd1c1d9713de5",
+      "bytes": 1091
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/candidate-relations.json",
+      "sha256": "f1f164db206251220a85062293a56902d7fe99b0a64e5425aa036b5dc6fb30e2",
+      "bytes": 1028
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/candidate-relations-expanded.json",
+      "sha256": "3c9e354d53008978377de590e9c3061894cc29794d0ea0928596ca9c1b852590",
+      "bytes": 2832
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/src/main.rs",
+      "sha256": "8ace8658208f39b787ed0156e5a58637c37547f54dcafe5bf73c46d125c1af78",
+      "bytes": 25583
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/qps_baseline.rs",
+      "sha256": "f71553940aedfb50f375ef3bc532a5416908681432c8245e9e95b640e2f2196a",
+      "bytes": 15269
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/make_context_packets.py",
+      "sha256": "84a7c35356506f361ea82e600dec0fdc5137a2d94267dbf553fe3e4b15e38c72",
+      "bytes": 9985
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/make_manifest.py",
+      "sha256": "90770f786b932e6b8262b34434d32e2bbf2938fedb296fa76a384c964edb9a26",
+      "bytes": 6848
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/context-rubric.md",
+      "sha256": "6f3641ce987732dd81aad9611959c5afa5fb92e1a6c5ace9185706294c7bc292",
+      "bytes": 1231
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/test_make_context_packets.py",
+      "sha256": "fe6a8793b396e7925725df7280a51d6cb16aeecd82a5b6b1446fc2906acfba77",
+      "bytes": 1109
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/Cargo.toml",
+      "sha256": "a0d8b16f02f0aba6645087e85d01c74bb473b6cc1d7a98da009aa139ea42f3c7",
+      "bytes": 274
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/Cargo.lock",
+      "sha256": "d00179b64ae390ca25693fefbe965c907b815cddce7137af032cac44936825f5",
+      "bytes": 6207
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/.gitignore",
+      "sha256": "6feaded4e28ea86e001a6751b4e3d960e8b7c31b9616ff9936b79297086e809b",
+      "bytes": 23
+    }
+  ],
+  "screen_runner": {
+    "source_sha256": "8ace8658208f39b787ed0156e5a58637c37547f54dcafe5bf73c46d125c1af78",
+    "binary_sha256": "f628fadb54a55dde54d227b631438609dce9c010eecb6b7d835c8df10767747d",
+    "input_hashes": [
+      {
+        "path": "D:\\phoenix-native-cleanroom-cut4-20260920\\experiments\\lt9-la2-p1p3e2-transport-opportunity-20260928\\EXPANDED_DISCOVERY_PROTOCOL.md",
+        "sha256": "364b8bcb391414ea2b867e043079d094cf210bd11e9aa744fce584067f3cd637",
+        "bytes": 2050
+      },
+      {
+        "path": "D:\\phoenix-native-cleanroom-cut4-20260920\\experiments\\lt9-la2-p1p3e2-transport-opportunity-20260928\\cohort.json",
+        "sha256": "4b1d4148425ccb63a05652e2694bb946408823ce9f7bfd8b330cd1c1d9713de5",
+        "bytes": 1091
+      },
+      {
+        "path": "D:\\phoenix-native-cleanroom-cut4-20260920\\experiments\\lt9-la2-p1p3e2-transport-opportunity-20260928\\candidate-relations-expanded.json",
+        "sha256": "3c9e354d53008978377de590e9c3061894cc29794d0ea0928596ca9c1b852590",
+        "bytes": 2832
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\queries.jsonl",
+        "sha256": "f8b7c903f95d9a2d291de3915a8fac25085e9db679f19f59fea4145bfd1df618",
+        "bytes": 1805776
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\qrels\\test.tsv",
+        "sha256": "0c47b481fa8b47fb9ca5e74bc8a017bdea14518c0e4a5d21345291180b3aca76",
+        "bytes": 96296
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\corpus.jsonl",
+        "sha256": "0627982cec4ee896df6dc98604ef6b499c83fd87a19eaaeb3f23b88bbef6cbce",
+        "bytes": 9829628
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\queries.jsonl",
+        "sha256": "26bd91dd9ad69592c02e07180e62096f572b6814f5f413695151485b4ab40a2c",
+        "bytes": 27458928
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\qrels\\train.tsv",
+        "sha256": "12d4f4898fe7888669f6ccc1feec5c31b42bc0985d9a445e2a442e28d1fd3918",
+        "bytes": 6117535
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\qrels\\dev.tsv",
+        "sha256": "e0220b5405ba8a2a8719071b9389169c849a14164aa2d63976142f1f3c04ee3b",
+        "bytes": 392210
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\qrels\\test.tsv",
+        "sha256": "20d35d40a234e9bd0a561344b76077cea07a2f74d9cb80b8ce1e75408b596247",
+        "bytes": 532620
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\corpus.jsonl",
+        "sha256": "3e776d2343352f83341878202b8c49cc1ebe6e2ad4c2a77a21c116cafa229334",
+        "bytes": 2149313046
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\queries.jsonl",
+        "sha256": "d024e6621b84925d485ae473d316a0c3af31c62c8068a59fb29d22f7613aef2a",
+        "bytes": 441466
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\qrels\\train.tsv",
+        "sha256": "6336b80f9bffc4f063f3aa450047ad35c0b7c534efe4a6ba35e16dbace047f6a",
+        "bytes": 2504643
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\qrels\\dev.tsv",
+        "sha256": "b1d38b5e8f78c4a5820bce2b7ec2db54911d7690dc601e76811846b211180bd8",
+        "bytes": 258218
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\qrels\\test.tsv",
+        "sha256": "f8fba6ef3d4dd9c3a242a8ba4ae38276fc3622fce7dcbae764766d564542fd2a",
+        "bytes": 279572
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\corpus.jsonl",
+        "sha256": "10cc83ef1826b1425e6a87090b5140b39b27755d5a27e48215a88611c899991f",
+        "bytes": 6219364
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nq\\queries.jsonl",
+        "sha256": "72f08f0cd333a47e393dac61cf1e56d4fb41eabf1d6ad5ca99f40250b0b491c8",
+        "bytes": 330995
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nq\\qrels\\test.tsv",
+        "sha256": "6df0cd2cbbe88504b64c68f21e946a759b62c4d864225720cec256f0196e2210",
+        "bytes": 87138
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nq\\corpus.jsonl",
+        "sha256": "f7e3588dd416772c9830baf67e827d49678f8d5a6ccf6e101b9ce990cc7b208c",
+        "bytes": 1503763328
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\queries.jsonl",
+        "sha256": "760e53709ef5ae73e82a3a651111c49dfb837b3a2f803559b79246b57187a14b",
+        "bytes": 1460859
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\qrels\\dev.tsv",
+        "sha256": "9a53340e9703f5a529d3d1a0a573387e8255e10d656953d30df03736a859e409",
+        "bytes": 124649
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\qrels\\test.tsv",
+        "sha256": "3c5b3e6bd9a26ecf67271bf0f856aa87cc4e71fa3665b32cc0ec906d7711fddb",
+        "bytes": 255698
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\corpus.jsonl",
+        "sha256": "e2586c8e2f09c994a03d8e77842072b0f67f6f48403768be745157579d74aae4",
+        "bytes": 63335960
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\queries.jsonl",
+        "sha256": "3c85b68419bd579ff52edb58f9e7b32eb3d18bc83435edb71dbb68aaf79531d6",
+        "bytes": 3166530
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\qrels\\test.tsv",
+        "sha256": "dcd3d7f77417294bb6f338537f3c28d8a5ea72b30fe6633f407fa85528767e35",
+        "bytes": 2543906
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\corpus.jsonl",
+        "sha256": "328bb38854179c83ee40d4f49fae2ef7209ede7163785193cbdcd5906b28eecc",
+        "bytes": 257334350
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\queries.jsonl",
+        "sha256": "78f4b76bfef251a0baf37a6cea5c4ba8376cb4536c34635709aaa4a2783b208c",
+        "bytes": 16552
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\qrels\\test.tsv",
+        "sha256": "10669ab7d526cb04f52079139fd88c3d467a0776441b046567f540582798982b",
+        "bytes": 980831
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\corpus.jsonl",
+        "sha256": "aded69896598665082316d00df487d22212cc5a8611db05db34eb40d04ed00d7",
+        "bytes": 221370065
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\webis-touche2020\\queries.jsonl",
+        "sha256": "8658a223ac9ea050f0d37483dee7037c7c8854e58ce09d01d81a7d071d8caa0d",
+        "bytes": 28707
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\webis-touche2020\\qrels\\test.tsv",
+        "sha256": "cfaaa2e7820ae9a6913d2e6fe1bd23c8c8b2c4c7ecf102e780704344e35bc4e6",
+        "bytes": 101349
+      },
+      {
+        "path": "D:\\phoenix-evals\\beir\\screen-candidates\\webis-touche2020\\corpus.jsonl",
+        "sha256": "52e5585b5c23164d37cf9a59cf5d3f55645e0efeec8cd8cdb6b0bd37e48ec111",
+        "bytes": 736323439
+      }
+    ]
+  },
+  "qps_baseline": {
+    "binary": {
+      "path": "D:\\phoenix-target-overgraph\\release\\p1p3e2-qps-baseline.exe",
+      "sha256": "7e07a37eb65b3e91fb632824c8d5a1b96dd5357e38422d19d5c9a5b2dc23d9fa",
+      "bytes": 676352
+    },
+    "harness_files": [
+      {
+        "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-qps-ranker-20260928\\Cargo.toml",
+        "sha256": "49a588ca199b8944a6cefaedd62f58cba3e5eca2d9d6eed727f3ad3f89385914",
+        "bytes": 308
+      },
+      {
+        "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-qps-ranker-20260928\\Cargo.lock",
+        "sha256": "52a9b098d147bde61bc96d6887c9a08050a6b6f9d59aa24997d11ad711bae1f6",
+        "bytes": 12093
+      },
+      {
+        "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-qps-ranker-20260928\\src\\main.rs",
+        "sha256": "f71553940aedfb50f375ef3bc532a5416908681432c8245e9e95b640e2f2196a",
+        "bytes": 15269
+      }
+    ],
+    "qps_source_files": [
+      {
+        "path": "Cargo.toml",
+        "sha256": "b981a076e5752a334caa5c4319e37e34794458436b55cd21b7398c255277a30a",
+        "bytes": 281
+      },
+      {
+        "path": "src/builder.rs",
+        "sha256": "a744f1610511cb58e1bded3caa1f63660c8b920c21bbe66577cb97a2ce7f9d4d",
+        "bytes": 15759
+      },
+      {
+        "path": "src/index.rs",
+        "sha256": "a4c3c36d295c903594f2cee0bed8ab65645ab02b20b0f6d4702d759b2f62b7f3",
+        "bytes": 146927
+      },
+      {
+        "path": "src/ledger_v3.rs",
+        "sha256": "a8931ad9d3a7af493637da1c0aca2d90c154cc273ccb5b1eda92d3317f88f029",
+        "bytes": 22581
+      },
+      {
+        "path": "src/lib.rs",
+        "sha256": "d40894c90cfdfdb6aea777519939b5173d11fdff581d2155969ffe9975476605",
+        "bytes": 2066
+      },
+      {
+        "path": "src/rank_evidence.rs",
+        "sha256": "5704e8b1fbcdb1f91ad662cbda045a3e26959ea5f78fd8a636efd8399c0101cf",
+        "bytes": 14120
+      },
+      {
+        "path": "src/ranker.rs",
+        "sha256": "3443a1ec7db42d20f1fae12f1c218f7281239c67dd4480158a587aa9e75a4191",
+        "bytes": 11043
+      },
+      {
+        "path": "src/ranker_v3.rs",
+        "sha256": "982b91ddff989d0b798de702d1298b4f6d8a234c5fb34ba5020f6876edb46b85",
+        "bytes": 18402
+      },
+      {
+        "path": "src/score.rs",
+        "sha256": "55173b600378420736c1b6a47b58f32d9866ee40c1926adf667e124224331d6a",
+        "bytes": 21131
+      },
+      {
+        "path": "src/selection.rs",
+        "sha256": "3dcd1449270bc9bcedfbafd9f3b9a9442c7c78292457c696306752fc1083d19b",
+        "bytes": 4583
+      },
+      {
+        "path": "src/split_v3.rs",
+        "sha256": "5dc773ee5115fc6d35bda3fd9ec4ed893b6c4ce46711142af79a8366332ef8d7",
+        "bytes": 39968
+      },
+      {
+        "path": "src/tokenize.rs",
+        "sha256": "9133c046a14574550700252894195b2567ea3b304f433bbce626d081455fc656",
+        "bytes": 2252
+      },
+      {
+        "path": "src/types.rs",
+        "sha256": "84d7fa6adc2f36f7d365353d8ce8c1a247d9afd763168692c86f8122cb585a50",
+        "bytes": 10983
+      }
+    ],
+    "qps_source_tree_sha256": "ffc2f4f30524ef8d7a54ffb403972f98e49592e92d882b6d7771d0fa150813f7",
+    "ranked_jsonl_run2_sha256": "b97e20afeb2832252a8e8a6055be298894d575bd06f45c9b7def8d6ef7d8bf0b",
+    "ranked_jsonl_run3_sha256": "b97e20afeb2832252a8e8a6055be298894d575bd06f45c9b7def8d6ef7d8bf0b",
+    "deterministic_rank_output_match": true,
+    "receipt_sha256": "cb30d50286cee4a8283b0d86caf0841c28cc2022434824494a3545116268ab46",
+    "candidate_rows": 47,
+    "top100_misses": 14,
+    "rank_11_100": 3,
+    "top10": 26,
+    "unsupported_candidate_rows": 4
+  },
+  "outputs": [
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-expanded-final-20260928\\opportunity-screen-receipt.json",
+      "sha256": "6c4728bc7be2367422c5044acb6aa9108eeaa67debe1c34f36bb365024826d63",
+      "bytes": 12790
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-expanded-final-20260928\\qrels-counterpart-candidates.jsonl",
+      "sha256": "adbfa47030b9a71aaffbc95208c5d45e5de57d33c2cecf27a139310cf26e3f52",
+      "bytes": 46377
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-qps-ranks-run3-20260928\\qps-baseline-receipt.json",
+      "sha256": "cb30d50286cee4a8283b0d86caf0841c28cc2022434824494a3545116268ab46",
+      "bytes": 3992
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-qps-ranks-run3-20260928\\ranked-opportunity-candidates.jsonl",
+      "sha256": "b97e20afeb2832252a8e8a6055be298894d575bd06f45c9b7def8d6ef7d8bf0b",
+      "bytes": 49605
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-final-20260928\\acquisition-receipt.json",
+      "sha256": "35e2f7c0517350ff3ca99adac2b0481e93a7a5587a2f721713c7d5b9b4aec58e",
+      "bytes": 1822
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-final-20260928\\review-packets.json",
+      "sha256": "f33ec16afe2bd73202518f096a8f4f8713a86e0df463fb1beb9c236ba3381b12",
+      "bytes": 28218
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-final-20260928\\judgments-template.json",
+      "sha256": "5d31389daf35e58c330878dd7ec417763f2b7ebce2749ab68aedd16e88bc5fad",
+      "bytes": 3483
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-final-20260928\\private-ledger.json",
+      "sha256": "4e948e71d929892f5a1bab331b8788cd65cd023e5f13e459747264dd74616285",
+      "bytes": 22695
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-final-20260928\\transport-opportunity-bank.jsonl",
+      "sha256": "aac6531cef66d63dea5ca310340300873184d28fc6cffa70541ffca4b521dfe4",
+      "bytes": 15888
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-final-20260928\\rubric.md",
+      "sha256": "6f3641ce987732dd81aad9611959c5afa5fb92e1a6c5ace9185706294c7bc292",
+      "bytes": 1231
+    }
+  ],
+  "preserved_attempts": [
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-expanded-20260928",
+      "disposition": "FAILED_STACK_OVERFLOW_DURING_RECEIPT_HASH; superseded by expanded-final"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-qps-ranks-final-20260928",
+      "disposition": "INCOMPLETE_QPS_RUN; no result interpreted; superseded by run3"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-qps-ranks-retry-20260928",
+      "disposition": "INTERRUPTED_DURING_MEMORY-MONITORED_BUILD; no result interpreted"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-context-bank-20260928",
+      "disposition": "FAILED_PACKET_QA; stored excerpts omitted target occurrences and unordered lexical_pair hid direction; superseded by context-bank-final"
+    }
+  ],
+  "boundary": {
+    "feature_join": false,
+    "model_fit_or_threshold_selection": false,
+    "authority_update": false,
+    "serving_change": false,
+    "qrels_absence_used_as_negative": false,
+    "formal_p1p3_qualification": false
+  }
+}

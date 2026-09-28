@@ -1,0 +1,14 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e2-corpus-cohort/v1",
+  "date": "2026-09-28",
+  "datasets": [
+    { "name": "arguana", "root": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana", "qrels_splits": ["test"] },
+    { "name": "hotpotqa", "root": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa", "qrels_splits": ["train", "dev", "test"] },
+    { "name": "nfcorpus", "root": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus", "qrels_splits": ["train", "dev", "test"] },
+    { "name": "nq", "root": "D:\\phoenix-evals\\beir\\screen-candidates\\nq", "qrels_splits": ["test"] },
+    { "name": "quora", "root": "D:\\phoenix-evals\\beir\\screen-candidates\\quora", "qrels_splits": ["dev", "test"] },
+    { "name": "scidocs", "root": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs", "qrels_splits": ["test"] },
+    { "name": "trec-covid", "root": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid", "qrels_splits": ["test"] },
+    { "name": "webis-touche2020", "root": "D:\\phoenix-evals\\beir\\screen-candidates\\webis-touche2020", "qrels_splits": ["test"] }
+  ]
+}

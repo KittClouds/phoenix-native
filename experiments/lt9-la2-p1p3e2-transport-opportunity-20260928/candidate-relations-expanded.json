@@ -1,0 +1,25 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e2-candidate-inventory/v1",
+  "date": "2026-09-28",
+  "source": "Block expansion: four P1P3E0 candidate pairs plus the complete pre-existing 12-direction LT9 candidate bank; no row selected by E2 labels or outcomes.",
+  "authority_status": "CANDIDATE_ONLY_NOT_PROMOTED",
+  "relations": [
+    { "pair_id": "pluck_pull", "source": "pluck", "target": "pull", "also_screen_reverse": true, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "bout_tear", "source": "bout", "target": "tear", "also_screen_reverse": true, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "cruel_vicious", "source": "cruel", "target": "vicious", "also_screen_reverse": true, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "deterioration_worsening", "source": "deterioration", "target": "worsening", "also_screen_reverse": true, "transport_status": "BLOCKED_INSUFFICIENT_NEGATIVES" },
+    { "pair_id": "repair_to_fix", "source": "repair", "target": "fix", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "engine_to_motor", "source": "engine", "target": "motor", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "car_to_vehicle", "source": "car", "target": "vehicle", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "vehicle_to_car", "source": "vehicle", "target": "car", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "bank_to_shore", "source": "bank", "target": "shore", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "bank_to_lender", "source": "bank", "target": "lender", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "economic_to_tumor", "source": "economic", "target": "tumor", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "loan_to_debt", "source": "loan", "target": "debt", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "credit_to_loan", "source": "credit", "target": "loan", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "insurance_to_coverage", "source": "insurance", "target": "coverage", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "stock_to_bond", "source": "stock", "target": "bond", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "bank_to_water", "source": "bank", "target": "water", "also_screen_reverse": false, "transport_status": "CANDIDATE_ONLY" }
+  ],
+  "negative_support_rule": "No candidate relation may transport until both positive and negative context support are sufficient; candidate inventory status is not authority."
+}

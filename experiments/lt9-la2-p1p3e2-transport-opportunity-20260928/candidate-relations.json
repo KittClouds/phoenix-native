@@ -1,0 +1,13 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e2-candidate-inventory/v1",
+  "date": "2026-09-28",
+  "source": "Frozen four-pair inventory in P1P3E0; both lexical directions are screened as engineering candidates.",
+  "authority_status": "CANDIDATE_ONLY_NOT_PROMOTED",
+  "relations": [
+    { "pair_id": "pluck_pull", "source": "pluck", "target": "pull", "also_screen_reverse": true, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "bout_tear", "source": "bout", "target": "tear", "also_screen_reverse": true, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "cruel_vicious", "source": "cruel", "target": "vicious", "also_screen_reverse": true, "transport_status": "CANDIDATE_ONLY" },
+    { "pair_id": "deterioration_worsening", "source": "deterioration", "target": "worsening", "also_screen_reverse": true, "transport_status": "BLOCKED_INSUFFICIENT_NEGATIVES" }
+  ],
+  "negative_support_rule": "A candidate with no negative-context support cannot participate in transport, regardless of qrels opportunity count."
+}
