@@ -1,0 +1,132 @@
+{
+  "base_commit": "416f149ea6c3da228746a09377565c851767d1e6",
+  "branch": "codex/phoenix-native-p1p3e2-asymmetric-acquisition-20260928",
+  "date": "2026-09-28",
+  "external_artifacts": [
+    {
+      "bytes": 6677,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asymmetric-acq-screen-20260928\\opportunity-screen-receipt.json",
+      "role": "screen",
+      "sha256": "4a35fd4cf05ea2be56012cf19604b626e64a1098187e55b33e04df0fb9d07c63"
+    },
+    {
+      "bytes": 44398,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asymmetric-acq-screen-20260928\\qrels-counterpart-candidates.jsonl",
+      "role": "screen",
+      "sha256": "c619ac85a9cd4ebd99fe16c7ec561bce1b4b4c51123f6743fb8e65a1f2c0f7a9"
+    },
+    {
+      "bytes": 2987,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asymmetric-acq-ranks-20260928\\qps-baseline-receipt.json",
+      "role": "rank-primary",
+      "sha256": "9f20c9f6c70ea0072973748659ddf83507c52c57cf6c005353d3c8dba6a04619"
+    },
+    {
+      "bytes": 47777,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asymmetric-acq-ranks-20260928\\ranked-opportunity-candidates.jsonl",
+      "role": "rank-primary",
+      "sha256": "316d6964339042db08460d3c00d4ee791b8e08573672525d4c0443f0ad9d7fef"
+    },
+    {
+      "bytes": 2987,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asymmetric-acq-ranks-rerun-20260928\\qps-baseline-receipt.json",
+      "role": "rank-rerun",
+      "sha256": "9f20c9f6c70ea0072973748659ddf83507c52c57cf6c005353d3c8dba6a04619"
+    },
+    {
+      "bytes": 47777,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asymmetric-acq-ranks-rerun-20260928\\ranked-opportunity-candidates.jsonl",
+      "role": "rank-rerun",
+      "sha256": "316d6964339042db08460d3c00d4ee791b8e08573672525d4c0443f0ad9d7fef"
+    },
+    {
+      "bytes": 1672,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\acquisition-receipt.json",
+      "role": "fit-only-context-review",
+      "sha256": "08d0348634dd1ddbe72dd5eb52335ae22f8bbc8936eee7d57fc29d353632c9f4"
+    },
+    {
+      "bytes": 27271,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\review-packets.json",
+      "role": "fit-only-context-review",
+      "sha256": "145172658af94a8bdfc19e7c79508a394f5b774d3218e770c136d16d3a1df818"
+    },
+    {
+      "bytes": 3483,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\judgments-template.json",
+      "role": "fit-only-context-review",
+      "sha256": "24aa94e961fd164eff19d31f9a0dc9ace4bd36a00ebef24049c0038b6862e887"
+    },
+    {
+      "bytes": 21375,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\private-ledger.json",
+      "role": "fit-only-context-review-private",
+      "sha256": "b613447abb2d6ccca9a519bce9750407f3f23a52be38c3fcd6aecf7e82f4fd83"
+    },
+    {
+      "bytes": 41139,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\transport-opportunity-bank.jsonl",
+      "role": "fit-only-context-review-private",
+      "sha256": "2c6aaa40fcceb046fdcd0338274867a30ef98b7e66c4071c6f6cb4fb076da6d3"
+    },
+    {
+      "bytes": 1231,
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2-asym-fit-context-review-20260928\\rubric.md",
+      "role": "fit-only-context-review",
+      "sha256": "6f3641ce987732dd81aad9611959c5afa5fb92e1a6c5ace9185706294c7bc292"
+    }
+  ],
+  "fit_opportunity_packet_count": 43,
+  "fit_packet_count": 47,
+  "qps_ranked_output_deterministic": true,
+  "qps_ranked_output_sha256": "316d6964339042db08460d3c00d4ee791b8e08573672525d4c0443f0ad9d7fef",
+  "qps_ranker_receipt_sha256": "9f20c9f6c70ea0072973748659ddf83507c52c57cf6c005353d3c8dba6a04619",
+  "schema": "phoenix.lexical.lt9-la2-p1p3e2a1-artifact-manifest/v1",
+  "screen_runner_binary_sha256": "f628fadb54a55dde54d227b631438609dce9c010eecb6b7d835c8df10767747d",
+  "screen_runner_source_sha256": "8ace8658208f39b787ed0156e5a58637c37547f54dcafe5bf73c46d125c1af78",
+  "sealed_holdout_candidate_rows": 2,
+  "sealed_holdout_opportunity_rows": 2,
+  "source_files": [
+    {
+      "bytes": 24,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/.gitignore",
+      "sha256": "de8646f7eed6d30995451fe38bb4587db4bdb0873ad037c34ad0b92fbb4ecbb0"
+    },
+    {
+      "bytes": 2293,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/PROTOCOL.md",
+      "sha256": "e5ffd6ba3831add86b98bcb103b61553977c8af5d83af3f04683663eb624bfeb"
+    },
+    {
+      "bytes": 323,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/cohort.json",
+      "sha256": "1afc7bfeebe6b50df3f2a319e16d28553b3cbf910bdc0cdb6ca534836a3a7fd4"
+    },
+    {
+      "bytes": 2240,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/candidate-relations.json",
+      "sha256": "f77b9a25996ede88ee380fa1b9701e0a33ed49f3c982eb53574eb5a2f84d7fab"
+    },
+    {
+      "bytes": 1231,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/context-rubric.md",
+      "sha256": "6f3641ce987732dd81aad9611959c5afa5fb92e1a6c5ace9185706294c7bc292"
+    },
+    {
+      "bytes": 10758,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/make_fit_review_packets.py",
+      "sha256": "79028ff6983b8201e9e52700f37e338f706687f8fac44ece395e216ce425d2c1"
+    },
+    {
+      "bytes": 4344,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/make_manifest.py",
+      "sha256": "345335d394cf5844c29f4f77a539e6bab4a226ff70591a4d93821e28012a3d74"
+    },
+    {
+      "bytes": 3849,
+      "path": "experiments/lt9-la2-p1p3e2-asymmetric-acquisition-20260928/P1P3E2A1_DISCOVERY_REPORT.md",
+      "sha256": "cbda226bac2889d5e066259dffd23946c55bc3548961788f339327d1a22750ac"
+    }
+  ],
+  "status": "DISCOVERY_ONLY_NO_MODEL_FIT_NO_HOLDOUT_REVIEWED"
+}

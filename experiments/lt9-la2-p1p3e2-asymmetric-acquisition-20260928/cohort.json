@@ -1,0 +1,8 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e2-corpus-cohort/v1",
+  "date": "2026-09-28",
+  "datasets": [
+    { "name": "fiqa", "root": "D:\\phoenix-evals\\beir\\fiqa", "qrels_splits": ["train", "dev", "test"] },
+    { "name": "scifact", "root": "D:\\phoenix-evals\\beir\\scifact", "qrels_splits": ["train", "test"] }
+  ]
+}
