@@ -1,0 +1,746 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e1-context-transport/v1",
+  "date": "2026-09-28",
+  "status": "ENGINEERING_CONTEXT_RETRIEVAL_COMPLETED_NOT_QUALIFICATION",
+  "evidence_boundary": "Natural excerpt context-pair retrieval over the frozen P1P3 holdout; functional labels are proxy evidence; not BEIR topical retrieval, independent-human validation, authority promotion, or serving qualification.",
+  "acquisition_root_sha256": "ed9eb8c94805b78fdfc90c0c5d8723d933043d238a0da316da6f99714eb0cafc",
+  "judgments_sha256": [
+    "be4d0cc0be96223fd9140d6218f04df7eea8933987383b56ab66ad16760b0627",
+    "dbc2e24b4abb20eed80dcbabc2e2ed2c1848ae2b8d336ed1a88cd403c758105f",
+    "49f284f4678859d255e29ba31000cb0bf90f400bf4c4b88736f6e59ef67a8cc5"
+  ],
+  "engineering_e0_receipt_sha256": "f01caf04fb657e16e21500f2dc8c4d53fc40216e9051c2d1820f91f4fff63952",
+  "packet_sha256": "a2ce9066ce5bee6e73d45b0689469f8161310be71a9827e8cc571d546f85a66e",
+  "ledger_sha256": "56d9f821db3a06c01c17f9ca3b2d1cf9dfedd6973f05ca02b0bdfacf50d50a68",
+  "relation_support_floor": [
+    4,
+    4
+  ],
+  "selective_e1_alpha": 0.5,
+  "context_queries": 60,
+  "context_documents": 60,
+  "holdout_labels": {
+    "same": 26,
+    "different": 33,
+    "unknown": 1
+  },
+  "transport_eligible_queries": 36,
+  "transport_eligible_labels": {
+    "same": 9,
+    "different": 27,
+    "unknown": 0
+  },
+  "candidate_support": [
+    {
+      "candidate_id": "00bb81a274c77c04",
+      "lexical_pair": [
+        "pluck",
+        "pull"
+      ],
+      "fit_same": 0,
+      "fit_different": 7,
+      "fit_unknown": 8,
+      "e1_relation_status": "INSUFFICIENT_POSITIVES"
+    },
+    {
+      "candidate_id": "00ca7308dea478fb",
+      "lexical_pair": [
+        "bout",
+        "tear"
+      ],
+      "fit_same": 3,
+      "fit_different": 12,
+      "fit_unknown": 0,
+      "e1_relation_status": "PARTIAL_SUPPORT"
+    },
+    {
+      "candidate_id": "00fab9dbf500d324",
+      "lexical_pair": [
+        "cruel",
+        "vicious"
+      ],
+      "fit_same": 6,
+      "fit_different": 9,
+      "fit_unknown": 0,
+      "e1_relation_status": "MINIMUM_ENGINEERING_SUPPORT"
+    },
+    {
+      "candidate_id": "013f15c92f0e23f5",
+      "lexical_pair": [
+        "deterioration",
+        "worsening"
+      ],
+      "fit_same": 15,
+      "fit_different": 0,
+      "fit_unknown": 0,
+      "e1_relation_status": "INSUFFICIENT_NEGATIVES"
+    }
+  ],
+  "full_local_tree": {
+    "kind": "split",
+    "feature": "structure:role_after_abs_delta",
+    "threshold": 10.0,
+    "rows": 60,
+    "left": {
+      "kind": "split",
+      "feature": "shared_role_token:before:of",
+      "threshold": 0.0,
+      "rows": 46,
+      "left": {
+        "kind": "split",
+        "feature": "shared_token:you",
+        "threshold": 0.0,
+        "rows": 39,
+        "left": {
+          "kind": "leaf",
+          "prediction": "DIFFERENT",
+          "rows": 36,
+          "counts": {
+            "same": 9,
+            "different": 26,
+            "unknown": 1
+          }
+        },
+        "right": {
+          "kind": "leaf",
+          "prediction": "UNKNOWN",
+          "rows": 3,
+          "counts": {
+            "same": 0,
+            "different": 1,
+            "unknown": 2
+          }
+        }
+      },
+      "right": {
+        "kind": "split",
+        "feature": "overlap:token_jaccard",
+        "threshold": 0.1,
+        "rows": 7,
+        "left": {
+          "kind": "leaf",
+          "prediction": "SAME",
+          "rows": 4,
+          "counts": {
+            "same": 4,
+            "different": 0,
+            "unknown": 0
+          }
+        },
+        "right": {
+          "kind": "leaf",
+          "prediction": "SAME",
+          "rows": 3,
+          "counts": {
+            "same": 2,
+            "different": 1,
+            "unknown": 0
+          }
+        }
+      }
+    },
+    "right": {
+      "kind": "split",
+      "feature": "structure:role_before_abs_delta",
+      "threshold": 3.0,
+      "rows": 14,
+      "left": {
+        "kind": "leaf",
+        "prediction": "SAME",
+        "rows": 8,
+        "counts": {
+          "same": 8,
+          "different": 0,
+          "unknown": 0
+        }
+      },
+      "right": {
+        "kind": "split",
+        "feature": "overlap:token_jaccard",
+        "threshold": 0.07407407407407407,
+        "rows": 6,
+        "left": {
+          "kind": "leaf",
+          "prediction": "UNKNOWN",
+          "rows": 3,
+          "counts": {
+            "same": 1,
+            "different": 0,
+            "unknown": 2
+          }
+        },
+        "right": {
+          "kind": "leaf",
+          "prediction": "UNKNOWN",
+          "rows": 3,
+          "counts": {
+            "same": 0,
+            "different": 0,
+            "unknown": 3
+          }
+        }
+      }
+    }
+  },
+  "baseline_holdout_allows": [
+    {
+      "edge_key": "506573574212117f431cbd845ee7a4b9b95c8452a624ea1d40dbb2d48d9309ab",
+      "candidate_id": "00bb81a274c77c04",
+      "lexical_pair": [
+        "pluck",
+        "pull"
+      ],
+      "actual": "DIFFERENT",
+      "predicted": "SAME",
+      "tree_path": [
+        {
+          "feature": "structure:role_after_abs_delta",
+          "threshold": 10.0,
+          "observed": 4.0,
+          "branch": "LEFT"
+        },
+        {
+          "feature": "shared_role_token:before:of",
+          "threshold": 0.0,
+          "observed": 1.0,
+          "branch": "RIGHT"
+        },
+        {
+          "feature": "overlap:token_jaccard",
+          "threshold": 0.1,
+          "observed": 0.1111111111111111,
+          "branch": "RIGHT"
+        }
+      ],
+      "leaf_counts": {
+        "same": 2,
+        "different": 1,
+        "unknown": 0
+      },
+      "pair_evidence": {
+        "shared_tokens": [
+          "and",
+          "in",
+          "of",
+          "to"
+        ],
+        "shared_role_tokens": [
+          "after:and",
+          "before:in",
+          "before:of",
+          "before:to"
+        ],
+        "shared_bigrams": [],
+        "shared_trigrams": [],
+        "token_jaccard": 0.1111111111111111,
+        "bigram_jaccard": 0.0,
+        "trigram_jaccard": 0.0,
+        "role_count_abs_delta": [
+          0,
+          0,
+          4
+        ],
+        "token_count_abs_delta": 4,
+        "near_count_abs_delta": 0,
+        "support_cue_equal": false,
+        "contradiction_cue_equal": true,
+        "same_field_kind": true
+      }
+    },
+    {
+      "edge_key": "ab68198a5c857760a9ae39b067b61bbb0138b308e1bdbcec3f4c0c049f13b828",
+      "candidate_id": "00fab9dbf500d324",
+      "lexical_pair": [
+        "cruel",
+        "vicious"
+      ],
+      "actual": "SAME",
+      "predicted": "SAME",
+      "tree_path": [
+        {
+          "feature": "structure:role_after_abs_delta",
+          "threshold": 10.0,
+          "observed": 0.0,
+          "branch": "LEFT"
+        },
+        {
+          "feature": "shared_role_token:before:of",
+          "threshold": 0.0,
+          "observed": 1.0,
+          "branch": "RIGHT"
+        },
+        {
+          "feature": "overlap:token_jaccard",
+          "threshold": 0.1,
+          "observed": 0.1282051282051282,
+          "branch": "RIGHT"
+        }
+      ],
+      "leaf_counts": {
+        "same": 2,
+        "different": 1,
+        "unknown": 0
+      },
+      "pair_evidence": {
+        "shared_tokens": [
+          "and",
+          "for",
+          "in",
+          "of",
+          "too"
+        ],
+        "shared_role_tokens": [
+          "after:and",
+          "after:in",
+          "before:of",
+          "before:too"
+        ],
+        "shared_bigrams": [],
+        "shared_trigrams": [],
+        "token_jaccard": 0.1282051282051282,
+        "bigram_jaccard": 0.0,
+        "trigram_jaccard": 0.0,
+        "role_count_abs_delta": [
+          0,
+          0,
+          0
+        ],
+        "token_count_abs_delta": 0,
+        "near_count_abs_delta": 0,
+        "support_cue_equal": false,
+        "contradiction_cue_equal": true,
+        "same_field_kind": true
+      }
+    },
+    {
+      "edge_key": "8907711af470e787af034579b1dd0c0e6873d683a26684f832fbf6b6b8740e96",
+      "candidate_id": "00fab9dbf500d324",
+      "lexical_pair": [
+        "cruel",
+        "vicious"
+      ],
+      "actual": "DIFFERENT",
+      "predicted": "SAME",
+      "tree_path": [
+        {
+          "feature": "structure:role_after_abs_delta",
+          "threshold": 10.0,
+          "observed": 12.0,
+          "branch": "RIGHT"
+        },
+        {
+          "feature": "structure:role_before_abs_delta",
+          "threshold": 3.0,
+          "observed": 3.0,
+          "branch": "LEFT"
+        }
+      ],
+      "leaf_counts": {
+        "same": 8,
+        "different": 0,
+        "unknown": 0
+      },
+      "pair_evidence": {
+        "shared_tokens": [],
+        "shared_role_tokens": [],
+        "shared_bigrams": [],
+        "shared_trigrams": [],
+        "token_jaccard": 0.0,
+        "bigram_jaccard": 0.0,
+        "trigram_jaccard": 0.0,
+        "role_count_abs_delta": [
+          3,
+          0,
+          12
+        ],
+        "token_count_abs_delta": 9,
+        "near_count_abs_delta": 0,
+        "support_cue_equal": true,
+        "contradiction_cue_equal": true,
+        "same_field_kind": false
+      }
+    },
+    {
+      "edge_key": "06678415b346c3915290f74dc0497c0cded7ce1f075ff5aeac8596042b8e86a7",
+      "candidate_id": "013f15c92f0e23f5",
+      "lexical_pair": [
+        "deterioration",
+        "worsening"
+      ],
+      "actual": "SAME",
+      "predicted": "SAME",
+      "tree_path": [
+        {
+          "feature": "structure:role_after_abs_delta",
+          "threshold": 10.0,
+          "observed": 6.0,
+          "branch": "LEFT"
+        },
+        {
+          "feature": "shared_role_token:before:of",
+          "threshold": 0.0,
+          "observed": 1.0,
+          "branch": "RIGHT"
+        },
+        {
+          "feature": "overlap:token_jaccard",
+          "threshold": 0.1,
+          "observed": 0.05405405405405406,
+          "branch": "LEFT"
+        }
+      ],
+      "leaf_counts": {
+        "same": 4,
+        "different": 0,
+        "unknown": 0
+      },
+      "pair_evidence": {
+        "shared_tokens": [
+          "of",
+          "the"
+        ],
+        "shared_role_tokens": [
+          "before:of",
+          "before:the"
+        ],
+        "shared_bigrams": [],
+        "shared_trigrams": [],
+        "token_jaccard": 0.05405405405405406,
+        "bigram_jaccard": 0.0,
+        "trigram_jaccard": 0.0,
+        "role_count_abs_delta": [
+          0,
+          0,
+          6
+        ],
+        "token_count_abs_delta": 6,
+        "near_count_abs_delta": 0,
+        "support_cue_equal": true,
+        "contradiction_cue_equal": false,
+        "same_field_kind": true
+      }
+    },
+    {
+      "edge_key": "623f37f9cc05544cc92d091a9573d36262965d32c248f73cecd9e7a75fe35632",
+      "candidate_id": "013f15c92f0e23f5",
+      "lexical_pair": [
+        "deterioration",
+        "worsening"
+      ],
+      "actual": "SAME",
+      "predicted": "SAME",
+      "tree_path": [
+        {
+          "feature": "structure:role_after_abs_delta",
+          "threshold": 10.0,
+          "observed": 3.0,
+          "branch": "LEFT"
+        },
+        {
+          "feature": "shared_role_token:before:of",
+          "threshold": 0.0,
+          "observed": 1.0,
+          "branch": "RIGHT"
+        },
+        {
+          "feature": "overlap:token_jaccard",
+          "threshold": 0.1,
+          "observed": 0.10344827586206896,
+          "branch": "RIGHT"
+        }
+      ],
+      "leaf_counts": {
+        "same": 2,
+        "different": 1,
+        "unknown": 0
+      },
+      "pair_evidence": {
+        "shared_tokens": [
+          "can",
+          "of",
+          "the"
+        ],
+        "shared_role_tokens": [
+          "before:of",
+          "before:the"
+        ],
+        "shared_bigrams": [],
+        "shared_trigrams": [],
+        "token_jaccard": 0.10344827586206896,
+        "bigram_jaccard": 0.0,
+        "trigram_jaccard": 0.0,
+        "role_count_abs_delta": [
+          0,
+          0,
+          3
+        ],
+        "token_count_abs_delta": 3,
+        "near_count_abs_delta": 0,
+        "support_cue_equal": true,
+        "contradiction_cue_equal": false,
+        "same_field_kind": true
+      }
+    },
+    {
+      "edge_key": "23d8162f7c0c0e77a76ba9bd8686dfb340e8cd673baaa3999732dc706bf3983c",
+      "candidate_id": "013f15c92f0e23f5",
+      "lexical_pair": [
+        "deterioration",
+        "worsening"
+      ],
+      "actual": "SAME",
+      "predicted": "SAME",
+      "tree_path": [
+        {
+          "feature": "structure:role_after_abs_delta",
+          "threshold": 10.0,
+          "observed": 9.0,
+          "branch": "LEFT"
+        },
+        {
+          "feature": "shared_role_token:before:of",
+          "threshold": 0.0,
+          "observed": 1.0,
+          "branch": "RIGHT"
+        },
+        {
+          "feature": "overlap:token_jaccard",
+          "threshold": 0.1,
+          "observed": 0.09375,
+          "branch": "LEFT"
+        }
+      ],
+      "leaf_counts": {
+        "same": 4,
+        "different": 0,
+        "unknown": 0
+      },
+      "pair_evidence": {
+        "shared_tokens": [
+          "be",
+          "of",
+          "the"
+        ],
+        "shared_role_tokens": [
+          "before:be",
+          "before:of",
+          "before:the"
+        ],
+        "shared_bigrams": [],
+        "shared_trigrams": [],
+        "token_jaccard": 0.09375,
+        "bigram_jaccard": 0.0,
+        "trigram_jaccard": 0.0,
+        "role_count_abs_delta": [
+          0,
+          0,
+          9
+        ],
+        "token_count_abs_delta": 9,
+        "near_count_abs_delta": 0,
+        "support_cue_equal": true,
+        "contradiction_cue_equal": true,
+        "same_field_kind": true
+      }
+    }
+  ],
+  "lanes": [
+    {
+      "lane": "L0_ORIGINAL",
+      "alpha": 0.0,
+      "queries": 60,
+      "transport_eligible_queries": 36,
+      "labels": {
+        "same": 9,
+        "different": 27,
+        "unknown": 0
+      },
+      "baseline_target_hits": 8,
+      "target_hits_after_lane": 8,
+      "same_target_recoveries": 0,
+      "different_target_false_admissions": 0,
+      "unknown_target_false_admissions": 0,
+      "newly_recovered_target_docs": 0,
+      "gate_allow": 0,
+      "gate_refuse": 0,
+      "gate_abstain": 0,
+      "observed_decisions": {
+        "same": {
+          "allow": 0,
+          "refuse": 0,
+          "abstain": 0
+        },
+        "different": {
+          "allow": 0,
+          "refuse": 0,
+          "abstain": 0
+        },
+        "unknown": {
+          "allow": 0,
+          "refuse": 0,
+          "abstain": 0
+        }
+      },
+      "unlabeled_transport_candidates": 0,
+      "mean_same_target_reciprocal_rank": 0.013888888888888888
+    },
+    {
+      "lane": "L1_UNCONDITIONAL",
+      "alpha": 1.0,
+      "queries": 60,
+      "transport_eligible_queries": 36,
+      "labels": {
+        "same": 9,
+        "different": 27,
+        "unknown": 0
+      },
+      "baseline_target_hits": 8,
+      "target_hits_after_lane": 14,
+      "same_target_recoveries": 2,
+      "different_target_false_admissions": 4,
+      "unknown_target_false_admissions": 0,
+      "newly_recovered_target_docs": 6,
+      "gate_allow": 76,
+      "gate_refuse": 0,
+      "gate_abstain": 0,
+      "observed_decisions": {
+        "same": {
+          "allow": 21,
+          "refuse": 0,
+          "abstain": 0
+        },
+        "different": {
+          "allow": 26,
+          "refuse": 0,
+          "abstain": 0
+        },
+        "unknown": {
+          "allow": 0,
+          "refuse": 0,
+          "abstain": 0
+        }
+      },
+      "unlabeled_transport_candidates": 29,
+      "mean_same_target_reciprocal_rank": 0.032003798670465336
+    },
+    {
+      "lane": "L2_CART_E0",
+      "alpha": 1.0,
+      "queries": 60,
+      "transport_eligible_queries": 36,
+      "labels": {
+        "same": 9,
+        "different": 27,
+        "unknown": 0
+      },
+      "baseline_target_hits": 8,
+      "target_hits_after_lane": 8,
+      "same_target_recoveries": 0,
+      "different_target_false_admissions": 0,
+      "unknown_target_false_admissions": 0,
+      "newly_recovered_target_docs": 0,
+      "gate_allow": 7,
+      "gate_refuse": 59,
+      "gate_abstain": 10,
+      "observed_decisions": {
+        "same": {
+          "allow": 0,
+          "refuse": 20,
+          "abstain": 1
+        },
+        "different": {
+          "allow": 4,
+          "refuse": 15,
+          "abstain": 7
+        },
+        "unknown": {
+          "allow": 0,
+          "refuse": 0,
+          "abstain": 0
+        }
+      },
+      "unlabeled_transport_candidates": 29,
+      "mean_same_target_reciprocal_rank": 0.013888888888888888
+    },
+    {
+      "lane": "L3_SELECTIVE_E1",
+      "alpha": 0.5,
+      "queries": 60,
+      "transport_eligible_queries": 36,
+      "labels": {
+        "same": 9,
+        "different": 27,
+        "unknown": 0
+      },
+      "baseline_target_hits": 8,
+      "target_hits_after_lane": 8,
+      "same_target_recoveries": 0,
+      "different_target_false_admissions": 0,
+      "unknown_target_false_admissions": 0,
+      "newly_recovered_target_docs": 0,
+      "gate_allow": 0,
+      "gate_refuse": 0,
+      "gate_abstain": 24,
+      "observed_decisions": {
+        "same": {
+          "allow": 0,
+          "refuse": 0,
+          "abstain": 16
+        },
+        "different": {
+          "allow": 0,
+          "refuse": 0,
+          "abstain": 1
+        },
+        "unknown": {
+          "allow": 0,
+          "refuse": 0,
+          "abstain": 0
+        }
+      },
+      "unlabeled_transport_candidates": 7,
+      "mean_same_target_reciprocal_rank": 0.013888888888888888
+    },
+    {
+      "lane": "L4_LABEL_ORACLE",
+      "alpha": 1.0,
+      "queries": 60,
+      "transport_eligible_queries": 36,
+      "labels": {
+        "same": 9,
+        "different": 27,
+        "unknown": 0
+      },
+      "baseline_target_hits": 8,
+      "target_hits_after_lane": 10,
+      "same_target_recoveries": 2,
+      "different_target_false_admissions": 0,
+      "unknown_target_false_admissions": 0,
+      "newly_recovered_target_docs": 2,
+      "gate_allow": 21,
+      "gate_refuse": 26,
+      "gate_abstain": 29,
+      "observed_decisions": {
+        "same": {
+          "allow": 21,
+          "refuse": 0,
+          "abstain": 0
+        },
+        "different": {
+          "allow": 0,
+          "refuse": 26,
+          "abstain": 0
+        },
+        "unknown": {
+          "allow": 0,
+          "refuse": 0,
+          "abstain": 0
+        }
+      },
+      "unlabeled_transport_candidates": 29,
+      "mean_same_target_reciprocal_rank": 0.03932980599647266
+    }
+  ],
+  "authority_updated": false,
+  "product_serving_changed": false
+}

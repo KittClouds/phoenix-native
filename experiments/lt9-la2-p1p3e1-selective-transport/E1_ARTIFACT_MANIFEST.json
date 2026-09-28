@@ -1,0 +1,164 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e1-artifact-manifest/v1",
+  "date": "2026-09-28",
+  "branch": "codex/phoenix-native-p1p3-engineering-diagnostic-20260927",
+  "status": "ENGINEERING_DIAGNOSTIC_NOT_QUALIFICATION",
+  "receipt_sha256": "94c7f5401a3f98077d482c4b4546fca5efde964b1d3e9ab83b7eee5f3cfabaf0",
+  "release_binary_sha256": "c35e144f9f59297cfee064ce05b910dbb8d524b08fa354d16e102c1a2dcc22f0",
+  "source_and_input_files": [
+    {
+      "path": "apps/phoenix-memory-lock/src/bin/lt9_la2p1p3e1_transport.rs",
+      "sha256": "8d3acd61593fab641efb2b46d6689d5e913a23b35660bb00c226458826a94a3f"
+    },
+    {
+      "path": "apps/phoenix-memory-lock/src/bin/lt9_la2p1p3e1_transport_types.rs",
+      "sha256": "7eee6f7400db682342f1a8d564ef46732e2a5493df54e9dee7ef3707d026e069"
+    },
+    {
+      "path": "apps/phoenix-memory-lock/src/bin/lt9_la2p1p3e1_transport_helpers.rs",
+      "sha256": "d4bd409fc9e482926a3ea58b5f22c2695f40260bebd974baaf9c7edbe308ec2a"
+    },
+    {
+      "path": "apps/phoenix-memory-lock/src/bin/lt9_la2p1p3e1_transport_tests.rs",
+      "sha256": "2ea21d8f8c5f1ef7b03de3e04500785d398464931ec5bb8e594147e6cc440fd4"
+    },
+    {
+      "path": "apps/phoenix-memory-lock/src/bin/lt9_la2p1o2_analyze_core.rs",
+      "sha256": "7b34cbcb66110af2748bcd5935c9269498b442167301ed6b1e5fff638fe0c9ed"
+    },
+    {
+      "path": "apps/phoenix-memory-lock/src/bin/lt9_la2p1o2_features.rs",
+      "sha256": "b699d68c48dee6be023e739f5cc3b24140a2ce420eb9069fbe63291a15cd5878"
+    },
+    {
+      "path": "crates/phoenix-lexical-qps/src/score.rs",
+      "sha256": "55173b600378420736c1b6a47b58f32d9866ee40c1926adf667e124224331d6a"
+    },
+    {
+      "path": "crates/phoenix-lexical-qps/src/index.rs",
+      "sha256": "a4c3c36d295c903594f2cee0bed8ab65645ab02b20b0f6d4702d759b2f62b7f3"
+    },
+    {
+      "path": "crates/phoenix-lexical-qps/Cargo.toml",
+      "sha256": "2171b2fc344569c052a91c50906ead78309039c2596bf812c064980a70cf3aaf"
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e1-selective-transport/P1P3E1_ENGINEERING_REPORT.md",
+      "sha256": "684d3fa45046589d21d9e2787ef2cf74a8346abe89a8aa27f4d0ca2b72f43ed1"
+    },
+    {
+      "path": "experiments/lt9-la2-p1p3e1-selective-transport/transport-receipt.json",
+      "sha256": "94c7f5401a3f98077d482c4b4546fca5efde964b1d3e9ab83b7eee5f3cfabaf0"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3-20260924\\acquisition-sealed\\pre-review-root.json",
+      "sha256": "ed9eb8c94805b78fdfc90c0c5d8723d933043d238a0da316da6f99714eb0cafc"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3-20260924\\acquisition-sealed\\reviewer-1-review\\packets.json",
+      "sha256": "a2ce9066ce5bee6e73d45b0689469f8161310be71a9827e8cc571d546f85a66e"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3-20260924\\acquisition-sealed\\private-ledger.json",
+      "sha256": "56d9f821db3a06c01c17f9ca3b2d1cf9dfedd6973f05ca02b0bdfacf50d50a68"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3-20260924\\review-sealed\\judgments.json",
+      "sha256": "be4d0cc0be96223fd9140d6218f04df7eea8933987383b56ab66ad16760b0627"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3-20260924\\review-sealed\\judgments2.json",
+      "sha256": "dbc2e24b4abb20eed80dcbabc2e2ed2c1848ae2b8d336ed1a88cd403c758105f"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3-20260924\\review-sealed\\judgments3.json",
+      "sha256": "49f284f4678859d255e29ba31000cb0bf90f400bf4c4b88736f6e59ef67a8cc5"
+    },
+    {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3-20260924\\engineering-e0-final\\engineering-receipt.json",
+      "sha256": "f01caf04fb657e16e21500f2dc8c4d53fc40216e9051c2d1820f91f4fff63952"
+    },
+    {
+      "path": "D:\\phoenix-evals\\beir\\fiqa\\corpus.jsonl",
+      "sha256": "ff593e4df9933955dc3af83be0c3fa28ac7465f627e08c2e53593e734d506517"
+    },
+    {
+      "path": "D:\\phoenix-evals\\beir\\fiqa\\queries.jsonl",
+      "sha256": "eede1e61d4a0188940239b53ebc2da91f577a6a34679c812d1eb9090c29877bc"
+    },
+    {
+      "path": "D:\\phoenix-evals\\beir\\fiqa\\qrels\\dev.tsv",
+      "sha256": "03b27e547cd29dc721c3b93ce8ddd70df6b2d0ce954d8ef3659d386e8cd72c11"
+    },
+    {
+      "path": "D:\\phoenix-evals\\beir\\fiqa\\qrels\\test.tsv",
+      "sha256": "6adc2a640dcdd22bb8b3858f89107adef2a7c3db20a63550dfa7a0f71e379e44"
+    },
+    {
+      "path": "D:\\phoenix-evals\\beir\\scifact\\corpus.jsonl",
+      "sha256": "dec31c8182f3d744c7d2c09423756fd1d17cbef75808db13ba01cc0aab4d1ac6"
+    },
+    {
+      "path": "D:\\phoenix-evals\\beir\\scifact\\queries.jsonl",
+      "sha256": "8ff84a7c903f722981cd8d595c022660140c51867b27608a6d4910db86080313"
+    },
+    {
+      "path": "D:\\phoenix-evals\\beir\\scifact\\qrels\\train.tsv",
+      "sha256": "a53f2114831916c096b6c37d9e54da68cef4efdcdbd5ed46533601af972acf1d"
+    },
+    {
+      "path": "D:\\phoenix-evals\\beir\\scifact\\qrels\\test.tsv",
+      "sha256": "0864bb985e0ca2367ba217977e72004d549054b2b06666ed9d4825ac7c21284c"
+    }
+  ],
+  "isolated_build_files": [
+    {
+      "path": "Cargo.toml",
+      "sha256": "391e5e01c01c8708d2783048ca572685cf5908fe3c84fe4d0d8e885f4f320ec7"
+    },
+    {
+      "path": "Cargo.lock",
+      "sha256": "3ce5e9bb62c5da22ecdc429ec1612dd0804323167337bc09115e541c4016a06e"
+    },
+    {
+      "path": "src/main.rs",
+      "sha256": "8d3acd61593fab641efb2b46d6689d5e913a23b35660bb00c226458826a94a3f"
+    },
+    {
+      "path": "src/lt9_la2p1o2_analyze_core.rs",
+      "sha256": "5a316062aa90ff7964386453f2d3c9cd4469e6993a5c08dfe97a332f380660c7"
+    },
+    {
+      "path": "src/lt9_la2p1o2_features.rs",
+      "sha256": "e20c4718e830741a51184324e7f1740a47d984531f8cce61c5768af6770c50fb"
+    },
+    {
+      "path": "src/lt9_la2p1p3e1_transport_types.rs",
+      "sha256": "7eee6f7400db682342f1a8d564ef46732e2a5493df54e9dee7ef3707d026e069"
+    },
+    {
+      "path": "src/lt9_la2p1p3e1_transport_helpers.rs",
+      "sha256": "d4bd409fc9e482926a3ea58b5f22c2695f40260bebd974baaf9c7edbe308ec2a"
+    },
+    {
+      "path": "src/lt9_la2p1p3e1_transport_tests.rs",
+      "sha256": "2ea21d8f8c5f1ef7b03de3e04500785d398464931ec5bb8e594147e6cc440fd4"
+    },
+    {
+      "path": "qps/Cargo.toml",
+      "sha256": "abb85da1220826b1e387415834719d2e03b597b44674eb77c29ff67aa123fd87"
+    },
+    {
+      "path": "qps/src/score.rs",
+      "sha256": "fb951a78501b0c289a7e4c4a08c7d0c3c4df3a8a2d032803f31e332beb9eb32a"
+    }
+  ],
+  "isolated_build_root": "D:\\phoenix-evals\\lt9-la2-p1p3e1-20260928-isolated",
+  "build_target": "D:\\phoenix-target-overgraph",
+  "root_workspace_check": "BLOCKED_BEFORE_COMPILE: missing crates/phoenix-tts-native/Cargo.toml",
+  "harness_tests": "8 passed; 0 failed",
+  "qps_library_tests": "28 passed; 0 failed",
+  "deterministic_rerun_sha256": "94c7f5401a3f98077d482c4b4546fca5efde964b1d3e9ab83b7eee5f3cfabaf0",
+  "authority_updates": false,
+  "serving_changed": false
+}
