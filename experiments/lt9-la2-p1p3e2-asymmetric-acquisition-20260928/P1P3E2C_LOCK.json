@@ -1,0 +1,713 @@
+{
+  "schema": "phoenix.lexical.lt9-la2-p1p3e2c-selective-gate-lock/v1",
+  "protocol_date": "2026-09-28",
+  "status": "FROZEN_BEFORE_EXTENSION_ACQUISITION_AND_MODEL_CONTACT",
+  "scope": "engineering pilot only; no external qualification, authority promotion, retrieval, or serving claim",
+  "parent": {
+    "branch": "codex/phoenix-native-p1p3e2-asymmetric-acquisition-20260928",
+    "commit": "665f5a75b344cfa7be3e42d12edf503aea1a65b3",
+    "e2b_lock_sha256": "33dfd6045388ff05948cdf739546b70b2c3c5034260fe2dea38fcef0f9588a7b",
+    "e2b_spec_sha256": "88eace3e96a95f70d5f6aa59359545ffcc9c35a700923ef758e3eaadfd87b853",
+    "reserve_support_update_sha256": "16a522eb5b6478ece37f91e701ec67de20d6c4b04dc97084cc09fba944639552",
+    "reserve_support_report_sha256": "b9d2cdf00de3c0c2642608682a55f537129af1820b45a3847b377f654f57c5f9",
+    "natural_bank_builder_sha256": "368f503f8c705f836aca9a3124edb872fb137f737df4d51024f61abad139ba64",
+    "support_update_json_sha256": "16a522eb5b6478ece37f91e701ec67de20d6c4b04dc97084cc09fba944639552",
+    "support_update_markdown_sha256": "b9d2cdf00de3c0c2642608682a55f537129af1820b45a3847b377f654f57c5f9",
+    "legacy_support_matrix_sha256": "4ea80ef9c2e1b17ab4ad5d0364a93da0aace3c6806d32849dbea95d606f36c18",
+    "source_cohort": [
+      {
+        "name": "fiqa",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\fiqa\\queries.jsonl",
+          "bytes": 706247,
+          "sha256": "eede1e61d4a0188940239b53ebc2da91f577a6a34679c812d1eb9090c29877bc"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\fiqa\\corpus.jsonl",
+          "bytes": 47949497,
+          "sha256": "ff593e4df9933955dc3af83be0c3fa28ac7465f627e08c2e53593e734d506517"
+        }
+      },
+      {
+        "name": "scifact",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\scifact\\queries.jsonl",
+          "bytes": 209731,
+          "sha256": "8ff84a7c903f722981cd8d595c022660140c51867b27608a6d4910db86080313"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\scifact\\corpus.jsonl",
+          "bytes": 8106566,
+          "sha256": "dec31c8182f3d744c7d2c09423756fd1d17cbef75808db13ba01cc0aab4d1ac6"
+        }
+      },
+      {
+        "name": "arguana",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\queries.jsonl",
+          "bytes": 1805776,
+          "sha256": "f8b7c903f95d9a2d291de3915a8fac25085e9db679f19f59fea4145bfd1df618"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\corpus.jsonl",
+          "bytes": 9829628,
+          "sha256": "0627982cec4ee896df6dc98604ef6b499c83fd87a19eaaeb3f23b88bbef6cbce"
+        }
+      },
+      {
+        "name": "hotpotqa",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\queries.jsonl",
+          "bytes": 27458928,
+          "sha256": "26bd91dd9ad69592c02e07180e62096f572b6814f5f413695151485b4ab40a2c"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\corpus.jsonl",
+          "bytes": 2149313046,
+          "sha256": "3e776d2343352f83341878202b8c49cc1ebe6e2ad4c2a77a21c116cafa229334"
+        }
+      },
+      {
+        "name": "nfcorpus",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\queries.jsonl",
+          "bytes": 441466,
+          "sha256": "d024e6621b84925d485ae473d316a0c3af31c62c8068a59fb29d22f7613aef2a"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\corpus.jsonl",
+          "bytes": 6219364,
+          "sha256": "10cc83ef1826b1425e6a87090b5140b39b27755d5a27e48215a88611c899991f"
+        }
+      },
+      {
+        "name": "nq",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nq\\queries.jsonl",
+          "bytes": 330995,
+          "sha256": "72f08f0cd333a47e393dac61cf1e56d4fb41eabf1d6ad5ca99f40250b0b491c8"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nq\\corpus.jsonl",
+          "bytes": 1503763328,
+          "sha256": "f7e3588dd416772c9830baf67e827d49678f8d5a6ccf6e101b9ce990cc7b208c"
+        }
+      },
+      {
+        "name": "quora",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\queries.jsonl",
+          "bytes": 1460859,
+          "sha256": "760e53709ef5ae73e82a3a651111c49dfb837b3a2f803559b79246b57187a14b"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\corpus.jsonl",
+          "bytes": 63335960,
+          "sha256": "e2586c8e2f09c994a03d8e77842072b0f67f6f48403768be745157579d74aae4"
+        }
+      },
+      {
+        "name": "scidocs",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\queries.jsonl",
+          "bytes": 3166530,
+          "sha256": "3c85b68419bd579ff52edb58f9e7b32eb3d18bc83435edb71dbb68aaf79531d6"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\corpus.jsonl",
+          "bytes": 257334350,
+          "sha256": "328bb38854179c83ee40d4f49fae2ef7209ede7163785193cbdcd5906b28eecc"
+        }
+      },
+      {
+        "name": "trec-covid",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\queries.jsonl",
+          "bytes": 16552,
+          "sha256": "78f4b76bfef251a0baf37a6cea5c4ba8376cb4536c34635709aaa4a2783b208c"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\corpus.jsonl",
+          "bytes": 221370065,
+          "sha256": "aded69896598665082316d00df487d22212cc5a8611db05db34eb40d04ed00d7"
+        }
+      }
+    ],
+    "inherited_excluded_identity_projection": {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2b-acquisition-20260928\\excluded-identities.json",
+      "bytes": 10240,
+      "sha256": "f3b03b2b1f1a6a6fc378ded1704c17c3e237120565a7027424db5323e087aad5",
+      "unique_identity_count": 184,
+      "identity_kinds": {
+        "query": 88,
+        "document": 96
+      },
+      "canonicalization": "sorted unique (dataset,kind,id) triples as compact UTF-8 JSON plus final LF"
+    },
+    "e2b_candidate_identity_ledger": {
+      "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2b-acquisition-20260928\\bank-v1\\private-candidate-ledger.jsonl",
+      "bytes": 233266,
+      "sha256": "d481a5845f028ae6141559112ad1eb70e88f1efe2160fc7b5e50cdf011c85f84",
+      "candidate_rows": 324,
+      "read_fields_only": [
+        "dataset",
+        "query_id",
+        "document_id"
+      ],
+      "purpose": "exclude every E2B primary and reserve identity, including the unopened stock->bond reserve; all labels and outcomes ignored"
+    }
+  },
+  "eligibility": {
+    "supported_relations": [
+      "engine->motor",
+      "insurance->coverage",
+      "stock->bond"
+    ],
+    "unsupported_relations": [
+      "bank->lender",
+      "bank->water",
+      "car->vehicle",
+      "credit->loan",
+      "loan->debt",
+      "vehicle->car"
+    ],
+    "gate0_action_for_unsupported": "ABSTAIN_WITHOUT_LOCAL_MODEL_CALL",
+    "per_relation_thresholds": false,
+    "stock_bond_unused_reserve_count": 12,
+    "natural_unknown_monitor": {
+      "observed": 18,
+      "minimum": 20,
+      "relations_observed": 5,
+      "minimum_relations": 4,
+      "status": "NOT_MET_RETAIN_AS_RESULT_NO_QUOTA_FILLING"
+    },
+    "support_contract": {
+      "combined_natural_train_same_min": 8,
+      "combined_natural_train_different_min": 8,
+      "train_new_same_min": 4,
+      "train_new_different_min": 4,
+      "legacy_train_may_contribute": true,
+      "dev_test_contribution": 0,
+      "synthetic_unknown_contribution": 0,
+      "unsupported_action": "ABSTAIN_BEFORE_LOCAL_MODEL_CALL"
+    },
+    "observed_training_support": {
+      "engine->motor": {
+        "legacy_same": 0,
+        "legacy_different": 5,
+        "train_new_same": 16,
+        "train_new_different": 7,
+        "combined_same": 16,
+        "combined_different": 12,
+        "state": "SUPPORTED"
+      },
+      "insurance->coverage": {
+        "legacy_same": 3,
+        "legacy_different": 0,
+        "train_new_same": 16,
+        "train_new_different": 10,
+        "combined_same": 19,
+        "combined_different": 10,
+        "state": "SUPPORTED"
+      },
+      "stock->bond": {
+        "legacy_same": 0,
+        "legacy_different": 6,
+        "train_new_same": 9,
+        "train_new_different": 4,
+        "combined_same": 9,
+        "combined_different": 10,
+        "state": "SUPPORTED"
+      }
+    },
+    "relation_id_in_cheap_lexical_feature_vector": false,
+    "lfm_relation_conditioned_prompt": true
+  },
+  "current_pilot_partitions_supported_relations": {
+    "dev_new": {
+      "same": 8,
+      "different": 7,
+      "labels_already_opened": true,
+      "use": "exploratory_threshold_selection_only; report separately from DEV-EXT"
+    },
+    "test_new": {
+      "same": 6,
+      "different": 9,
+      "labels_already_opened": true,
+      "use": "historical_pilot_diagnostics_only_not_fresh_evaluation"
+    }
+  },
+  "extension": {
+    "source_cohort": [
+      {
+        "name": "fiqa",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\fiqa\\queries.jsonl",
+          "bytes": 706247,
+          "sha256": "eede1e61d4a0188940239b53ebc2da91f577a6a34679c812d1eb9090c29877bc"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\fiqa\\corpus.jsonl",
+          "bytes": 47949497,
+          "sha256": "ff593e4df9933955dc3af83be0c3fa28ac7465f627e08c2e53593e734d506517"
+        }
+      },
+      {
+        "name": "scifact",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\scifact\\queries.jsonl",
+          "bytes": 209731,
+          "sha256": "8ff84a7c903f722981cd8d595c022660140c51867b27608a6d4910db86080313"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\scifact\\corpus.jsonl",
+          "bytes": 8106566,
+          "sha256": "dec31c8182f3d744c7d2c09423756fd1d17cbef75808db13ba01cc0aab4d1ac6"
+        }
+      },
+      {
+        "name": "arguana",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\queries.jsonl",
+          "bytes": 1805776,
+          "sha256": "f8b7c903f95d9a2d291de3915a8fac25085e9db679f19f59fea4145bfd1df618"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\arguana\\corpus.jsonl",
+          "bytes": 9829628,
+          "sha256": "0627982cec4ee896df6dc98604ef6b499c83fd87a19eaaeb3f23b88bbef6cbce"
+        }
+      },
+      {
+        "name": "hotpotqa",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\queries.jsonl",
+          "bytes": 27458928,
+          "sha256": "26bd91dd9ad69592c02e07180e62096f572b6814f5f413695151485b4ab40a2c"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\hotpotqa\\corpus.jsonl",
+          "bytes": 2149313046,
+          "sha256": "3e776d2343352f83341878202b8c49cc1ebe6e2ad4c2a77a21c116cafa229334"
+        }
+      },
+      {
+        "name": "nfcorpus",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\queries.jsonl",
+          "bytes": 441466,
+          "sha256": "d024e6621b84925d485ae473d316a0c3af31c62c8068a59fb29d22f7613aef2a"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nfcorpus\\corpus.jsonl",
+          "bytes": 6219364,
+          "sha256": "10cc83ef1826b1425e6a87090b5140b39b27755d5a27e48215a88611c899991f"
+        }
+      },
+      {
+        "name": "nq",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nq\\queries.jsonl",
+          "bytes": 330995,
+          "sha256": "72f08f0cd333a47e393dac61cf1e56d4fb41eabf1d6ad5ca99f40250b0b491c8"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\nq\\corpus.jsonl",
+          "bytes": 1503763328,
+          "sha256": "f7e3588dd416772c9830baf67e827d49678f8d5a6ccf6e101b9ce990cc7b208c"
+        }
+      },
+      {
+        "name": "quora",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\queries.jsonl",
+          "bytes": 1460859,
+          "sha256": "760e53709ef5ae73e82a3a651111c49dfb837b3a2f803559b79246b57187a14b"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\quora\\corpus.jsonl",
+          "bytes": 63335960,
+          "sha256": "e2586c8e2f09c994a03d8e77842072b0f67f6f48403768be745157579d74aae4"
+        }
+      },
+      {
+        "name": "scidocs",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\queries.jsonl",
+          "bytes": 3166530,
+          "sha256": "3c85b68419bd579ff52edb58f9e7b32eb3d18bc83435edb71dbb68aaf79531d6"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\scidocs\\corpus.jsonl",
+          "bytes": 257334350,
+          "sha256": "328bb38854179c83ee40d4f49fae2ef7209ede7163785193cbdcd5906b28eecc"
+        }
+      },
+      {
+        "name": "trec-covid",
+        "queries": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\queries.jsonl",
+          "bytes": 16552,
+          "sha256": "78f4b76bfef251a0baf37a6cea5c4ba8376cb4536c34635709aaa4a2783b208c"
+        },
+        "corpus": {
+          "path": "D:\\phoenix-evals\\beir\\screen-candidates\\trec-covid\\corpus.jsonl",
+          "bytes": 221370065,
+          "sha256": "aded69896598665082316d00df487d22212cc5a8611db05db34eb40d04ed00d7"
+        }
+      }
+    ],
+    "new_query_and_document_identities_only": true,
+    "candidate_count": {
+      "dev_ext_per_relation": 16,
+      "dev_ext_total": 48,
+      "test_ext_per_relation": 20,
+      "test_ext_total": 60,
+      "total": 108
+    },
+    "acquisition_lanes": {
+      "order": [
+        "SEMANTIC_NEAR",
+        "SENSE_CONTRAST",
+        "SPARSE_OR_BOUNDARY"
+      ],
+      "dev_counts_per_relation": [
+        8,
+        4,
+        4
+      ],
+      "test_counts_per_relation": [
+        10,
+        5,
+        5
+      ],
+      "semantics": "label-blind acquisition strata only"
+    },
+    "reviewed_class_floors_per_relation": {
+      "dev_ext": {
+        "same": 8,
+        "different": 8
+      },
+      "test_ext": {
+        "same": 10,
+        "different": 10
+      },
+      "unknown_is_quota": false
+    },
+    "review_and_stopping": {
+      "review_all_frozen_candidates_once": true,
+      "replacement_or_label_conditioned_backfill": false,
+      "reserve_queue": false,
+      "on_class_floor_miss": "MARK_PARTITION_UNDERPOWERED_AND_STOP; NEW_DATA_REQUIRES_NEW_PROTOCOL",
+      "reviewer_quorum_required": false,
+      "reviewer_source_and_count_must_be_recorded": true,
+      "independent_human_consensus_claim": false,
+      "dev_class_floor_miss_action": "STOP_BEFORE_FEATURE_JOIN_OR_FIT",
+      "test_class_floor_miss_action": "DEVELOPMENT_MAY_BE_REPORTED; TEST_UNDERPOWERED_NO_FINAL_PILOT_VERDICT",
+      "unknown_or_discordant_room_in_quota": false,
+      "outcome_conditioned_backfill": false,
+      "on_dev_class_floor_miss": "STOP_BEFORE_FEATURE_JOIN_OR_FIT",
+      "on_test_class_floor_miss": "DEVELOPMENT_MAY_BE_REPORTED; TEST_UNDERPOWERED_NO_FINAL_PILOT_VERDICT"
+    },
+    "identity_firewall": {
+      "exclude_legacy_primary_and_all_reserve_ids": true,
+      "exclude_e1_e2_opportunity_rows_and_retrieval_canaries": true,
+      "dev_test_identity_disjoint": true,
+      "collapse_exact_masked_context_duplicates_before_split": true,
+      "base_group_may_cross_partitions": false,
+      "exclude_e2b_primary_and_all_reserve_rows": true,
+      "exclude_every_prior_identity_projection": true,
+      "max_per_corpus_per_relation_dev": 8,
+      "max_per_corpus_per_relation_test": 10,
+      "corpus_cap_is_strict": true,
+      "on_source_or_identity_underfill": "STOP_UNDERPOWERED_NO_RELAXATION_NO_BACKFILL"
+    },
+    "qrels_or_rank_used_for_acquisition": false,
+    "corpus_or_document_identity_is_model_feature": false,
+    "ordering": {
+      "seed": 2026092801,
+      "seed_encoding": "decimal ASCII 2026092801",
+      "namespace": "P1P3E2C_EXTENSION",
+      "algorithm": "SHA-256 over UTF-8 canonical fields joined with ASCII unit separator; sort ascending digest then canonical key; no runtime RNG",
+      "digest_key": "sha256(decimal_seed US P1P3E2C_EXTENSION US item_namespace US canonical fields...)",
+      "pair_key": "sha256(seed US P1P3E2C_EXTENSION US PAIR US dataset US relation US query_id US document_id)",
+      "base_group_id": "bg- plus first 20 hex of sha256(US-joined relation, NFC masked query context, NFC masked document context)",
+      "packet_id": "e2c- plus first 16 hex of sha256(seed US P1P3E2C_EXTENSION US PACKET US base_group_id)",
+      "packet_display_order": "sha256(seed US P1P3E2C_EXTENSION US DISPLAY US packet_id), then packet_id",
+      "query_occurrence_key": "sha256(seed US P1P3E2C_EXTENSION US QUERY US dataset US relation US query_id)",
+      "document_occurrence_key": "sha256(seed US P1P3E2C_EXTENSION US DOC US dataset US relation US document_id)"
+    },
+    "identity_exclusion_inputs": {
+      "inherited_projection": {
+        "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2b-acquisition-20260928\\excluded-identities.json",
+        "bytes": 10240,
+        "sha256": "f3b03b2b1f1a6a6fc378ded1704c17c3e237120565a7027424db5323e087aad5",
+        "unique_identity_count": 184,
+        "identity_kinds": {
+          "query": 88,
+          "document": 96
+        },
+        "canonicalization": "sorted unique (dataset,kind,id) triples as compact UTF-8 JSON plus final LF"
+      },
+      "e2b_primary_and_all_reserve_candidate_rows": {
+        "path": "D:\\phoenix-evals\\lt9-la2-p1p3e2b-acquisition-20260928\\bank-v1\\private-candidate-ledger.jsonl",
+        "bytes": 233266,
+        "sha256": "d481a5845f028ae6141559112ad1eb70e88f1efe2160fc7b5e50cdf011c85f84",
+        "candidate_rows": 324,
+        "read_fields_only": [
+          "dataset",
+          "query_id",
+          "document_id"
+        ],
+        "purpose": "exclude every E2B primary and reserve identity, including the unopened stock->bond reserve; all labels and outcomes ignored"
+      },
+      "additional_rule": "exclude every query/document identity in all prior legacy, E1/E2 opportunity or review banks, and retrieval canaries; the inherited projection and E2B ledger are authoritative inputs",
+      "join_fields_only": [
+        "dataset",
+        "query_id",
+        "document_id"
+      ],
+      "read_any_labels_qrels_ranks_or_outcomes": false
+    },
+    "candidate_generation": {
+      "relations": [
+        "engine->motor",
+        "insurance->coverage",
+        "stock->bond"
+      ],
+      "query_records": [
+        "_id",
+        "text"
+      ],
+      "document_records": [
+        "_id",
+        "title",
+        "text"
+      ],
+      "query_occurrence": "earliest case-insensitive whole-token source occurrence",
+      "document_occurrence": "earliest case-insensitive whole-token target occurrence in title plus text",
+      "window_radius_tokens": 18,
+      "maximum_window_tokens": 37,
+      "masking": "mask both candidate forms case-insensitively as [SOURCE] and [TARGET]",
+      "tokenizer": "lowercase ASCII alphanumeric tokens, excluding the frozen stop list from the E2B builder hash",
+      "per_dataset_relation_caps": {
+        "query_occurrences": 512,
+        "document_occurrences": 2048,
+        "documents_per_query": 96
+      },
+      "lane_keys": {
+        "SEMANTIC_NEAR": "descending content-token Jaccard, then descending shared count",
+        "SENSE_CONTRAST": "ascending content-token Jaccard, then ascending shared count",
+        "SPARSE_OR_BOUNDARY": "ascending min visible side-token count, descending side-count imbalance, ascending total visible side-token count"
+      },
+      "duplicate_key": "relation + NFC masked query context + NFC masked document context",
+      "namespace_in_key": "P1P3E2C_EXTENSION",
+      "pair_pool_sorting": {
+        "SEMANTIC_NEAR": "descending content-token Jaccard, descending shared content count, pair_key, canonical pair identity",
+        "SENSE_CONTRAST": "ascending content-token Jaccard, ascending shared content count, pair_key, canonical pair identity",
+        "SPARSE_OR_BOUNDARY": "ascending min visible side-token count, descending absolute side-count imbalance, ascending total visible side-token count, pair_key, canonical pair identity"
+      },
+      "allocation_order": "for each relation/lane, fixed DEV quota first, then fixed TEST quota; enforce query/document identities globally disjoint across these partitions"
+    }
+  },
+  "data_use": {
+    "train": [
+      "eligible-relation LEGACY-TRAIN natural pairs",
+      "eligible-relation P1P3E2-B TRAIN-NEW and opened TRAIN reserves",
+      "eligible-relation synthetic UNKNOWN derivatives of TRAIN bases"
+    ],
+    "dev_threshold_selection": [
+      "current DEV-NEW natural labels, exploratory only",
+      "synthetic UNKNOWN derivatives of current DEV-NEW base groups",
+      "DEV-EXT natural labels",
+      "synthetic UNKNOWN derivatives of DEV-EXT base groups"
+    ],
+    "test_once": [
+      "TEST-EXT natural labels",
+      "synthetic UNKNOWN derivatives of TEST-EXT base groups"
+    ],
+    "current_test_new_in_model_selection_or_final_evaluation": false,
+    "synthetic_unknown_transformations": [
+      "BOTH_SIDES_ABSENT",
+      "BOTH_ENDPOINT_MARKERS_ONLY"
+    ],
+    "synthetic_unknown_contributes_to_gate0_support": false,
+    "synthetic_unknown_trains_gate2": false,
+    "one_sided_erasure_status": "UNLABELED_AUDIT_ONLY",
+    "test_ext_underpowered_if_any_relation_misses_class_floor": true,
+    "test_new_excluded_because_labels_already_opened": true,
+    "legacy_synthetic_unknown_relation_filter": "eligible supported relations only; all unsupported-relation synthetic variants excluded entirely"
+  },
+  "local_feature_contract": {
+    "candidate_forms_masked_in_context": true,
+    "families": [
+      "content token overlap: count, Jaccard, weighted Jaccard",
+      "TRAIN-only IDF weighted shared content evidence",
+      "ordered shared content bigrams/trigrams and nearest-neighbor agreement",
+      "left/right sidedness and nearest-token distance bins",
+      "fixed negation/polarity cue indicators",
+      "context length, completeness, and boundary indicators",
+      "structural position and field-boundary indicators"
+    ],
+    "idf": "ln((N+1)/(df(t)+1))+1; N and df computed on TRAIN base groups only",
+    "allow_guards": [
+      "function-word overlap alone cannot authorize",
+      "structural-only evidence cannot authorize",
+      "ALLOW requires at least one exact shared non-stopword content token or content n-gram"
+    ],
+    "post_dev_feature_or_rule_changes": false,
+    "relation_id_in_cheap_lexical_feature_vector": false,
+    "lfm_relation_conditioned_prompt": true
+  },
+  "cascade": {
+    "gate0": "relation support lookup; unsupported returns ABSTAIN without model call",
+    "gate1": "sufficiency model; natural TRAIN UNKNOWN and permitted synthetic UNKNOWN are insufficient; natural SAME/DIFFERENT are sufficient",
+    "gate2": "local p_same score trained only on natural TRAIN SAME versus DIFFERENT",
+    "decisions": {
+      "allow": "sufficient AND p_same >= T_allow AND all fixed ALLOW guards pass",
+      "refuse": "sufficient AND p_same < 0.50",
+      "abstain": "unsupported OR insufficient OR otherwise between refuse and allow"
+    },
+    "refuse_and_abstain_retrieval_effect": "identical: preserve original retrieval only",
+    "gate1_fixed_threshold": 0.5,
+    "shared_t_allow_domain": [
+      0.5,
+      1.0
+    ],
+    "dev_t_allow_candidate_points": "sorted unique Gate2 scores on combined current DEV-NEW and DEV-EXT",
+    "unsupported_relations_excluded_from_local_fit": true
+  },
+  "models": {
+    "candidates": [
+      "E1-style depth-3 CART historical control",
+      "L2 regularized logistic cascade primary candidate",
+      "one shallow boosted-tree cascade nonlinear comparator",
+      "three-class regularized logistic architecture control only",
+      "LFM2.5-230M-Base frozen representation plus typed logistic readouts",
+      "LFM2.5-1.2B-Base frozen representation plus typed logistic readouts"
+    ],
+    "broad_hyperparameter_search": false,
+    "shared_features_and_partitions": true,
+    "single_shared_allow_threshold": true,
+    "model_seed": 20260928,
+    "runtime_and_library_versions_sealed_before_fit": true,
+    "lfm_contact_after_cheap_gate_dev_freeze_before_test_ext_scoring": true,
+    "lfm_backbone_fine_tuning": false,
+    "lfm_text_generation": false,
+    "lfm_primary_input": "RELATION line plus masked query and document contexts",
+    "lfm_relation_redacted_diagnostic": true,
+    "gate1_decision_threshold": 0.5,
+    "generative_inference": false,
+    "three_class_control_mapping": {
+      "train_labels": "natural TRAIN SAME, DIFFERENT, UNKNOWN plus permitted synthetic TRAIN UNKNOWN variants",
+      "top_unknown": "ABSTAIN",
+      "top_different": "REFUSE",
+      "top_same": "ALLOW only when P(SAME) >= shared T_allow and both fixed guards pass",
+      "gate0_and_sufficiency_checks_still_apply": true
+    },
+    "lfm_representation": {
+      "prompt_template": "RELATION: source -> target\\nQUERY: masked query context\\nDOCUMENT: masked document context",
+      "frozen_layer_representation": "final-layer hidden state at final non-padding prompt token",
+      "generation": false,
+      "fine_tuning": false,
+      "if_artifact_unavailable": "record unavailable; no substitute model",
+      "logistic_readout": "LogisticRegression(C=1.0, penalty=l2, solver=lbfgs, max_iter=1000, class_weight=None)",
+      "max_input_truncation": false,
+      "chat_template": false
+    },
+    "shared_base_group_partitions_and_targets": true,
+    "same_feature_vector_for_lfm_and_lexical_models": false,
+    "feature_input_difference": "cheap models receive frozen lexical feature vector; LFM receives registered relation-conditioned plain-text prompt and final-layer representation",
+    "hyperparameters": {
+      "cart": "DecisionTreeClassifier(max_depth=3, random_state=20260928); remaining parameters library defaults",
+      "logistic": "LogisticRegression(C=1.0, penalty=l2, solver=lbfgs, max_iter=1000, class_weight=None, random_state=20260928)",
+      "boosted": "HistGradientBoostingClassifier(max_iter=50, max_leaf_nodes=3, learning_rate=0.05, l2_regularization=1.0, early_stopping=False, random_state=20260928)",
+      "all_other_parameters": "frozen library defaults; exact Python and scikit-learn versions recorded before fitting",
+      "broad_search": false
+    }
+  },
+  "dev_selection": {
+    "partition": "current DEV-NEW plus DEV-EXT",
+    "constraint": "zero observed ALLOW on natural DIFFERENT pooled and per relation; zero ALLOW on available natural UNKNOWN and synthetic UNKNOWN; fixed guards pass",
+    "objective": "maximize natural SAME base-group ALLOW coverage",
+    "threshold_tie_break": "choose highest T_allow",
+    "model_tie_break": [
+      "L2 regularized logistic cascade",
+      "E1-style depth-3 CART",
+      "shallow boosted-tree cascade",
+      "LFM2.5-230M-Base",
+      "LFM2.5-1.2B-Base"
+    ],
+    "three_class_logistic_winner_allowed": false,
+    "current_dev_new_used_exploratorily": true,
+    "current_test_new_labels_used": false,
+    "threshold_domain": [
+      0.5,
+      1.0
+    ],
+    "threshold_candidate_points": "sorted unique scores on development predictions only",
+    "expected_denominators_if_all_floors_pass": {
+      "natural_same": 32,
+      "natural_different": 31,
+      "source": "current DEV-NEW plus DEV-EXT"
+    }
+  },
+  "relation_withheld_diagnostic": {
+    "required": true,
+    "heldout_unit": "one supported directed relation",
+    "train_on": "other two supported relations only",
+    "threshold_selection": "other two relations current DEV-NEW plus DEV-EXT only",
+    "evaluate_on": "held relation current DEV-NEW plus DEV-EXT only",
+    "gate0_bypassed_for_diagnostic_only": true,
+    "promotion_or_serving_authority": false
+  },
+  "test_pilot_conditions": {
+    "partition": "TEST-EXT only, one scored run after model and threshold hashes are sealed",
+    "natural_different_false_allow": 0,
+    "natural_different_zero_required_per_relation": true,
+    "natural_unknown_allow": 0,
+    "natural_unknown_zero_required_per_relation_where_observed": true,
+    "synthetic_unknown_allow": 0,
+    "sparse_natural_different_false_allow": 0,
+    "synthetic_unknown_base_groups_all_variants_abstain_min_fraction": 0.9,
+    "natural_same_allow_coverage_min_fraction": 0.25,
+    "per_relation_and_pooled_reporting": true,
+    "confidence_intervals_reported": true,
+    "failure_action": "REPORT_PILOT_FAILURE_OR_UNDERPOWERED; NO_TEST_RETUNING",
+    "expected_denominators_if_all_floors_pass": {
+      "natural_same": 30,
+      "natural_different": 30,
+      "source": "TEST-EXT only"
+    }
+  },
+  "prohibitions_until_final_pilot_receipt": {
+    "feature_join_before_extension_identity_freeze": true,
+    "model_fit_before_protocol_and_feature_code_freeze": true,
+    "test_label_join_before_prediction_receipt_hash": true,
+    "retrieval_run": true,
+    "authority_update_or_lexical_promotion": true,
+    "serving_change": true,
+    "opening_stock_bond_reserve_or_credit_loan_canaries": true,
+    "acquire_extension_before_review_lock": true,
+    "feature_join_before_dev_extension_class_floors_pass": true,
+    "test_score_if_test_extension_underpowered": true
+  },
+  "protocol_file": {
+    "path": "P1P3E2C_SELECTIVE_GATE_PROTOCOL.md",
+    "bytes": 18503,
+    "sha256": "5a7ef3ec359fc013d67b7f9ef06d7a414e0f482a911f5e24888cf2cb7b8f6214"
+  },
+  "prior_data_summary": {
+    "new_natural_labels": 312,
+    "same": 208,
+    "different": 86,
+    "unknown": 18,
+    "natural_unknown_monitor": {
+      "observed": 18,
+      "minimum": 20,
+      "relations_observed": 5,
+      "minimum_relations": 4,
+      "status": "NOT_MET_NO_QUOTA_FILLING"
+    }
+  }
+}
