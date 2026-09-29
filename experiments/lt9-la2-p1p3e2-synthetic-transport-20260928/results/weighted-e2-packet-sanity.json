@@ -1,0 +1,532 @@
+{
+  "schema": "phoenix.lexical.weighted-gate-e2-packets/v1",
+  "status": "DISCOVERY_APPLICATION_SANITY_NOT_QUALIFICATION",
+  "confusion": {
+    "SAME": {
+      "ABSTAIN": 38,
+      "ALLOW": 1
+    },
+    "DIFFERENT": {
+      "ABSTAIN": 8
+    }
+  },
+  "details": [
+    {
+      "packet_id": "e2-05aaa14e43c965c1",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.788847989870537,
+        0.46934251092404655
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-134b3fa79fef585f",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8955431556718104,
+        0.5982104136609174
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-22dad18d1429cc27",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8698448959667474,
+        0.49098891840332615
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-2312a6a89981e7c7",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8435972720439111,
+        0.4590669755401196
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-235caa9bb8f69ff9",
+      "relation": "credit->loan",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8688885362259983,
+        0.5139631870132135
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-26bb74580ed2a619",
+      "relation": "bank->water",
+      "label": "DIFFERENT",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9290744179749058,
+        0.4745560991422649
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-2c6e051f3074b133",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8852745597959137,
+        0.5183400941076867
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-2d11fb2e3b3352ff",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9019666773522388,
+        0.5999737878831998
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-2dae6a234e4e7831",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9105372375621139,
+        0.6594129564923438
+      ],
+      "shared_content": 1.3862943611198906
+    },
+    {
+      "packet_id": "e2-351b9ffde45b8888",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8869733678671103,
+        0.5092530125254515
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-372ed149d73baeb4",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8109561277834569,
+        0.45991667538237996
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-3c72d7a2482cc409",
+      "relation": "engine->motor",
+      "label": "DIFFERENT",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8674101566197349,
+        0.5251659154240075
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-3d2f97d2658f6794",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9191436312944381,
+        0.42472651838737185
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-426c92756c63a8d9",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.7866878514759944,
+        0.4860667554540175
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-482c389061c7c36e",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9336597707671349,
+        0.6478007547823241
+      ],
+      "shared_content": 1.3862943611198906
+    },
+    {
+      "packet_id": "e2-4f7ce348edcd94b8",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8721166674296534,
+        0.48116159053669993
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-4fa3f8007160f5c0",
+      "relation": "loan->debt",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8440818693877822,
+        0.4709600158247855
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-5512310203924f31",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8593429224624999,
+        0.48199852781657343
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-58a0acf225ec33b4",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8939718739416355,
+        0.6424873058727512
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-5b24f7f8b7349944",
+      "relation": "car->vehicle",
+      "label": "DIFFERENT",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8907477190272889,
+        0.48072195661336253
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-5ee86be3e0747144",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9187439559837276,
+        0.621181082481741
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-63b6d43b0bf77e1a",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9489075031383766,
+        0.4930401689956422
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-68853a8c22c174b6",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8063416293893534,
+        0.5213815648590517
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-68c04d6bf3c6a38c",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8334179578128386,
+        0.48943578908006574
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-82ccd62961c228ec",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8822823724101326,
+        0.6343238335524178
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-8f98c2f8547d7319",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8690411483516104,
+        0.529495702565392
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-924a7cddde5526a9",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.7863425065382778,
+        0.5010661662508203
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-95867cc50742e184",
+      "relation": "credit->loan",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8688885362259983,
+        0.5139631870132135
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-abad7ea26b4222bf",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9432730655155599,
+        0.47610033307973354
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-b54c2a2d8cecdef8",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9380105137341336,
+        0.6174108214624358
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-ba276550ac221f6d",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9441716443728293,
+        0.6437798555897004
+      ],
+      "shared_content": 1.791759469228055
+    },
+    {
+      "packet_id": "e2-be1a911138c70f75",
+      "relation": "bank->water",
+      "label": "DIFFERENT",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8791412867159618,
+        0.4895546723316176
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-c49bc1e042341e81",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.7430074720919998,
+        0.6450102495591191
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-c59f5948937a4a72",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9913057403238253,
+        0.6601654466327594
+      ],
+      "shared_content": 1.6094379124341003
+    },
+    {
+      "packet_id": "e2-c5b4f7ff671f674a",
+      "relation": "engine->motor",
+      "label": "DIFFERENT",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.856535299185935,
+        0.5271865667184908
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-c6bd74c920443f81",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9657739321714637,
+        0.46164529886812317
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-ca4c67c73f55377d",
+      "relation": "engine->motor",
+      "label": "DIFFERENT",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8654389330813191,
+        0.6458529466087293
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-cc246f5a77e28ddc",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8890573471246471,
+        0.4968441949096882
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-e5ab5f91e0828064",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ALLOW",
+      "scores": [
+        0.954305246468043,
+        0.8076702552291959
+      ],
+      "shared_content": 1.3862943611198906
+    },
+    {
+      "packet_id": "e2-e61f89fe3d1d66d8",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8651458970559118,
+        0.5951880710673301
+      ],
+      "shared_content": 1.6094379124341003
+    },
+    {
+      "packet_id": "e2-e96b60b05d1ca3a6",
+      "relation": "engine->motor",
+      "label": "DIFFERENT",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8926060778243545,
+        0.5658143908606748
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-ebdf79d638fd7a35",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.9083545954948656,
+        0.46298354618879045
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-ec86b60246af6b78",
+      "relation": "car->vehicle",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8782154337527615,
+        0.5412794471205866
+      ],
+      "shared_content": 0.6931471805599453
+    },
+    {
+      "packet_id": "e2-f4afb1569792ee57",
+      "relation": "engine->motor",
+      "label": "DIFFERENT",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8896889915725185,
+        0.5353842970890921
+      ],
+      "shared_content": 1.6094379124341003
+    },
+    {
+      "packet_id": "e2-f8da40b65a52ad7a",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8194191465097997,
+        0.5073158865981124
+      ],
+      "shared_content": 0.0
+    },
+    {
+      "packet_id": "e2-f913e09bfed06231",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8379788852542948,
+        0.45668816204555207
+      ],
+      "shared_content": 1.0986122886681098
+    },
+    {
+      "packet_id": "e2-fe54ffc3e8d82f46",
+      "relation": "vehicle->car",
+      "label": "SAME",
+      "decision": "ABSTAIN",
+      "scores": [
+        0.8613558879538967,
+        0.5140560189900973
+      ],
+      "shared_content": 1.6094379124341003
+    }
+  ]
+}

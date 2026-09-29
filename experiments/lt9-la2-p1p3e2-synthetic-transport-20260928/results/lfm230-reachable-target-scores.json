@@ -1,0 +1,45 @@
+{
+  "targets": [
+    {
+      "dataset": "hotpotqa",
+      "relation": "vehicle->car",
+      "query_id": "5ab7406e5542991d32223789",
+      "document_id": "874335",
+      "target_ordinal": 276626,
+      "sufficiency_score": 0.9584033741279856,
+      "compatibility_score": 0.9660092485656396
+    },
+    {
+      "dataset": "hotpotqa",
+      "relation": "car->vehicle",
+      "query_id": "5ae3c35b5542992f92d8236f",
+      "document_id": "426754",
+      "target_ordinal": 169988,
+      "sufficiency_score": 0.9979586880811365,
+      "compatibility_score": 0.9664857590210248
+    },
+    {
+      "dataset": "hotpotqa",
+      "relation": "engine->motor",
+      "query_id": "5ae4be0555429960a22e0197",
+      "document_id": "52040",
+      "target_ordinal": 24476,
+      "sufficiency_score": 0.9984323225621682,
+      "compatibility_score": 0.9996642230604905
+    },
+    {
+      "dataset": "quora",
+      "relation": "car->vehicle",
+      "query_id": "115347",
+      "document_id": "36890",
+      "target_ordinal": 35770,
+      "sufficiency_score": 0.5932619895512893,
+      "compatibility_score": 0.6855441878718082
+    }
+  ],
+  "timing": {
+    "rows": 4,
+    "seconds": 0.7841310000512749,
+    "at_max_length": 0
+  }
+}

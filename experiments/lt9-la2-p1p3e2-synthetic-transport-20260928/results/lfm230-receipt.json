@@ -1,0 +1,144 @@
+{
+  "schema": "phoenix.lexical.lfm230-engineering-readout/v1",
+  "status": "FROZEN_REPRESENTATION_PROXY_ENGINEERING_NOT_AUTHORITY",
+  "sampling_seed": 20260928,
+  "selected_counts": {
+    "train": {
+      "WEAK_DIFFERENT": 800,
+      "STRONG_DIFFERENT": 800,
+      "ERASED_UNKNOWN": 1600,
+      "SAME": 1600,
+      "SEED_UNKNOWN": 200
+    },
+    "dev": {
+      "STRONG_DIFFERENT": 200,
+      "SAME": 400,
+      "WEAK_DIFFERENT": 400,
+      "ERASED_UNKNOWN": 400,
+      "SEED_UNKNOWN": 40
+    },
+    "test": {
+      "ERASED_UNKNOWN": 400,
+      "SAME": 400,
+      "WEAK_DIFFERENT": 400,
+      "STRONG_DIFFERENT": 200,
+      "SEED_UNKNOWN": 40
+    }
+  },
+  "selected_pair_id_sha256": {
+    "train": "6ac06f09967e074fa968f0a2d1ad5ef1388cc85fecf8e7c4d318bad4ff0034f6",
+    "dev": "211ef9ec9d25478e6bf01a137c61818c88d9d04a409cba48edee750d308f6be7",
+    "test": "28a66cec2eda492ae13ed2ae035c5b4b1bbd50f496ff9e2979b090eff3219ec0"
+  },
+  "thresholds": {
+    "sufficiency": 0.999999,
+    "allow": 1.000001,
+    "refuse": 0.2
+  },
+  "metrics": {
+    "dev": {
+      "SAME": {
+        "n": 400,
+        "ABSTAIN": 400
+      },
+      "DIFFERENT": {
+        "n": 600,
+        "ABSTAIN": 600
+      },
+      "UNKNOWN": {
+        "n": 440,
+        "ABSTAIN": 440
+      },
+      "STRONG_DIFFERENT": {
+        "n": 200,
+        "ABSTAIN": 200
+      },
+      "WEAK_DIFFERENT": {
+        "n": 400,
+        "ABSTAIN": 400
+      },
+      "ERASED_UNKNOWN": {
+        "n": 400,
+        "ABSTAIN": 400
+      },
+      "SEED_UNKNOWN": {
+        "n": 40,
+        "ABSTAIN": 40
+      }
+    },
+    "test": {
+      "SAME": {
+        "n": 400,
+        "ABSTAIN": 400
+      },
+      "DIFFERENT": {
+        "n": 600,
+        "ABSTAIN": 600
+      },
+      "UNKNOWN": {
+        "n": 440,
+        "ABSTAIN": 440
+      },
+      "STRONG_DIFFERENT": {
+        "n": 200,
+        "ABSTAIN": 200
+      },
+      "WEAK_DIFFERENT": {
+        "n": 400,
+        "ABSTAIN": 400
+      },
+      "ERASED_UNKNOWN": {
+        "n": 400,
+        "ABSTAIN": 400
+      },
+      "SEED_UNKNOWN": {
+        "n": 40,
+        "ABSTAIN": 40
+      }
+    }
+  },
+  "e2_packet_confusion": {
+    "SAME": {
+      "ABSTAIN": 39
+    },
+    "DIFFERENT": {
+      "ABSTAIN": 8
+    }
+  },
+  "qps_decision_counts": {
+    "ABSTAIN": 191
+  },
+  "timings": {
+    "train": {
+      "rows": 5000,
+      "seconds": 23.992736398708075,
+      "at_max_length": 0
+    },
+    "dev": {
+      "rows": 1440,
+      "seconds": 4.690218199510127,
+      "at_max_length": 2
+    },
+    "test": {
+      "rows": 1440,
+      "seconds": 4.211309199454263,
+      "at_max_length": 0
+    },
+    "e2_packets": {
+      "rows": 47,
+      "seconds": 1.1171311000362039,
+      "at_max_length": 0
+    },
+    "qps": {
+      "rows": 191,
+      "seconds": 2.077878000214696,
+      "at_max_length": 0
+    }
+  },
+  "readout_sha256": "268d6be0051fe463804f229e3b18b0246aa4610e85e2eedf34f04c3bc510d86b",
+  "limits": [
+    "bounded deterministic subset of the seed bank, not all 151736 rows",
+    "seed substitution judgments are proxy labels for transport compatibility",
+    "reviewed E2 packets are discovery-exposed engineering sanity checks"
+  ]
+}

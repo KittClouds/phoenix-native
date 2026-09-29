@@ -1,0 +1,7 @@
+{
+  "schema": "phoenix.lexical.qps-maskfix-parity/v1",
+  "old_sha256": "ed35e04e6efd950e82f0f2abc19e9776b0310352933f666705ad725bd68f237a",
+  "corrected_sha256": "aa0fdbc9f310935547b91d672cdd0f41aa67985fc09bd071069e78db1d0a071e",
+  "rows": 17,
+  "non_timing_field_mismatches": 0
+}

@@ -70,3 +70,63 @@ This bank is training/debug material for an engineering selective gate. The
 natural E2 retrieval-opportunity examples remain useful for downstream QPS
 sanity checks, but are not represented as a fresh qualification set. No
 authority learning or production serving is part of this artifact.
+
+## Weighted gate and QPS application run
+
+The completed engineering result is in
+[`WEIGHTED_TRANSPORT_ENGINEERING_REPORT.md`](WEIGHTED_TRANSPORT_ENGINEERING_REPORT.md).
+The bank used for fitting is the validated `bank-v3` artifact at
+`D:\phoenix-evals\p1p3e2-synthetic-transport-bank-20260928\bank-v3`.
+The fit script requires Python and NumPy. The optional frozen 230M readout
+also requires PyTorch, Transformers, a CUDA-capable device, and the pinned
+`LiquidAI/LFM2.5-230M-Base` revision recorded in its receipt.
+
+```powershell
+python experiments/lt9-la2-p1p3e2-synthetic-transport-20260928/train_weighted_gate.py `
+  D:/phoenix-evals/p1p3e2-synthetic-transport-bank-20260928/bank-v3 `
+  D:/phoenix-evals/p1p3e2-weighted-gate-v2-20260928
+
+$env:CARGO_TARGET_DIR = 'D:/phoenix-target-overgraph'
+cargo test --release --manifest-path `
+  experiments/lt9-la2-p1p3e2-synthetic-transport-20260928/qps_transport_harness/Cargo.toml
+cargo build --release --manifest-path `
+  experiments/lt9-la2-p1p3e2-synthetic-transport-20260928/qps_transport_harness/Cargo.toml
+```
+
+The isolated QPS package referenced by that Cargo manifest is the same frozen
+source copy used by the E2 baseline ranker. The corpus replay consumes the
+17 reviewed E2 opportunity rows and writes a new directory; the runner
+refuses to overwrite an existing one.
+
+```powershell
+& D:/phoenix-target-overgraph/release/p1p3e2-weighted-qps-transport.exe `
+  experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/cohort.json `
+  D:/phoenix-evals/lt9-la2-p1p3e2-context-bank-final-20260928/transport-opportunity-bank.jsonl `
+  D:/phoenix-evals/p1p3e2-weighted-qps-search-v2-20260928
+
+python experiments/lt9-la2-p1p3e2-synthetic-transport-20260928/score_qps_lanes.py `
+  D:/phoenix-evals/p1p3e2-weighted-gate-v2-20260928/weighted-gate.json `
+  D:/phoenix-evals/p1p3e2-weighted-qps-search-v2-20260928/qps-transport-searches.jsonl `
+  D:/phoenix-evals/lt9-la2-p1p3e2-context-bank-final-20260928 `
+  experiments/lt9-la2-p1p3e2-transport-opportunity-20260928/cohort.json `
+  D:/phoenix-evals/p1p3e2-weighted-qps-lanes-v2-20260928
+```
+
+The checked-in `results/` files are compact model/receipt artifacts. They
+exclude raw BEIR text and pretrained model weights; the full-corpus hashes
+and model revision are recorded so the result remains auditable.
+
+The optional 230M comparator uses the exact pinned local checkpoint and a
+deterministic bounded subset of the same bank:
+
+```powershell
+python experiments/lt9-la2-p1p3e2-synthetic-transport-20260928/lfm230_readout.py `
+  D:/phoenix-evals/p1p3e2-synthetic-transport-bank-20260928/bank-v3 `
+  D:/phoenix-models/lfm2.5-230m-base-9d2be55 `
+  D:/phoenix-evals/lt9-la2-p1p3e2-context-bank-final-20260928 `
+  D:/phoenix-evals/p1p3e2-weighted-qps-search-v2-20260928/qps-transport-searches.jsonl `
+  D:/phoenix-evals/p1p3e2-lfm230-readout-20260928
+```
+
+Use a new output directory for any replay. The checked-in receipt is the
+result of the original run; replaying it must not overwrite those artifacts.

@@ -1,0 +1,96 @@
+{
+  "schema": "phoenix.lexical.weighted-gate-training-receipt/v1",
+  "status": "INTERNAL_PROXY_TEST_COMPLETE_NOT_EXTERNAL_QUALIFICATION",
+  "input_pairs_sha256": "67036e6a7fca2cdde143c52c90b62280591eb96c5b68af1fec727db4200e527e",
+  "input_contexts_sha256": "ad5f65c44cf91878077e3854cd72b956f9289cda23f90dcddf58670957f439c9",
+  "model_sha256": "f8b35b18bb410ec048f38ccb3a86144edd741b2f548b0f74c77579d422d8df9c",
+  "split_counts": {
+    "train": 113660,
+    "dev": 20784,
+    "test": 17292
+  },
+  "thresholds": {
+    "sufficiency": 0.9872135225375627,
+    "allow": 0.6881505505505505,
+    "refuse": 0.2
+  },
+  "metrics": {
+    "dev": {
+      "SAME": {
+        "n": 1110,
+        "ALLOW": 20,
+        "REFUSE": 0,
+        "ABSTAIN": 1090
+      },
+      "DIFFERENT": {
+        "n": 9256,
+        "ALLOW": 94,
+        "REFUSE": 0,
+        "ABSTAIN": 9162
+      },
+      "UNKNOWN": {
+        "n": 10418,
+        "ALLOW": 0,
+        "REFUSE": 0,
+        "ABSTAIN": 10418
+      },
+      "SYNTHETIC_NO_LOCAL_EVIDENCE": {
+        "n": 10366,
+        "ALLOW": 0,
+        "REFUSE": 0,
+        "ABSTAIN": 10366
+      },
+      "SEED_UNSURE_OR_MIXED": {
+        "n": 52,
+        "ALLOW": 0,
+        "REFUSE": 0,
+        "ABSTAIN": 52
+      },
+      "EXPLICIT_SWORDS_REJECTION": {
+        "n": 453,
+        "false_allow": 0
+      }
+    },
+    "test": {
+      "SAME": {
+        "n": 806,
+        "ALLOW": 22,
+        "REFUSE": 0,
+        "ABSTAIN": 784
+      },
+      "DIFFERENT": {
+        "n": 7808,
+        "ALLOW": 49,
+        "REFUSE": 0,
+        "ABSTAIN": 7759
+      },
+      "UNKNOWN": {
+        "n": 8678,
+        "ALLOW": 2,
+        "REFUSE": 0,
+        "ABSTAIN": 8676
+      },
+      "SYNTHETIC_NO_LOCAL_EVIDENCE": {
+        "n": 8614,
+        "ALLOW": 0,
+        "REFUSE": 0,
+        "ABSTAIN": 8614
+      },
+      "SEED_UNSURE_OR_MIXED": {
+        "n": 64,
+        "ALLOW": 2,
+        "REFUSE": 0,
+        "ABSTAIN": 62
+      },
+      "EXPLICIT_SWORDS_REJECTION": {
+        "n": 437,
+        "false_allow": 0
+      }
+    }
+  },
+  "limitations": [
+    "SWORDS/CoInCo seed semantics are a proxy for transport compatibility",
+    "CoInCo not-elicited negatives are downweighted, not treated as explicit rejections",
+    "internal TEST uses context-disjoint seed-bank split, not independent external labels"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "alpha": 0.5,
+  "datasets": {
+    "hotpotqa": {
+      "corpus_bytes": 2149313046,
+      "corpus_sha256": "3e776d2343352f83341878202b8c49cc1ebe6e2ad4c2a77a21c116cafa229334",
+      "new_doc_contexts": 1487,
+      "search_rows": 14
+    },
+    "nq": {
+      "corpus_bytes": 1503763328,
+      "corpus_sha256": "f7e3588dd416772c9830baf67e827d49678f8d5a6ccf6e101b9ce990cc7b208c",
+      "new_doc_contexts": 198,
+      "search_rows": 2
+    },
+    "quora": {
+      "corpus_bytes": 63335960,
+      "corpus_sha256": "e2586c8e2f09c994a03d8e77842072b0f67f6f48403768be745157579d74aae4",
+      "new_doc_contexts": 101,
+      "search_rows": 1
+    }
+  },
+  "opportunities_sha256": "aac6531cef66d63dea5ca310340300873184d28fc6cffa70541ffca4b521dfe4",
+  "schema": "phoenix.lexical.weighted-gate-qps-search/v1",
+  "status": "FULL_CORPUS_QPS_LANES_SEARCHED_NO_AUTHORITY_CHANGE",
+  "top_k": 100
+}

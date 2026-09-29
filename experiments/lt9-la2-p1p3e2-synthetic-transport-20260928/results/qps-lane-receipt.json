@@ -1,0 +1,83 @@
+{
+  "schema": "phoenix.lexical.weighted-gate-qps-lanes/v1",
+  "status": "E2_APPLICATION_SANITY_NOT_AUTHORITY_OR_EXTERNAL_QUALIFICATION",
+  "model_sha256": "274f61d0d83b8d4d78d74d2b7c45f97d5e481bbebe8b3489338bf3b27f368a88",
+  "qps_searches_sha256": "aa0fdbc9f310935547b91d672cdd0f41aa67985fc09bd071069e78db1d0a071e",
+  "review_labels_sha256": "e603e5b40514012a59931cd7de94edab17169917e9d4c557f56a7afd98783059",
+  "lfm_decisions_sha256": "33619ca6965b9fa8f795bd1afac74487ab24448bab3ef9872a17c54bf1b600e7",
+  "probe_rows": 17,
+  "reviewed_labels": {
+    "SAME": 14,
+    "DIFFERENT": 3
+  },
+  "lanes": {
+    "L0_BASELINE": {
+      "probes": 17,
+      "target_hits_top100": 3,
+      "same_target_hits_top100": 3,
+      "different_target_hits_top100": 0,
+      "relevant_top10_sum": 12,
+      "relevant_top100_sum": 17,
+      "newly_admitted_qrels_positive": 0,
+      "newly_admitted_qrels_unjudged": 0,
+      "transport_contexts_admitted": 0
+    },
+    "L1_UNCONDITIONAL": {
+      "probes": 17,
+      "target_hits_top100": 7,
+      "same_target_hits_top100": 6,
+      "different_target_hits_top100": 1,
+      "relevant_top10_sum": 12,
+      "relevant_top100_sum": 21,
+      "newly_admitted_qrels_positive": 4,
+      "newly_admitted_qrels_unjudged": 187,
+      "transport_contexts_admitted": 191
+    },
+    "L2_WEIGHTED_GATE": {
+      "probes": 17,
+      "target_hits_top100": 3,
+      "same_target_hits_top100": 3,
+      "different_target_hits_top100": 0,
+      "relevant_top10_sum": 12,
+      "relevant_top100_sum": 17,
+      "newly_admitted_qrels_positive": 0,
+      "newly_admitted_qrels_unjudged": 4,
+      "transport_contexts_admitted": 4
+    },
+    "L3_LABELED_TARGET_ORACLE": {
+      "probes": 17,
+      "target_hits_top100": 6,
+      "same_target_hits_top100": 6,
+      "different_target_hits_top100": 0,
+      "relevant_top10_sum": 12,
+      "relevant_top100_sum": 20,
+      "newly_admitted_qrels_positive": 3,
+      "newly_admitted_qrels_unjudged": 0,
+      "transport_contexts_admitted": 3
+    },
+    "L4_LFM230_READOUT": {
+      "probes": 17,
+      "target_hits_top100": 3,
+      "same_target_hits_top100": 3,
+      "different_target_hits_top100": 0,
+      "relevant_top10_sum": 12,
+      "relevant_top100_sum": 17,
+      "newly_admitted_qrels_positive": 0,
+      "newly_admitted_qrels_unjudged": 0,
+      "transport_contexts_admitted": 0
+    }
+  },
+  "latency": {
+    "qps_baseline_us_sum": 10216746,
+    "qps_expanded_us_sum": 8434615,
+    "gate_python_us_p50": 128.9,
+    "gate_python_us_p95": 246.8,
+    "gate_evaluations": 191
+  },
+  "limits": [
+    "Only 17 discovery-exposed, qrels-positive target probes; no external generalization claim",
+    "L3 oracle allows only the one reviewed target per probe, not unreviewed candidates",
+    "Qrels-absent newly admitted documents are unjudged, not proven irrelevant",
+    "Python gate latency is engineering instrumentation, not a Rust serving benchmark"
+  ]
+}

@@ -1,0 +1,17 @@
+[package]
+name = "p1p3e2-weighted-qps-transport"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+anyhow = "1.0"
+hashbrown = "0.15"
+memchr = "2.7"
+memmap2 = "0.9"
+phoenix-lexical-qps = { path = "../../../../phoenix-evals/lt9-la2-p1p3e2-qps-ranker-20260928/qps" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"

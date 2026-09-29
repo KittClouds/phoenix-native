@@ -1,0 +1,898 @@
+[
+  {
+    "key": [
+      "hotpotqa",
+      "5a70f6425542994082a3e44c",
+      3819681,
+      "vehicle_to_car:vehicle->car"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 1917314,
+    "qps_expanded_us": 951901,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 10,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5a7c937f55429907fabeefb4",
+      281615,
+      "car_to_vehicle:car->vehicle"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 377879,
+    "qps_expanded_us": 349882,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 4,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5a7db7e45542997cc2c4747f",
+      358869,
+      "vehicle_to_car:vehicle->car"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 680646,
+    "qps_expanded_us": 649819,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 16,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5a803f1d554299485f59859b",
+      170966,
+      "vehicle_to_car:vehicle->car"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 709557,
+    "qps_expanded_us": 712035,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 36,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5a85a0b45542997175ce1fdb",
+      918642,
+      "vehicle_to_car:vehicle->car"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 235083,
+    "qps_expanded_us": 205632,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 16,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 1,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5ab2a916554299545a2cf9f9",
+      318931,
+      "engine_to_motor:engine->motor"
+    ],
+    "label": "DIFFERENT",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 722574,
+    "qps_expanded_us": 723069,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 1,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5ab7406e5542991d32223789",
+      276626,
+      "vehicle_to_car:vehicle->car"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "ABSTAIN",
+    "target_gate_scores": [
+      0.9578738344931657,
+      0.5024848461975825
+    ],
+    "qps_baseline_us": 531607,
+    "qps_expanded_us": 557804,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": 98,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 16,
+        "newly_relevant": 1
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": 84,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 1,
+        "newly_relevant": 1
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5ab803ef5542990e739ec7de",
+      283726,
+      "car_to_vehicle:car->vehicle"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 776086,
+    "qps_expanded_us": 748551,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 2,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5ac270f155429951e9e685cb",
+      863418,
+      "vehicle_to_car:vehicle->car"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": 13,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 715162,
+    "qps_expanded_us": 720598,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": 13,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": 13,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 28,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": 13,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": 13,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": 13,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5ac515fc5542996feb3fe9f3",
+      206181,
+      "vehicle_to_car:vehicle->car"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": 28,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 279045,
+    "qps_expanded_us": 309924,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": 28,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": 28,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 17,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": 28,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": 28,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": 28,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5ade9a8555429939a52fe8fa",
+      5131317,
+      "vehicle_to_car:vehicle->car"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": 35,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 443116,
+    "qps_expanded_us": 397353,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": 35,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": 35,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 7,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": 35,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": 35,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": 35,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5ae3c35b5542992f92d8236f",
+      169988,
+      "car_to_vehicle:car->vehicle"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": 206,
+    "target_decision": "ABSTAIN",
+    "target_gate_scores": [
+      0.9616262825164649,
+      0.5799015900602087
+    ],
+    "qps_baseline_us": 326834,
+    "qps_expanded_us": 331668,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": 67,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 6,
+        "newly_relevant": 1
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": 64,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 1,
+        "newly_relevant": 1
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5ae4be0555429960a22e0197",
+      24476,
+      "engine_to_motor:engine->motor"
+    ],
+    "label": "DIFFERENT",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": 135,
+    "target_decision": "ABSTAIN",
+    "target_gate_scores": [
+      0.9917541283055479,
+      0.6333729644638074
+    ],
+    "qps_baseline_us": 986581,
+    "qps_expanded_us": 892190,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": 87,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 3,
+        "newly_relevant": 1
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "hotpotqa",
+      "5ae74b3f5542991bbc9761dc",
+      221219,
+      "engine_to_motor:engine->motor"
+    ],
+    "label": "DIFFERENT",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 573213,
+    "qps_expanded_us": 569671,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 6,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 3,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "nq",
+      "test1517",
+      54202,
+      "car_to_vehicle:car->vehicle"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 684119,
+    "qps_expanded_us": 149976,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 16,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "nq",
+      "test547",
+      19961,
+      "car_to_vehicle:car->vehicle"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": null,
+    "target_decision": "NOT_IN_EXPANSION",
+    "target_gate_scores": null,
+    "qps_baseline_us": 149609,
+    "qps_expanded_us": 153008,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 6,
+        "newly_relevant": 0
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  },
+  {
+    "key": [
+      "quora",
+      "115347",
+      35770,
+      "car_to_vehicle:car->vehicle"
+    ],
+    "label": "SAME",
+    "qrels_grade": 1,
+    "reported_prior_baseline_rank": 135,
+    "target_decision": "ABSTAIN",
+    "target_gate_scores": [
+      0.9191436312944381,
+      0.42472651838737185
+    ],
+    "qps_baseline_us": 108321,
+    "qps_expanded_us": 11534,
+    "lanes": {
+      "L0_BASELINE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L1_UNCONDITIONAL": {
+        "target_rank": 20,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 1,
+        "newly_relevant": 1
+      },
+      "L2_WEIGHTED_GATE": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L3_LABELED_TARGET_ORACLE": {
+        "target_rank": 20,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 1,
+        "newly_relevant": 1
+      },
+      "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      }
+    }
+  }
+]
