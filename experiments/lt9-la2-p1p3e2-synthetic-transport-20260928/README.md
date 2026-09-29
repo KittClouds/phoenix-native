@@ -130,3 +130,34 @@ python experiments/lt9-la2-p1p3e2-synthetic-transport-20260928/lfm230_readout.py
 
 Use a new output directory for any replay. The checked-in receipt is the
 result of the original run; replaying it must not overwrite those artifacts.
+
+## Directed-endpoint diagnostic
+
+The report also records one focused alternative: learn the directed substitution
+decision for each endpoint separately, then require permission from both the
+query and document endpoint. It uses the same seed bank and frozen 230M model.
+The strict DEV-selected readout abstained on all QPS candidates. A separate
+exploratory `0.5/0.5` midpoint policy recovered two reviewed targets but also
+falsely authorized explicit seed rejections and two reviewed E2 DIFFERENT pairs.
+It is a diagnostic, not an enabled QPS or authority policy.
+
+```powershell
+python experiments/lt9-la2-p1p3e2-synthetic-transport-20260928/direct_endpoint_lfm.py `
+  D:/phoenix-evals/p1p3e2-synthetic-transport-bank-20260928/bank-v3 `
+  D:/phoenix-models/lfm2.5-230m-base-9d2be55 `
+  D:/phoenix-evals/lt9-la2-p1p3e2-context-bank-final-20260928 `
+  D:/phoenix-evals/p1p3e2-weighted-qps-search-v2-20260928/qps-transport-searches.jsonl `
+  D:/phoenix-evals/REPLAY-direct-endpoint
+
+python experiments/lt9-la2-p1p3e2-synthetic-transport-20260928/direct_endpoint_midpoint.py `
+  D:/phoenix-evals/p1p3e2-synthetic-transport-bank-20260928/bank-v3 `
+  D:/phoenix-models/lfm2.5-230m-base-9d2be55 `
+  D:/phoenix-evals/REPLAY-direct-endpoint/direct-endpoint-readout.json `
+  D:/phoenix-evals/lt9-la2-p1p3e2-context-bank-final-20260928 `
+  D:/phoenix-evals/p1p3e2-weighted-qps-search-v2-20260928/qps-transport-searches.jsonl `
+  D:/phoenix-evals/REPLAY-direct-midpoint
+```
+
+The final checked-in `results/qps-lane-receipt.json` includes the exploratory
+L5 lane alongside L0-L4. The raw seed bank, corpus text, and model weights
+remain outside Git; replay requires those local assets.

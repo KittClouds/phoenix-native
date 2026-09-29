@@ -48,6 +48,13 @@
         "relevant_top100": 1,
         "newly_admitted": 0,
         "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
       }
     }
   },
@@ -99,6 +106,13 @@
         "relevant_top10": 0,
         "relevant_top100": 1,
         "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 1,
+        "newly_admitted": 1,
         "newly_relevant": 0
       }
     }
@@ -152,6 +166,13 @@
         "relevant_top100": 1,
         "newly_admitted": 0,
         "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 11,
+        "newly_relevant": 0
       }
     }
   },
@@ -199,6 +220,13 @@
         "newly_relevant": 0
       },
       "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
         "target_rank": null,
         "relevant_top10": 1,
         "relevant_top100": 1,
@@ -256,6 +284,13 @@
         "relevant_top100": 1,
         "newly_admitted": 0,
         "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
       }
     }
   },
@@ -303,6 +338,13 @@
         "newly_relevant": 0
       },
       "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
         "target_rank": null,
         "relevant_top10": 1,
         "relevant_top100": 1,
@@ -363,6 +405,13 @@
         "relevant_top100": 1,
         "newly_admitted": 0,
         "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": 95,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 13,
+        "newly_relevant": 1
       }
     }
   },
@@ -414,6 +463,13 @@
         "relevant_top10": 1,
         "relevant_top100": 1,
         "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 1,
         "newly_relevant": 0
       }
     }
@@ -467,6 +523,13 @@
         "relevant_top100": 2,
         "newly_admitted": 0,
         "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": 13,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 14,
+        "newly_relevant": 0
       }
     }
   },
@@ -519,6 +582,13 @@
         "relevant_top100": 2,
         "newly_admitted": 0,
         "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": 28,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 7,
+        "newly_relevant": 0
       }
     }
   },
@@ -570,6 +640,13 @@
         "relevant_top10": 1,
         "relevant_top100": 2,
         "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": 35,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 5,
         "newly_relevant": 0
       }
     }
@@ -626,6 +703,13 @@
         "relevant_top100": 1,
         "newly_admitted": 0,
         "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": 67,
+        "relevant_top10": 1,
+        "relevant_top100": 2,
+        "newly_admitted": 5,
+        "newly_relevant": 1
       }
     }
   },
@@ -676,6 +760,13 @@
         "newly_relevant": 0
       },
       "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
         "target_rank": null,
         "relevant_top10": 1,
         "relevant_top100": 1,
@@ -733,6 +824,13 @@
         "relevant_top100": 1,
         "newly_admitted": 0,
         "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": null,
+        "relevant_top10": 1,
+        "relevant_top100": 1,
+        "newly_admitted": 0,
+        "newly_relevant": 0
       }
     }
   },
@@ -780,6 +878,13 @@
         "newly_relevant": 0
       },
       "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
         "target_rank": null,
         "relevant_top10": 0,
         "relevant_top100": 0,
@@ -837,6 +942,13 @@
         "relevant_top100": 0,
         "newly_admitted": 0,
         "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
       }
     }
   },
@@ -887,6 +999,13 @@
         "newly_relevant": 1
       },
       "L4_LFM230_READOUT": {
+        "target_rank": null,
+        "relevant_top10": 0,
+        "relevant_top100": 0,
+        "newly_admitted": 0,
+        "newly_relevant": 0
+      },
+      "L5_DIRECT_ENDPOINT": {
         "target_rank": null,
         "relevant_top10": 0,
         "relevant_top100": 0,

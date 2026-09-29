@@ -1,0 +1,165 @@
+{
+  "schema": "phoenix.lexical.direct-endpoint-lfm230-receipt/v1",
+  "status": "FOCUSED_ENGINEERING_REPAIR_DIAGNOSTIC_NOT_AUTHORITY",
+  "bank_observations_sha256": "2ca10f3ce347e3196e356df03cc81478233030b01e137b2bde40e66388b9bea8",
+  "selection_seed": 20260928,
+  "selected_counts": {
+    "train": {
+      "SAME": 4000,
+      "STRONG_DIFFERENT": 2000,
+      "WEAK_DIFFERENT": 2000,
+      "UNKNOWN": 800,
+      "ERASED": 2000
+    },
+    "dev": {
+      "SAME": 800,
+      "UNKNOWN": 200,
+      "WEAK_DIFFERENT": 400,
+      "STRONG_DIFFERENT": 400,
+      "ERASED": 450
+    },
+    "test": {
+      "WEAK_DIFFERENT": 400,
+      "SAME": 800,
+      "STRONG_DIFFERENT": 400,
+      "UNKNOWN": 200,
+      "ERASED": 450
+    }
+  },
+  "thresholds": {
+    "sufficiency": 0.5,
+    "acceptability": 1.000001
+  },
+  "dev_same_coverage": -1.0,
+  "internal_metrics": {
+    "dev": {
+      "SAME": {
+        "n": 800,
+        "ABSTAIN": 763,
+        "REFUSE": 37
+      },
+      "STRONG_DIFFERENT": {
+        "n": 400,
+        "ABSTAIN": 287,
+        "REFUSE": 113
+      },
+      "WEAK_DIFFERENT": {
+        "n": 400,
+        "ABSTAIN": 377,
+        "REFUSE": 23
+      },
+      "UNKNOWN": {
+        "n": 200,
+        "ABSTAIN": 143,
+        "REFUSE": 57
+      },
+      "ERASED": {
+        "n": 450,
+        "ABSTAIN": 450
+      }
+    },
+    "test": {
+      "SAME": {
+        "n": 800,
+        "ABSTAIN": 753,
+        "REFUSE": 47
+      },
+      "STRONG_DIFFERENT": {
+        "n": 400,
+        "ABSTAIN": 310,
+        "REFUSE": 90
+      },
+      "WEAK_DIFFERENT": {
+        "n": 400,
+        "ABSTAIN": 371,
+        "REFUSE": 29
+      },
+      "UNKNOWN": {
+        "n": 200,
+        "ABSTAIN": 142,
+        "REFUSE": 58
+      },
+      "ERASED": {
+        "n": 450,
+        "ABSTAIN": 450
+      }
+    }
+  },
+  "e2_packet_confusion": {
+    "SAME": {
+      "ABSTAIN": 39
+    },
+    "DIFFERENT": {
+      "ABSTAIN": 8
+    }
+  },
+  "qps_decisions": {
+    "ABSTAIN": 191
+  },
+  "reachable_targets": [
+    {
+      "relation": "vehicle->car",
+      "target_ordinal": 276626,
+      "decision": "ABSTAIN",
+      "query_accept": 0.8862739649223856,
+      "document_accept": 0.8028934506867796,
+      "query_sufficient": 0.9098986105871828,
+      "document_sufficient": 0.9737038877846768
+    },
+    {
+      "relation": "car->vehicle",
+      "target_ordinal": 169988,
+      "decision": "ABSTAIN",
+      "query_accept": 0.5738444377936927,
+      "document_accept": 0.9894090988764168,
+      "query_sufficient": 0.9201177503915756,
+      "document_sufficient": 0.9574586265355892
+    },
+    {
+      "relation": "engine->motor",
+      "target_ordinal": 24476,
+      "decision": "ABSTAIN",
+      "query_accept": 0.4010914937617233,
+      "document_accept": 0.9999747326784237,
+      "query_sufficient": 0.948876916578666,
+      "document_sufficient": 0.9904054293646152
+    },
+    {
+      "relation": "car->vehicle",
+      "target_ordinal": 35770,
+      "decision": "ABSTAIN",
+      "query_accept": 0.169321735073557,
+      "document_accept": 0.23872022958606212,
+      "query_sufficient": 0.22302623187797213,
+      "document_sufficient": 0.40465229280296106
+    }
+  ],
+  "timings": {
+    "train": {
+      "rows": 10800,
+      "seconds": 49.85384960193187,
+      "at_max_length": 0
+    },
+    "dev": {
+      "rows": 2250,
+      "seconds": 6.15005269809626,
+      "at_max_length": 0
+    },
+    "test": {
+      "rows": 2250,
+      "seconds": 6.355086299590766,
+      "at_max_length": 0
+    },
+    "application_endpoints": {
+      "rows": 476,
+      "seconds": 4.522682300070301,
+      "at_max_length": 0
+    }
+  },
+  "readout_sha256": "1ecccbb7402c540f58c0987a89edb6de0bfdb1cddef9ff4593e05d27e83fc321",
+  "limits": [
+    "same seed corpus, not external evidence",
+    "pair requires both directed endpoint permissions",
+    "E2 labels are discovery-exposed application sanity evidence"
+  ]
+}

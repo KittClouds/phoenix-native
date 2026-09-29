@@ -1,0 +1,88 @@
+{
+  "schema": "phoenix.lexical.direct-endpoint-midpoint/v1",
+  "status": "EXPLORATORY_MIDPOINT_POLICY_DISCOVERY_EXPOSED_NOT_DEPLOYABLE",
+  "readout_sha256": "1ecccbb7402c540f58c0987a89edb6de0bfdb1cddef9ff4593e05d27e83fc321",
+  "thresholds": {
+    "sufficiency": 0.5,
+    "acceptability": 0.5
+  },
+  "internal_test": {
+    "WEAK_DIFFERENT": {
+      "ALLOW": 285,
+      "ABSTAIN": 115
+    },
+    "SAME": {
+      "ALLOW": 611,
+      "ABSTAIN": 189
+    },
+    "STRONG_DIFFERENT": {
+      "ALLOW": 147,
+      "ABSTAIN": 253
+    },
+    "UNKNOWN": {
+      "ALLOW": 52,
+      "ABSTAIN": 148
+    }
+  },
+  "e2_packet_confusion": {
+    "SAME": {
+      "ABSTAIN": 30,
+      "ALLOW": 9
+    },
+    "DIFFERENT": {
+      "ALLOW": 2,
+      "ABSTAIN": 6
+    }
+  },
+  "qps_decision_counts": {
+    "ABSTAIN": 134,
+    "ALLOW": 57
+  },
+  "reachable_targets": [
+    {
+      "relation": "vehicle->car",
+      "target_ordinal": 276626,
+      "decision": "ALLOW",
+      "query_accept": 0.8862739568726637,
+      "document_accept": 0.8028934428822708
+    },
+    {
+      "relation": "car->vehicle",
+      "target_ordinal": 169988,
+      "decision": "ALLOW",
+      "query_accept": 0.5738444321971409,
+      "document_accept": 0.9894090971937948
+    },
+    {
+      "relation": "engine->motor",
+      "target_ordinal": 24476,
+      "decision": "ABSTAIN",
+      "query_accept": 0.4010914846289366,
+      "document_accept": 0.9999747326675987
+    },
+    {
+      "relation": "car->vehicle",
+      "target_ordinal": 35770,
+      "decision": "ABSTAIN",
+      "query_accept": 0.1693217446191039,
+      "document_accept": 0.23872023936136424
+    }
+  ],
+  "timings": {
+    "internal_test": {
+      "rows": 1800,
+      "seconds": 11.59874650160782,
+      "at_max_length": 0
+    },
+    "application": {
+      "rows": 476,
+      "seconds": 5.30237270030193,
+      "at_max_length": 0
+    }
+  },
+  "decision_sha256": "63df35973b0e851d404ff733988cfadec7deac8d01ebaa94907062f3191276bd",
+  "limits": [
+    "0.5 midpoint is an engineering diagnostic after seeing prior failures",
+    "reviewed E2 rows are discovery-exposed; no qualification or serving claim"
+  ]
+}

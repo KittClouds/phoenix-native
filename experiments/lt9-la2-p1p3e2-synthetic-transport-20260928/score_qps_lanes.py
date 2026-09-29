@@ -54,16 +54,18 @@ def merge(row: dict, admitted: set[int]) -> list[dict]:
 
 
 def main() -> None:
-    if len(sys.argv) not in (6, 7):
-        raise SystemExit("usage: score_qps_lanes.py MODEL QPS_OUTPUT_JSONL E2_REVIEW_DIR COHORT_JSON NEW_OUTPUT_DIR [LFM_DECISIONS_JSON]")
+    if len(sys.argv) not in (6, 7, 8):
+        raise SystemExit("usage: score_qps_lanes.py MODEL QPS_OUTPUT_JSONL E2_REVIEW_DIR COHORT_JSON NEW_OUTPUT_DIR [LFM_DECISIONS_JSON] [DIRECT_ENDPOINT_DECISIONS_JSON]")
     model_path, searches_path, review_dir, cohort_path, out = (
         Path(argument) for argument in sys.argv[1:6]
     )
     out.mkdir(parents=True, exist_ok=False)
     model = json.loads(model_path.read_text(encoding="utf-8"))
     rows = [json.loads(line) for line in searches_path.read_text(encoding="utf-8").splitlines()]
-    lfm_path = Path(sys.argv[6]) if len(sys.argv) == 7 else None
+    lfm_path = Path(sys.argv[6]) if len(sys.argv) >= 7 else None
     lfm_decisions = json.loads(lfm_path.read_text(encoding="utf-8")) if lfm_path else None
+    direct_path = Path(sys.argv[7]) if len(sys.argv) == 8 else None
+    direct_decisions = json.loads(direct_path.read_text(encoding="utf-8")) if direct_path else None
     labels = judged_targets(review_dir)
     qrels = qrels_for(rows, json.loads(cohort_path.read_text(encoding="utf-8")))
     details = []
@@ -71,6 +73,8 @@ def main() -> None:
                   "L3_LABELED_TARGET_ORACLE"]
     if lfm_decisions is not None:
         lane_names.append("L4_LFM230_READOUT")
+    if direct_decisions is not None:
+        lane_names.append("L5_DIRECT_ENDPOINT")
     metrics = {lane: Counter() for lane in lane_names}
     prediction_times = []
     for row_index, row in enumerate(rows):
@@ -105,6 +109,11 @@ def main() -> None:
         if lfm_decisions is not None:
             per_row = lfm_decisions.get(str(row_index), {})
             lanes["L4_LFM230_READOUT"] = {
+                int(ordinal) for ordinal, decision in per_row.items() if decision == "ALLOW"
+            }
+        if direct_decisions is not None:
+            per_row = direct_decisions.get(str(row_index), {})
+            lanes["L5_DIRECT_ENDPOINT"] = {
                 int(ordinal) for ordinal, decision in per_row.items() if decision == "ALLOW"
             }
         result = {"key": key, "label": label, "qrels_grade": candidate["qrels_grade"],
@@ -145,6 +154,7 @@ def main() -> None:
         "model_sha256": digest(model_path), "qps_searches_sha256": digest(searches_path),
         "review_labels_sha256": digest(review_dir / "judgments-user-pass1.json"),
         "lfm_decisions_sha256": digest(lfm_path) if lfm_path else None,
+        "direct_endpoint_decisions_sha256": digest(direct_path) if direct_path else None,
         "probe_rows": len(rows), "reviewed_labels": dict(Counter(row["label"] for row in details)),
         "lanes": {lane: dict(value) for lane, value in metrics.items()},
         "latency": {
