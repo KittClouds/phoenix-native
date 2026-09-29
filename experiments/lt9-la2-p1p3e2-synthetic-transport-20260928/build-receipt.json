@@ -1,0 +1,114 @@
+{
+  "schema": "phoenix.lexical.synthetic-transport-bank/v1",
+  "status": "SYNTHETIC_ENGINEERING_BANK_BUILT",
+  "date": "2026-09-28",
+  "upstream": {
+    "repository": "https://github.com/p-lambda/swords",
+    "revision": "04ca75370d0ce098a7f4db68240fc8e79a4f7b3b",
+    "readme_sha256": "d9395341aec72c2e3590ba8cadb7ab8bc4474b8bde114d600515328b64785071",
+    "license_note": "SWORDS/CoInCo/MASC CC-BY-3.0-US per upstream README"
+  },
+  "inputs": {
+    "swords-v1.1_dev.json.gz": {
+      "sha256": "bc3570786455a05f11fcb4fc7f54e117642d5fb5e98f19355028c5c7ee00c954",
+      "bytes": 1475021
+    },
+    "coinco_dev.json.gz": {
+      "sha256": "02180be2bf9e3b528682c659c5b410f3baa130dbc19a29be8755a0aae0d9cc5f",
+      "bytes": 28733115
+    }
+  },
+  "generator_sha256": "ecffc7e6676b574a2cbc5abb7d9d76622991379579a6d8810b99021d8fda58a4",
+  "raw_observations_by_source": {
+    "SWORDS_V1_1_DEV": 22967,
+    "COINCO_DEV": 461086
+  },
+  "deduplicated_observations": 481985,
+  "unique_context_occurrences": 10288,
+  "transport_pair_rows": 151736,
+  "validation": {
+    "status": "BANK_VALIDATED",
+    "pairs_checked": 151736,
+    "context_occurrences_checked": 10288,
+    "observation_rows_checked": 481985,
+    "label_counts": {
+      "SAME": 12042,
+      "UNKNOWN": 76440,
+      "DIFFERENT": 63254
+    },
+    "label_origins": {
+      "CROSS_CONTEXT_SUBSTITUTION_JOIN": 75296,
+      "SYNTHETIC_NO_LOCAL_EVIDENCE": 75296,
+      "SEED_UNSURE_OR_MIXED": 1144
+    },
+    "context_groups_crossing_splits": 0
+  },
+  "label_counts_by_split": {
+    "dev": {
+      "SAME": 1110,
+      "UNKNOWN": 10418,
+      "DIFFERENT": 9256
+    },
+    "test": {
+      "UNKNOWN": 8678,
+      "DIFFERENT": 7808,
+      "SAME": 806
+    },
+    "train": {
+      "DIFFERENT": 46190,
+      "UNKNOWN": 57344,
+      "SAME": 10126
+    }
+  },
+  "construction_counts_by_split": {
+    "dev": {
+      "BOTH_ENDPOINTS_ACCEPT": 1110,
+      "BOTH_ENDPOINT_CONTEXTS_ERASED": 10366,
+      "REJECT": 4894,
+      "ONE_ENDPOINT_REJECTS": 4362,
+      "SEED_UNSURE_OR_MIXED": 52
+    },
+    "test": {
+      "BOTH_ENDPOINT_CONTEXTS_ERASED": 8614,
+      "REJECT": 4476,
+      "ONE_ENDPOINT_REJECTS": 3332,
+      "BOTH_ENDPOINTS_ACCEPT": 806,
+      "SEED_UNSURE_OR_MIXED": 64
+    },
+    "train": {
+      "ONE_ENDPOINT_REJECTS": 28276,
+      "BOTH_ENDPOINT_CONTEXTS_ERASED": 56316,
+      "BOTH_ENDPOINTS_ACCEPT": 10126,
+      "REJECT": 17914,
+      "SEED_UNSURE_OR_MIXED": 1028
+    }
+  },
+  "directed_relations": 6984,
+  "max_pairs_per_relation_class_split": 6,
+  "split_rule": "sha256(normalized full context) modulo 100: 0-69 train, 70-84 dev, 85-99 test",
+  "label_semantics": {
+    "SAME": "both directed substitution endpoints have positive seed evidence",
+    "DIFFERENT": "one or both directed substitution endpoints have rejection evidence",
+    "UNKNOWN": "seed uncertainty/mixed evidence or generated both-endpoint erasure",
+    "COINCO_FALSE_IMPLICIT": "weak negative: candidate was not elicited, not an explicit rejection"
+  },
+  "synthetic_unknown_rows": 75296,
+  "outputs": {
+    "contexts.jsonl.gz": {
+      "sha256": "ad5f65c44cf91878077e3854cd72b956f9289cda23f90dcddf58670957f439c9",
+      "bytes": 2745760
+    },
+    "substitution-observations.jsonl.gz": {
+      "sha256": "2ca10f3ce347e3196e356df03cc81478233030b01e137b2bde40e66388b9bea8",
+      "bytes": 36741527
+    },
+    "transport-pairs.jsonl.gz": {
+      "sha256": "67036e6a7fca2cdde143c52c90b62280591eb96c5b68af1fec727db4200e527e",
+      "bytes": 16391004
+    }
+  },
+  "engineering_only": true,
+  "formal_p1p3_qualification": false,
+  "authority_updated": false,
+  "retrieval_run": false
+}
